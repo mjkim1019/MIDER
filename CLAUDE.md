@@ -30,7 +30,7 @@ mider/
 ├── resources/       # 정적 분석 바이너리, lint 설정
 ├── output/          # 분석 결과 출력
 ├── sessions/        # 세션 저장
-└── cli.py           # CLI 진입점
+└── main.py          # 프로그램 진입점
 ```
 
 ## 코딩 컨벤션
