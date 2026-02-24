@@ -23,11 +23,20 @@ pytest tests/ -v
 4. Step 3으로 돌아가 테스트를 재실행한다
 5. **최대 3회 반복**. 3회 실패 시 사용자에게 보고하고 중단한다
 
-## Step 5: 체크리스트 업데이트
+## Step 5: 코드 리뷰 (필수)
+1. `git diff main...HEAD`로 전체 변경 내역을 수집한다
+2. Task tool (subagent_type: general-purpose)로 리뷰 에이전트를 호출한다
+   - 리뷰 관점: 버그, 보안, 성능, 컨벤션, 스키마 일치
+   - 출력: 심각도(CRITICAL/HIGH/MEDIUM/LOW) + 파일:라인 + 문제 + 제안
+3. **Critical/High 이슈가 있으면 반드시 수정 후 재커밋한다**
+4. 수정 후 Step 3(테스트)부터 다시 수행한다
+5. Critical/High 이슈가 없으면 다음 Step으로 진행한다
+
+## Step 6: 체크리스트 업데이트
 1. docs/worklog/checklist.md에서 완료된 Task/Subtask를 [x]로 변경한다
 2. TaskUpdate로 Task를 completed로 변경한다
 
-## Step 6: Push & PR
+## Step 7: Push & PR
 1. `git push -u origin {현재 브랜치}`
 2. `gh pr create`로 PR 생성:
    - base: main
@@ -47,7 +56,7 @@ pytest tests/ -v
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
-## Step 7: 완료 보고
+## Step 8: 완료 보고
 
 **반드시 아래 3가지를 포함**하여 보고한다:
 
