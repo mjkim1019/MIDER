@@ -67,6 +67,7 @@ mider/
 - Agent 상세 설계: `docs/TECH_SPEC.md`
 - 데이터 스키마: `docs/DATA_SCHEMA.md`
 - CLI 명세: `docs/CLI_SPEC.md`
+- AI 자동화 시스템: `docs/AI_SYSTEM_DESIGN.md`
 
 ## 매뉴얼 시스템
 
