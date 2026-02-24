@@ -6,6 +6,7 @@
 import sys
 import json
 import os
+import subprocess
 from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,7 +35,6 @@ def main():
 
     # 브랜치명 가져오기
     try:
-        import subprocess
         branch = subprocess.check_output(
             ["git", "branch", "--show-current"],
             cwd=PROJECT_ROOT,

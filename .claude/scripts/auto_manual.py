@@ -19,7 +19,7 @@ PATH_RULES = {
     "/config/prompts/": "agents",
 }
 
-# 코드 패턴 기반 매뉴얼 매핑
+# 코드 패턴 기반 매뉴얼 매핑 (CLAUDE.md와 동기화)
 PATTERN_RULES = {
     # C / 메모리 안전성 → security
     "malloc": "security",
@@ -29,14 +29,18 @@ PATTERN_RULES = {
     "buffer": "security",
     # Pro*C / SQL → agents (ProC/SQL 분석 규칙)
     "EXEC SQL": "agents",
+    "WHENEVER": "agents",
     "sqlca": "agents",
     "INDICATOR": "agents",
     # JavaScript / 보안 → security
     "innerHTML": "security",
     "dangerouslySetInnerHTML": "security",
     "eval(": "security",
+    "document.write": "security",
     # Pydantic / 스키마 → models
     "BaseModel": "models",
+    "Field(": "models",
+    "model_validate": "models",
     "pydantic": "models",
     "AnalysisResult": "models",
     "ExecutionPlan": "models",
@@ -46,6 +50,7 @@ PATTERN_RULES = {
     "system_prompt": "agents",
     # 테스트 → testing
     "pytest": "testing",
+    "@pytest.fixture": "testing",
     "assert ": "testing",
     "def test_": "testing",
 }

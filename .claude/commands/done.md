@@ -36,25 +36,9 @@ pytest tests/ -v
 1. docs/worklog/checklist.md에서 완료된 Task/Subtask를 [x]로 변경한다
 2. TaskUpdate로 Task를 completed로 변경한다
 
-## Step 7: Push & PR
+## Step 7: Push
 1. `git push -u origin {현재 브랜치}`
-2. `gh pr create`로 PR 생성:
-   - base: main
-   - title: 커밋 메시지의 type + description
-   - body: 아래 템플릿 사용
-
-```
-## Summary
-- [변경 사항 1-3줄 요약]
-
-## Changed Files
-- [파일 목록]
-
-## Test Results
-- 통과: {N}건 / 실패: 0건
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-```
+2. **PR은 사용자가 명시적으로 요청할 때만 생성한다** (CLAUDE.md 규칙)
 
 ## Step 8: 완료 보고
 
@@ -77,9 +61,6 @@ pytest tests/ -v
 
 ### 테스트 결과
 - 통과: {N}건 / 실패: 0건
-
-### PR
-- {PR URL}
 
 ### 다음 Task
 - T{다음번호}: {제목}
