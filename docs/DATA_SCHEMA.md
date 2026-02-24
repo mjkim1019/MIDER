@@ -346,16 +346,10 @@ class RiskAssessment(BaseModel):
     blocking_issues: List[str]       # critical issue_id 목록
     risk_description: str            # 한국어 위험 설명
 
-class EffortEstimate(BaseModel):
-    critical_fixes_minutes: int
-    high_fixes_minutes: int
-    total_fixes_minutes: int
-
 class Summary(BaseModel):
     analysis_metadata: AnalysisMetadata
     issue_summary: IssueSummary
     risk_assessment: RiskAssessment
-    estimated_effort: EffortEstimate
 ```
 
 **JSON 예시:**
@@ -381,18 +375,15 @@ class Summary(BaseModel):
     "deployment_allowed": false,
     "blocking_issues": ["C-001", "C-003"],
     "risk_description": "Critical 이슈 2건이 발견되었습니다. 배포 전 반드시 수정이 필요합니다."
-  },
-  "estimated_effort": {
-    "critical_fixes_minutes": 30,
-    "high_fixes_minutes": 45,
-    "total_fixes_minutes": 90
   }
 }
 ```
 
 ---
 
-## 5. Session 스키마
+## 5. Session 스키마 (2차 PoC)
+
+> 세션 저장/복구는 2차 PoC에서 구현 예정.
 
 OrchestratorAgent가 세션 저장/복구에 사용.
 
