@@ -106,18 +106,22 @@ Phase 완료 시 자동 체크포인트 저장 및 --resume 옵션 지원
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
-### Task 완료 시 자동 PR 규칙
+### Task 완료 시 규칙
 
 **모든 task가 완료되면 반드시 아래 절차를 수행한다:**
 
-1. **브랜치 생성**: `feat/<task-name>` 또는 `docs/<task-name>` 브랜치에서 작업
-2. **커밋**: 변경사항을 커밋 메시지 규칙에 맞게 커밋
-3. **Push**: `git push -u origin <branch-name>`
-4. **PR 생성**: `gh pr create`로 PR 생성
+1. **커밋**: 변경사항을 커밋 메시지 규칙에 맞게 커밋 (현재 브랜치에서)
+2. **Push**: `git push`로 원격에 반영
+
+**PR은 사용자가 명시적으로 요청할 때만 생성한다.**
+
+### PR 생성 규칙 (사용자 요청 시)
+
+1. `gh pr create`로 PR 생성
    - base 브랜치: `main`
    - PR 제목: 커밋 메시지의 type + description
    - PR 본문: Summary + 변경 파일 목록
-5. **PR URL 출력**: 사용자에게 PR URL 공유
+2. PR URL을 사용자에게 공유
 
 **PR 본문 템플릿:**
 ```markdown
