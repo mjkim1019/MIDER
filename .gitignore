@@ -7,9 +7,8 @@ build/
 .venv/
 venv/
 
-# Mider 출력/세션
+# Mider 출력
 output/
-sessions/
 
 # 환경 변수
 .env

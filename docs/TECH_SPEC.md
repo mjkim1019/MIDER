@@ -27,7 +27,7 @@ Classifier Collector SQL    Analyzer  Agent
 
 | # | Agent | 역할 | LLM Model |
 |---|-------|------|-----------|
-| 1 | OrchestratorAgent | 워크플로우 제어, 세션 관리 | gpt-4o (temp 0.3) |
+| 1 | OrchestratorAgent | 워크플로우 제어 | gpt-4o (temp 0.3) |
 | 2 | TaskClassifierAgent | 파일 분류, 실행 계획 수립 | gpt-4o-mini |
 | 3 | ContextCollectorAgent | import/include 추출, 의존성 매핑 | gpt-4o-mini |
 | 4 | JavaScriptAnalyzerAgent | JS 정적분석 + LLM 심층분석 | gpt-4o |
@@ -55,8 +55,8 @@ Classifier Collector SQL    Analyzer  Agent
 | 항목 | 정의 내용 |
 |------|----------|
 | Agent 이름 | OrchestratorAgent |
-| 주요 역할 | 전체 분석 워크플로우 제어 및 Sub-agent 조율 총괄. Phase 0 → 1 → 2 → 3 순차 실행하며 각 단계의 입출력을 관리하고 세션을 저장/복구 |
-| 핵심 목표 | - 사용자가 지정한 파일들을 분석하여 배포 차단 이슈를 탐지<br>- 각 Phase의 결과를 통합하여 최종 리포트 생성<br>- 중단 시 세션 저장 및 Resume 기능 제공 |
+| 주요 역할 | 전체 분석 워크플로우 제어 및 Sub-agent 조율 총괄. Phase 0 → 1 → 2 → 3 순차 실행하며 각 단계의 입출력을 관리 |
+| 핵심 목표 | - 사용자가 지정한 파일들을 분석하여 배포 차단 이슈를 탐지<br>- 각 Phase의 결과를 통합하여 최종 리포트 생성 |
 | 톤앤매너 | 명령형, 시스템 관리자 스타일. 간결하고 정확한 상태 보고 |
 | 제약 사항 | - 코드를 직접 수정하지 않음 (제안만)<br>- 사용자가 선택한 파일만 분석 (프로젝트 전체 탐색 금지)<br>- Phase 순서 고정 (0 → 1 → 2 → 3) |
 
@@ -68,10 +68,7 @@ Classifier Collector SQL    Analyzer  Agent
    - 존재 여부 확인
    - 읽기 권한 확인
    - 와일드카드 확장 (glob)
-2. 세션 생성
-   - session_id = timestamp
-   - 초기 상태 저장 (파일 리스트, 설정)
-3. TaskClassifierAgent 호출 준비
+2. TaskClassifierAgent 호출 준비
 ```
 
 **Step 2: Phase Orchestration**
@@ -79,27 +76,19 @@ Classifier Collector SQL    Analyzer  Agent
 Phase 0: Task Classification
   → TaskClassifierAgent.classify(files)
   → ExecutionPlan 획득
-  → Checkpoint 저장
 
 Phase 1: Context Collection
   → ContextCollectorAgent.collect(ExecutionPlan)
   → FileContext 획득
-  → Checkpoint 저장
 
 Phase 2: Sequential Language Analysis
   For each task in ExecutionPlan:
     → 언어별 AnalyzerAgent 호출 (FileContext 전달)
     → AnalysisResult 수집
-    → Checkpoint 저장 (task 단위)
-  중단 요청 감지:
-    → 현재 상태 저장
-    → "Resume 명령어 안내" 출력
-    → 종료
 
 Phase 3: Report Generation
   → ReporterAgent.generate(all_results)
   → IssueList, Checklist, Summary 생성
-  → 최종 세션 저장
 ```
 
 **Step 3: Execution & Response**
@@ -113,47 +102,25 @@ Phase 3: Report Generation
    - ./output/issue-list.json
    - ./output/checklist.json
    - ./output/summary.json
-3. 세션 정보
-   - "Resume: mider analyze --resume <session_id>"
 ```
 
 #### 2.1.3 상태 관리
 
-```python
-class SessionState:
-    session_id: str
-    current_phase: str        # "phase_0", "phase_1", "phase_2", "phase_3"
-    completed_tasks: List[str] # 완료된 task_id 리스트
-    execution_plan: ExecutionPlan
-    file_context: FileContext
-    analysis_results: List[AnalysisResult]
-    checkpoints: List[Checkpoint]
-
-class Checkpoint:
-    timestamp: datetime
-    phase: str
-    data: Dict                # Phase별 출력 데이터
-```
+*세션 상태 관리 (SessionState, Checkpoint)는 2차 PoC에서 구현 예정*
 
 #### 2.1.4 도구(Tools)
 
 | 도구명 | 기능 설명 | 입력 | 출력 |
 |--------|----------|------|------|
 | call_agent | Sub-agent 호출 및 결과 수신 | agent_name: str, method: str, params: Dict | agent_result: Dict |
-| save_session | 현재 세션 상태를 파일로 저장 | session_state: SessionState, checkpoint: Checkpoint | success: bool, filepath: str |
-| load_session | 저장된 세션 복구 | session_id: str | session_state: SessionState |
 | glob_expand | 와일드카드 파일 패턴 확장 | pattern: str, root: str | matched_files: List[str] |
 | validate_files | 파일 존재 및 권한 검증 | filepaths: List[str] | valid_files: List[str], errors: List[str] |
 
 #### 2.1.5 메모리 전략
 
-- **메모리 유형**: Session-based (파일 저장)
-- **저장 전략**:
-  - 각 Phase 완료 시 Checkpoint 저장
-  - Task 단위로 증분 저장 (Phase 2)
-  - 세션 파일 위치: `./sessions/session_{timestamp}.json`
-  - 보관 기간: 7일 (자동 정리)
+- **메모리 유형**: None (1차 PoC에서는 세션 저장 없음)
 - **RAG**: 사용 안 함 (워크플로우 제어만 담당)
+- **세션 저장/복구**: 2차 PoC 예정
 
 #### 2.1.6 기술 스택
 
@@ -947,7 +914,6 @@ mider/
 │   ├── execution_plan.py        # ExecutionPlan 스키마
 │   ├── file_context.py          # FileContext 스키마
 │   ├── analysis_result.py       # AnalysisResult 스키마
-│   ├── session_state.py         # SessionState, Checkpoint
 │   └── report.py                # IssueList, Checklist, Summary
 ├── config/
 │   ├── settings.yaml
@@ -967,7 +933,6 @@ mider/
 │       ├── .eslintrc.json
 │       └── .clang-tidy
 ├── output/                      # 분석 결과 출력 디렉토리
-├── sessions/                    # 세션 저장 디렉토리
 ├── main.py                      # 프로그램 진입점
 ├── requirements.txt
 └── README.md
@@ -993,11 +958,11 @@ mider/
 ### 1차 PoC (현재)
 - 정적 분석 (ESLint, clang-tidy, proc) + LLM 하이브리드
 - 7개 Agent (Orchestrator + 6 Sub-agents)
-- Session Resume 기능
 - CLI 기반 실행
 - 폐쇄망 실행파일 패키징
 
 ### 2차 PoC (예정)
+- Session Resume (세션 저장/복구, Checkpoint)
 - RAG (Knowledge Base + ChromaDB + sentence-transformers)
 - KnowledgeRetrieverAgent 추가
 - Context 압축 (토큰 최적화)

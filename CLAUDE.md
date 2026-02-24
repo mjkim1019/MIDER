@@ -29,7 +29,6 @@ mider/
 ├── config/          # settings.yaml, prompts/*.txt
 ├── resources/       # 정적 분석 바이너리, lint 설정
 ├── output/          # 분석 결과 출력
-├── sessions/        # 세션 저장
 └── main.py          # 프로그램 진입점
 ```
 
@@ -142,4 +141,4 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 - `main` 브랜치에 직접 push 금지
 - force push 금지
 - 커밋 전 민감 정보 (.env, API 키) 포함 여부 확인
-- .gitignore에 output/, sessions/, __pycache__/, .env 포함 필수
+- .gitignore에 output/, __pycache__/, .env 포함 필수
