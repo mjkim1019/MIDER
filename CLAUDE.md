@@ -112,7 +112,7 @@ mider/
 |------|------|
 | `/plan` | 요청 분석 → Task 분해 → 계획서/체크리스트 생성 |
 | `/task` | 다음 미완료 Task 시작 (매뉴얼 로드 → 브랜치 생성 → 코딩) |
-| `/done` | Task 완료 (셀프체크 → 커밋 → 테스트 → 체크리스트 업데이트 → Push) |
+| `/done` | Task 완료 (셀프체크 → 커밋 → 테스트 → 리뷰 → Push → PR) |
 | `/review` | 코드 리뷰 에이전트 호출 (버그/보안/성능/컨벤션/스키마 검사) |
 | `/status` | 현재 진행률, Task 상태, 변경 파일 확인 |
 
@@ -159,10 +159,9 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 
 1. **커밋**: 변경사항을 커밋 메시지 규칙에 맞게 커밋 (현재 브랜치에서)
 2. **Push**: `git push`로 원격에 반영
+3. **PR 생성**: `gh pr create`로 PR 생성 (base: main)
 
-**PR은 사용자가 명시적으로 요청할 때만 생성한다.**
-
-### PR 생성 규칙 (사용자 요청 시)
+### PR 생성 규칙
 
 1. `gh pr create`로 PR 생성
    - base 브랜치: `main`
