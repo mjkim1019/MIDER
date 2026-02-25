@@ -1,0 +1,75 @@
+# Mider 설정 파일
+
+llm:
+  primary_model: "gpt-4o"
+  fallback_model: "gpt-4o-mini"
+  mini_model: "gpt-4o-mini"
+  max_retries: 3
+  timeout_seconds: 120
+
+  # Agent별 모델 설정
+  # fallback이 없는 agent는 글로벌 fallback_model 사용
+  agents:
+    orchestrator:
+      model: "gpt-4o"
+      temperature: 0.3
+      fallback: "gpt-4o-mini"
+    task_classifier:
+      model: "gpt-4o-mini"
+      temperature: 0.0
+      fallback: "gpt-4o"
+    context_collector:
+      model: "gpt-4o-mini"
+      temperature: 0.0
+      fallback: "gpt-4o"
+    js_analyzer:
+      model: "gpt-4o"
+      temperature: 0.0
+      fallback: "gpt-4o-mini"
+    c_analyzer:
+      model: "gpt-4o"
+      temperature: 0.0
+      fallback: "gpt-4o-mini"
+    proc_analyzer:
+      model: "gpt-4o"
+      temperature: 0.0
+      fallback: "gpt-4o-mini"
+    sql_analyzer:
+      model: "gpt-4o-mini"
+      temperature: 0.0
+      fallback: "gpt-4o"
+    reporter:
+      model: "gpt-4o-mini"
+      temperature: 0.3
+      fallback: "gpt-4o"
+
+api:
+  provider: "azure"  # "azure" 또는 "openai"
+  # Azure OpenAI 설정
+  azure_endpoint: ""  # 환경변수 AZURE_OPENAI_ENDPOINT로 설정
+  api_version: "2024-12-01-preview"
+  # API 키는 환경변수 AZURE_OPENAI_API_KEY로 설정
+
+static_analysis:
+  # 경로는 mider 패키지 디렉토리 기준 상대경로 (런타임에 Path(__file__).parent로 resolve)
+  eslint:
+    config: "resources/lint-configs/.eslintrc.json"
+    binary: "resources/binaries/node"
+  clang_tidy:
+    checks: "-*,clang-analyzer-*,bugprone-*"
+    binary: "resources/binaries/clang-tidy"
+  proc:
+    include_dirs:
+      - "/usr/include/oracle"
+    binary: "resources/binaries/proc"
+
+output:
+  directory: "./output"
+  files:
+    issue_list: "issue-list.json"
+    checklist: "checklist.json"
+    summary: "summary.json"
+
+logging:
+  level: "INFO"
+  format: "rich"

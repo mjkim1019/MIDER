@@ -1,0 +1,21 @@
+---
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters
+
+WarningsAsErrors: >
+  clang-analyzer-core.*,
+  bugprone-use-after-move,
+  bugprone-dangling-handle
+
+HeaderFilterRegex: '.*'
+
+CheckOptions:
+  - key: bugprone-argument-comment.StrictMode
+    value: true
+  - key: bugprone-assert-side-effect.AssertMacros
+    value: assert
+  - key: bugprone-sizeof-expression.WarnOnSizeOfIntegerExpression
+    value: true
