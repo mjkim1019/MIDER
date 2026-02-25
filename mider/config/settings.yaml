@@ -1,0 +1,67 @@
+# Mider 설정 파일
+
+llm:
+  primary_model: "gpt-4o"
+  fallback_model: "gpt-4-turbo"
+  mini_model: "gpt-4o-mini"
+  max_retries: 3
+  timeout_seconds: 120
+
+  # Agent별 모델 설정
+  agents:
+    orchestrator:
+      model: "gpt-4o"
+      temperature: 0.3
+      fallback: "gpt-4-turbo"
+    task_classifier:
+      model: "gpt-4o-mini"
+      temperature: 0.0
+      fallback: "gpt-4o"
+    context_collector:
+      model: "gpt-4o-mini"
+      temperature: 0.0
+      fallback: "gpt-4o"
+    js_analyzer:
+      model: "gpt-4o"
+      temperature: 0.0
+    c_analyzer:
+      model: "gpt-4o"
+      temperature: 0.0
+    proc_analyzer:
+      model: "gpt-4o"
+      temperature: 0.0
+    sql_analyzer:
+      model: "gpt-4o-mini"
+      temperature: 0.0
+      fallback: "gpt-4o"
+    reporter:
+      model: "gpt-4o-mini"
+      temperature: 0.3
+      fallback: "gpt-4o"
+
+api:
+  base_url: "https://api.openai.com/v1"
+  # API 키는 환경변수 MIDER_API_KEY로 설정
+
+static_analysis:
+  eslint:
+    config: "resources/lint-configs/.eslintrc.json"
+    binary: "resources/binaries/node"
+  clang_tidy:
+    checks: "-*,clang-analyzer-*,bugprone-*"
+    binary: "resources/binaries/clang-tidy"
+  proc:
+    include_dirs:
+      - "/usr/include/oracle"
+    binary: "resources/binaries/proc"
+
+output:
+  directory: "./output"
+  files:
+    issue_list: "issue-list.json"
+    checklist: "checklist.json"
+    summary: "summary.json"
+
+logging:
+  level: "INFO"
+  format: "rich"

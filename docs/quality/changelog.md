@@ -3,3 +3,29 @@
 > 이 파일은 PostToolUse hook (log_change.py)에 의해 자동 업데이트됩니다.
 
 ---
+- `2026-02-25 13:00:55` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/__init__.py`
+- `2026-02-25 13:00:55` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/agents/__init__.py`
+- `2026-02-25 13:00:56` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/__init__.py`
+- `2026-02-25 13:00:56` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/file_io/__init__.py`
+- `2026-02-25 13:00:57` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/search/__init__.py`
+- `2026-02-25 13:00:58` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/__init__.py`
+- `2026-02-25 13:00:59` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/lsp/__init__.py`
+- `2026-02-25 13:00:59` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/utility/__init__.py`
+- `2026-02-25 13:01:00` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/models/__init__.py`
+- `2026-02-25 13:01:01` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/config/__init__.py`
+- `2026-02-25 13:01:01` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/tests/__init__.py`
+- `2026-02-25 13:01:02` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_models/__init__.py`
+- `2026-02-25 13:01:02` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/__init__.py`
+- `2026-02-25 13:01:03` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/__init__.py`
+- `2026-02-25 13:01:12` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/requirements.txt`
+- `2026-02-25 13:01:13` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/requirements-dev.txt`
+- `2026-02-25 13:01:29` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/config/settings.yaml`
+- `2026-02-25 13:01:39` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/resources/lint-configs/.eslintrc.json`
+- `2026-02-25 13:01:42` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/resources/lint-configs/.clang-tidy`
+- `2026-02-25 13:02:00` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/tests/conftest.py`
+- `2026-02-25 13:02:02` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/pytest.ini`
+- `2026-02-25 13:02:15` [feat/T1-project-scaffold] **Edit**: `/Users/a11401/Documents/2026/Mider/.gitignore`
+- `2026-02-25 13:02:17` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/resources/binaries/.gitkeep`
+- `2026-02-25 13:02:18` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/output/.gitkeep`
+- `2026-02-25 13:02:23` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-02-25 13:03:39` [feat/T1-project-scaffold] **Write**: `/Users/a11401/Documents/2026/Mider/.env.example`

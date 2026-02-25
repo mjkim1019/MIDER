@@ -1,13 +1,13 @@
 # 체크리스트
 
-- [ ] T1: Project Scaffold
-  - [ ] T1.1: 디렉토리 구조 생성
-  - [ ] T1.2: __init__.py 파일 생성
-  - [ ] T1.3: requirements.txt
-  - [ ] T1.4: settings.yaml
-  - [ ] T1.5: lint-configs
-  - [ ] T1.6: conftest.py
-  - [ ] T1.7: .gitignore 업데이트
+- [x] T1: Project Scaffold
+  - [x] T1.1: 디렉토리 구조 생성
+  - [x] T1.2: __init__.py 파일 생성
+  - [x] T1.3: requirements.txt
+  - [x] T1.4: settings.yaml
+  - [x] T1.5: lint-configs
+  - [x] T1.6: conftest.py
+  - [x] T1.7: .gitignore 업데이트
 - [ ] T2: Data Models
   - [ ] T2.1: execution_plan.py
   - [ ] T2.2: file_context.py

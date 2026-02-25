@@ -9,6 +9,14 @@ venv/
 
 # Mider 출력
 output/
+mider/output/
+
+# 세션 (2차 PoC)
+sessions/
+
+# 정적 분석 바이너리 (배포 시 포함, 개발 중 제외)
+mider/resources/binaries/*
+!mider/resources/binaries/.gitkeep
 
 # 환경 변수
 .env
