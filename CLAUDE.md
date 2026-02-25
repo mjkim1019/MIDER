@@ -67,6 +67,55 @@ mider/
 - Agent 상세 설계: `docs/TECH_SPEC.md`
 - 데이터 스키마: `docs/DATA_SCHEMA.md`
 - CLI 명세: `docs/CLI_SPEC.md`
+- AI 자동화 시스템: `docs/AI_SYSTEM_DESIGN.md`
+
+## 매뉴얼 시스템
+
+> **규칙**: 매뉴얼은 반드시 `docs/manuals/index.md` (목차)를 먼저 읽고, 필요한 챕터로 이동한다.
+> 한 번에 2개 이상 챕터를 읽지 않는다.
+
+### 매뉴얼 자동 로딩 규칙
+
+| 작업 대상 경로/패턴 | 로드할 매뉴얼 |
+|---------------------|---------------|
+| `/agents/` 하위 파일 | `docs/manuals/agents.md` |
+| `/tools/` 하위 파일 | `docs/manuals/tools.md` |
+| `/models/` 하위 파일 | `docs/manuals/models.md` |
+| `/tests/` 또는 `test_` 파일 | `docs/manuals/testing.md` |
+| `/config/prompts/` 하위 파일 | `docs/manuals/agents.md` |
+
+### 코드 패턴 감지 규칙
+
+| 코드 패턴 | 로드할 매뉴얼 |
+|-----------|---------------|
+| `malloc`, `strcpy`, `free`, `buffer` | `docs/manuals/security.md` |
+| `innerHTML`, `eval(`, `document.write` | `docs/manuals/security.md` |
+| `EXEC SQL`, `WHENEVER` | `docs/manuals/agents.md` |
+| `BaseModel`, `Field(`, `model_validate` | `docs/manuals/models.md` |
+| `openai`, `ChatCompletion` | `docs/manuals/agents.md` |
+| `pytest`, `@pytest.fixture` | `docs/manuals/testing.md` |
+
+## 작업 기억 시스템 (Work Memory)
+
+- **계획서**: `docs/worklog/plan.md` — Task 분해, 의존성, 대상 파일
+- **맥락 노트**: `docs/worklog/context.md` — 설계 결정, 주의사항, 변경 이력
+- **체크리스트**: `docs/worklog/checklist.md` — Task/Subtask 진행 상태 추적
+
+## 품질 자동 관리
+
+- **변경 이력**: `docs/quality/changelog.md` — PostToolUse hook이 자동 기록
+- **리뷰 체크리스트**: `docs/quality/review-checklist.md` — Task 완료 전 셀프 체크
+- **완료 보고 형식**: 1) 발견한 것 2) 수정한 것 3) 판단 근거
+
+## Skills (슬래시 명령)
+
+| 명령 | 설명 |
+|------|------|
+| `/plan` | 요청 분석 → Task 분해 → 계획서/체크리스트 생성 |
+| `/task` | 다음 미완료 Task 시작 (매뉴얼 로드 → 브랜치 생성 → 코딩) |
+| `/done` | Task 완료 (셀프체크 → 커밋 → 테스트 → 리뷰 → 체크리스트 업데이트 → Push → PR) |
+| `/review` | 코드 리뷰 에이전트 호출 (버그/보안/성능/컨벤션/스키마 검사) |
+| `/status` | 현재 진행률, Task 상태, 변경 파일 확인 |
 
 ---
 
@@ -111,10 +160,9 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 
 1. **커밋**: 변경사항을 커밋 메시지 규칙에 맞게 커밋 (현재 브랜치에서)
 2. **Push**: `git push`로 원격에 반영
+3. **PR 생성**: `gh pr create`로 PR 생성 (base: main)
 
-**PR은 사용자가 명시적으로 요청할 때만 생성한다.**
-
-### PR 생성 규칙 (사용자 요청 시)
+### PR 생성 규칙
 
 1. `gh pr create`로 PR 생성
    - base 브랜치: `main`

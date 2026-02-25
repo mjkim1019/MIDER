@@ -1,0 +1,95 @@
+# 체크리스트
+
+- [ ] T1: Project Scaffold
+  - [ ] T1.1: 디렉토리 구조 생성
+  - [ ] T1.2: __init__.py 파일 생성
+  - [ ] T1.3: requirements.txt
+  - [ ] T1.4: settings.yaml
+  - [ ] T1.5: lint-configs
+  - [ ] T1.6: conftest.py
+  - [ ] T1.7: .gitignore 업데이트
+- [ ] T2: Data Models
+  - [ ] T2.1: execution_plan.py
+  - [ ] T2.2: file_context.py
+  - [ ] T2.3: analysis_result.py
+  - [ ] T2.4: report.py
+  - [ ] T2.5: __init__.py re-export
+  - [ ] T2.6: 단위 테스트
+- [ ] T3: Base Infrastructure
+  - [ ] T3.1: base_agent.py
+  - [ ] T3.2: base_tool.py
+  - [ ] T3.3: llm_client.py
+  - [ ] T3.4: prompt_loader.py
+  - [ ] T3.5: logging_config.py
+  - [ ] T3.6: 단위 테스트
+- [ ] T4: File I/O & Search Tools
+  - [ ] T4.1: file_reader.py
+  - [ ] T4.2: grep.py
+  - [ ] T4.3: glob_tool.py
+  - [ ] T4.4: ast_grep_search.py
+  - [ ] T4.5: 단위 테스트
+- [ ] T5: Utility Tools
+  - [ ] T5.1: sql_extractor.py
+  - [ ] T5.2: dependency_resolver.py
+  - [ ] T5.3: task_planner.py
+  - [ ] T5.4: checklist_generator.py
+  - [ ] T5.5: 단위 테스트
+- [ ] T6: Static Analysis Tools
+  - [ ] T6.1: eslint_runner.py
+  - [ ] T6.2: clang_tidy_runner.py
+  - [ ] T6.3: proc_runner.py
+  - [ ] T6.4: 단위 테스트
+- [ ] T7: LSP Tool
+  - [ ] T7.1: lsp_client.py
+  - [ ] T7.2: 단위 테스트
+- [ ] T8: Prompt Templates
+  - [ ] T8.1: orchestrator.txt
+  - [ ] T8.2: task_classifier.txt
+  - [ ] T8.3: context_collector.txt
+  - [ ] T8.4: js_analyzer (error_focused + heuristic)
+  - [ ] T8.5: c_analyzer (error_focused + heuristic)
+  - [ ] T8.6: proc_analyzer (error_focused + heuristic)
+  - [ ] T8.7: sql_analyzer (error_focused + heuristic)
+  - [ ] T8.8: reporter.txt
+- [ ] T9: TaskClassifierAgent (Phase 0)
+  - [ ] T9.1: task_classifier.py 구현
+  - [ ] T9.2: dependency_resolver 연동
+  - [ ] T9.3: LLM 우선순위 보정
+  - [ ] T9.4: ExecutionPlan 반환
+  - [ ] T9.5: 단위 테스트
+- [ ] T10: ContextCollectorAgent (Phase 1)
+  - [ ] T10.1: context_collector.py 구현
+  - [ ] T10.2: 호출 관계 매핑
+  - [ ] T10.3: 공통 패턴 탐지
+  - [ ] T10.4: FileContext 반환
+  - [ ] T10.5: 단위 테스트
+- [ ] T11: Phase 2 Analyzer Agents
+  - [ ] T11.1: js_analyzer.py
+  - [ ] T11.2: c_analyzer.py
+  - [ ] T11.3: proc_analyzer.py
+  - [ ] T11.4: sql_analyzer.py
+  - [ ] T11.5: 단위 테스트 4개
+- [ ] T12: ReporterAgent (Phase 3)
+  - [ ] T12.1: reporter.py 구현
+  - [ ] T12.2: checklist_generator 연동
+  - [ ] T12.3: 3개 JSON 출력
+  - [ ] T12.4: RiskAssessment 생성
+  - [ ] T12.5: 단위 테스트
+- [ ] T13: OrchestratorAgent
+  - [ ] T13.1: orchestrator.py 구현
+  - [ ] T13.2: call_agent, glob_expand, validate_files
+  - [ ] T13.3: Sub-agent 호출 관리
+  - [ ] T13.4: Progress 콜백
+  - [ ] T13.5: 단위 테스트
+- [ ] T14: CLI Entry Point
+  - [ ] T14.1: main.py argparse
+  - [ ] T14.2: 환경 변수 처리
+  - [ ] T14.3: Rich Progress Bar
+  - [ ] T14.4: Before/After 출력
+  - [ ] T14.5: 종료 코드
+  - [ ] T14.6: 단위 테스트
+- [ ] T15: Integration Test
+  - [ ] T15.1: 샘플 파일 4개
+  - [ ] T15.2: E2E 테스트
+  - [ ] T15.3: Exit code 검증
+  - [ ] T15.4: 출력 파일 검증
