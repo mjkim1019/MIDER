@@ -3,18 +3,33 @@
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "command": "python3 .claude/scripts/auto_manual.py"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/scripts/auto_manual.py"
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "command": "python3 .claude/scripts/log_change.py"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/scripts/log_change.py"
+          }
+        ]
       }
     ],
     "Stop": [
       {
-        "command": "bash .claude/scripts/self_check.sh"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/self_check.sh"
+          }
+        ]
       }
     ]
   }
