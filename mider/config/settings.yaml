@@ -44,8 +44,11 @@ llm:
       fallback: "gpt-4o"
 
 api:
-  base_url: "https://api.openai.com/v1"
-  # API 키는 환경변수 MIDER_API_KEY로 설정
+  provider: "azure"  # "azure" 또는 "openai"
+  # Azure OpenAI 설정
+  azure_endpoint: ""  # 환경변수 AZURE_OPENAI_ENDPOINT로 설정
+  api_version: "2024-12-01-preview"
+  # API 키는 환경변수 AZURE_OPENAI_API_KEY로 설정
 
 static_analysis:
   # 경로는 mider 패키지 디렉토리 기준 상대경로 (런타임에 Path(__file__).parent로 resolve)
