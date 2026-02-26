@@ -25,7 +25,7 @@
 - [ ] T4: File I/O & Search Tools
   - [x] T4.1: file_reader.py
   - [x] T4.2: grep.py
-  - [ ] T4.3: glob_tool.py
+  - [x] T4.3: glob_tool.py
   - [ ] T4.4: ast_grep_search.py
   - [ ] T4.5: 단위 테스트
 - [ ] T5: Utility Tools
