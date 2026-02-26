@@ -29,11 +29,11 @@
   - [x] T4.4: ast_grep_search.py
   - [x] T4.5: 단위 테스트
 - [ ] T5: Utility Tools
-  - [ ] T5.1: sql_extractor.py
-  - [ ] T5.2: dependency_resolver.py
-  - [ ] T5.3: task_planner.py
-  - [ ] T5.4: checklist_generator.py
-  - [ ] T5.5: 단위 테스트
+  - [x] T5.1: sql_extractor.py
+  - [x] T5.2: dependency_resolver.py
+  - [x] T5.3: task_planner.py
+  - [x] T5.4: checklist_generator.py
+  - [x] T5.5: 단위 테스트
 - [ ] T6: Static Analysis Tools
   - [ ] T6.1: eslint_runner.py
   - [ ] T6.2: clang_tidy_runner.py
