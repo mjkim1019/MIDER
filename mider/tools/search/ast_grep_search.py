@@ -98,8 +98,14 @@ class AstGrepSearch(BaseTool):
             regex = pattern
             pattern_name = "custom"
 
+        # SQL, Pro*C는 대소문자 비구분, JS/C는 대소문자 구분
+        _CASE_INSENSITIVE_LANGUAGES = {"sql", "proc"}
+        flags = re.MULTILINE
+        if language in _CASE_INSENSITIVE_LANGUAGES:
+            flags |= re.IGNORECASE
+
         try:
-            compiled = re.compile(regex, re.IGNORECASE | re.MULTILINE)
+            compiled = re.compile(regex, flags)
         except re.error as e:
             raise ToolExecutionError(
                 "ast_grep_search", f"invalid pattern: {e}"
