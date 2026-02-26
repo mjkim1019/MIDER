@@ -22,12 +22,12 @@
   - [x] T3.4: prompt_loader.py
   - [x] T3.5: logging_config.py
   - [x] T3.6: 단위 테스트
-- [ ] T4: File I/O & Search Tools
-  - [ ] T4.1: file_reader.py
-  - [ ] T4.2: grep.py
-  - [ ] T4.3: glob_tool.py
-  - [ ] T4.4: ast_grep_search.py
-  - [ ] T4.5: 단위 테스트
+- [x] T4: File I/O & Search Tools
+  - [x] T4.1: file_reader.py
+  - [x] T4.2: grep.py
+  - [x] T4.3: glob_tool.py
+  - [x] T4.4: ast_grep_search.py
+  - [x] T4.5: 단위 테스트
 - [ ] T5: Utility Tools
   - [ ] T5.1: sql_extractor.py
   - [ ] T5.2: dependency_resolver.py
