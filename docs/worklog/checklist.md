@@ -8,13 +8,13 @@
   - [x] T1.5: lint-configs
   - [x] T1.6: conftest.py
   - [x] T1.7: .gitignore 업데이트
-- [ ] T2: Data Models
-  - [ ] T2.1: execution_plan.py
-  - [ ] T2.2: file_context.py
-  - [ ] T2.3: analysis_result.py
-  - [ ] T2.4: report.py
-  - [ ] T2.5: __init__.py re-export
-  - [ ] T2.6: 단위 테스트
+- [x] T2: Data Models
+  - [x] T2.1: execution_plan.py
+  - [x] T2.2: file_context.py
+  - [x] T2.3: analysis_result.py
+  - [x] T2.4: report.py
+  - [x] T2.5: __init__.py re-export
+  - [x] T2.6: 단위 테스트
 - [ ] T3: Base Infrastructure
   - [ ] T3.1: base_agent.py
   - [ ] T3.2: base_tool.py
