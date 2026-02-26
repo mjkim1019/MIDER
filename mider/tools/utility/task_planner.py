@@ -152,7 +152,8 @@ class TaskPlanner(BaseTool):
 
                 read_result = self._file_reader.execute(path=file_path)
                 line_count = read_result.data["line_count"]
-            except Exception:
+            except Exception as e:
+                logger.warning(f"파일 메타데이터 수집 실패: {file_path}: {e}")
                 file_size = 0
                 line_count = 0
                 last_modified = datetime.now(tz=timezone.utc).isoformat()

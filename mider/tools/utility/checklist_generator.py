@@ -5,21 +5,22 @@ AnalysisResult 리스트에서 critical/high 이슈를 추출하여
 """
 
 import logging
+import shlex
 from typing import Any
 
 from mider.tools.base_tool import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
-# 카테고리별 검증 명령어 템플릿
+# 카테고리별 검증 명령어 템플릿 (shlex.quote로 이스케이프된 값 삽입)
 _VERIFICATION_COMMANDS: dict[str, str] = {
-    "memory_safety": "grep -n '{pattern}' {file}",
-    "null_safety": "grep -n '{pattern}' {file}",
+    "memory_safety": "grep -n {pattern} {file}",
+    "null_safety": "grep -n {pattern} {file}",
     "data_integrity": "grep -n 'EXEC SQL' {file}",
-    "error_handling": "grep -n '{pattern}' {file}",
-    "security": "grep -n '{pattern}' {file}",
-    "performance": "grep -n '{pattern}' {file}",
-    "code_quality": "grep -n '{pattern}' {file}",
+    "error_handling": "grep -n {pattern} {file}",
+    "security": "grep -n {pattern} {file}",
+    "performance": "grep -n {pattern} {file}",
+    "code_quality": "grep -n {pattern} {file}",
 }
 
 # 카테고리별 기대 결과 템플릿
@@ -48,6 +49,18 @@ _PATTERN_KEYWORDS: dict[str, str] = {
     "SELECT *": "SELECT \\*",
     "커서": "OPEN\\|CLOSE",
     "인덱스": "YEAR\\|MONTH\\|UPPER\\|LOWER",
+}
+
+
+# 카테고리 한국어 매핑
+_CATEGORY_KR_MAP: dict[str, str] = {
+    "memory_safety": "메모리 안전성",
+    "null_safety": "NULL 안전성",
+    "data_integrity": "데이터 무결성",
+    "error_handling": "에러 처리",
+    "security": "보안",
+    "performance": "성능",
+    "code_quality": "코드 품질",
 }
 
 
@@ -112,28 +125,21 @@ class ChecklistGenerator(BaseTool):
                 first_issue.get("description", ""),
             )
 
-            # 검증 명령어 생성
+            # 검증 명령어 생성 (shell injection 방지)
+            safe_file = shlex.quote(file_path)
+            safe_pattern = shlex.quote(pattern)
             cmd_template = _VERIFICATION_COMMANDS.get(
-                category, "grep -n '{pattern}' {file}"
+                category, "grep -n {pattern} {file}"
             )
             verification_command = cmd_template.format(
-                pattern=pattern, file=file_path
+                pattern=safe_pattern, file=safe_file
             )
 
             expected_result = _EXPECTED_RESULTS.get(
                 category, "이슈 수정 완료"
             )
 
-            # 카테고리 한국어 매핑
-            category_kr = {
-                "memory_safety": "메모리 안전성",
-                "null_safety": "NULL 안전성",
-                "data_integrity": "데이터 무결성",
-                "error_handling": "에러 처리",
-                "security": "보안",
-                "performance": "성능",
-                "code_quality": "코드 품질",
-            }.get(category, category)
+            category_kr = _CATEGORY_KR_MAP.get(category, category)
 
             description = (
                 f"모든 {category_kr} 이슈 수정 완료 ({file_path})"

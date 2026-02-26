@@ -100,20 +100,17 @@ def _detect_circular(
     rec_stack: set[str] = set()
     warnings: list[str] = []
 
-    def dfs(node: str) -> bool:
+    def dfs(node: str) -> None:
         visited.add(node)
         rec_stack.add(node)
         for neighbor in graph[node]:
             if neighbor not in visited:
-                if dfs(neighbor):
-                    return True
+                dfs(neighbor)
             elif neighbor in rec_stack:
                 warnings.append(
                     f"순환 의존성 발견: {node} → {neighbor}"
                 )
-                return True
         rec_stack.discard(node)
-        return False
 
     for node in list(graph.keys()):
         if node not in visited:
