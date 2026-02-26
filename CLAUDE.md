@@ -154,11 +154,18 @@ Phase 완료 시 자동 체크포인트 저장 및 --resume 옵션 지원
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
+### Subtask 커밋 규칙
+
+**Subtask 하나를 완료할 때마다 즉시 커밋한다.**
+- 커밋 메시지: `feat: T{번호}.{서브번호} {subtask 설명}`
+- 예시: `feat: T3.1 BaseAgent ABC 구현`
+- 여러 Subtask를 모아서 한 번에 커밋하지 않는다
+
 ### Task 완료 시 규칙
 
 **모든 task가 완료되면 반드시 아래 절차를 수행한다:**
 
-1. **커밋**: 변경사항을 커밋 메시지 규칙에 맞게 커밋 (현재 브랜치에서)
+1. **커밋**: 남은 변경사항이 있으면 커밋 메시지 규칙에 맞게 커밋 (현재 브랜치에서)
 2. **Push**: `git push`로 원격에 반영
 3. **PR 생성**: `gh pr create`로 PR 생성 (base: main)
 
