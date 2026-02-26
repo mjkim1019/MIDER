@@ -15,13 +15,13 @@
   - [x] T2.4: report.py
   - [x] T2.5: __init__.py re-export
   - [x] T2.6: 단위 테스트
-- [ ] T3: Base Infrastructure
-  - [ ] T3.1: base_agent.py
-  - [ ] T3.2: base_tool.py
-  - [ ] T3.3: llm_client.py
-  - [ ] T3.4: prompt_loader.py
-  - [ ] T3.5: logging_config.py
-  - [ ] T3.6: 단위 테스트
+- [x] T3: Base Infrastructure
+  - [x] T3.1: base_agent.py
+  - [x] T3.2: base_tool.py
+  - [x] T3.3: llm_client.py
+  - [x] T3.4: prompt_loader.py
+  - [x] T3.5: logging_config.py
+  - [x] T3.6: 단위 테스트
 - [ ] T4: File I/O & Search Tools
   - [ ] T4.1: file_reader.py
   - [ ] T4.2: grep.py
