@@ -23,3 +23,6 @@
 | 날짜 | 내용 | 이유 |
 |------|------|------|
 | 2026-02-24 | 최초 계획 수립 | 전체 개발 계획 |
+| 2026-02-26 | BaseAgent call_llm() 재시도 시 exponential backoff 추가 | 리뷰에서 rate limit 대응 필요 지적 |
+| 2026-02-26 | BaseAgent fallback 시 self.model 변경하지 않음 (스펙과 의도적 차이) | Agent 상태 오염 방지 |
+| 2026-02-26 | LLMClient empty choices 가드 추가 | 리뷰에서 content filter 시 빈 응답 가능성 지적 |

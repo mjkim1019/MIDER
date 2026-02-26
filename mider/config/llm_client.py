@@ -88,6 +88,9 @@ class LLMClient:
 
         response = await self._client.chat.completions.create(**kwargs)
 
+        if not response.choices:
+            raise ValueError("LLM이 빈 응답을 반환했습니다 (choices가 비어 있음)")
+
         content = response.choices[0].message.content or ""
         tokens_used = response.usage.total_tokens if response.usage else 0
         logger.debug(f"LLM 응답 수신: model={model}, tokens={tokens_used}")

@@ -3,6 +3,7 @@
 LLM 호출, 재시도, fallback 로직을 포함한다.
 """
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Optional
@@ -83,6 +84,11 @@ class BaseAgent(ABC):
                 logger.warning(
                     f"LLM 호출 실패 (시도 {attempt + 1}/{self.max_retries}): {e}"
                 )
+
+                if attempt < self.max_retries - 1:
+                    delay = 2 ** attempt
+                    logger.debug(f"재시도 대기: {delay}초")
+                    await asyncio.sleep(delay)
 
                 if attempt == self.max_retries - 1 and self.fallback_model:
                     logger.info(
