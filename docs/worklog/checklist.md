@@ -28,7 +28,7 @@
   - [x] T4.3: glob_tool.py
   - [x] T4.4: ast_grep_search.py
   - [x] T4.5: 단위 테스트
-- [ ] T5: Utility Tools
+- [x] T5: Utility Tools
   - [x] T5.1: sql_extractor.py
   - [x] T5.2: dependency_resolver.py
   - [x] T5.3: task_planner.py
