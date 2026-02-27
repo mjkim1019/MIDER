@@ -10,7 +10,7 @@ from typing import Any
 
 from mider.agents.base_agent import BaseAgent
 from mider.config.prompt_loader import load_prompt
-from mider.models.execution_plan import ExecutionPlan
+from mider.models.execution_plan import DependencyGraph, ExecutionPlan
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.utility.dependency_resolver import DependencyResolver
 from mider.tools.utility.task_planner import TaskPlanner
@@ -45,7 +45,6 @@ class TaskClassifierAgent(BaseAgent):
         self,
         *,
         files: list[str],
-        **kwargs: Any,
     ) -> dict[str, Any]:
         """파일 목록을 분류하고 실행 계획을 생성한다.
 
@@ -59,11 +58,7 @@ class TaskClassifierAgent(BaseAgent):
             logger.warning("분석 대상 파일이 없습니다.")
             return ExecutionPlan(
                 sub_tasks=[],
-                dependencies={
-                    "edges": [],
-                    "has_circular": False,
-                    "warnings": [],
-                },
+                dependencies=DependencyGraph(),
                 total_files=0,
                 estimated_time_seconds=0,
             ).model_dump()
@@ -118,6 +113,7 @@ class TaskClassifierAgent(BaseAgent):
         # 파일 내용 수집
         file_contents = self._read_file_contents(files)
         if not file_contents:
+            logger.warning("모든 파일 읽기 실패, LLM 우선순위 보정 건너뜀")
             return plan_data
 
         file_list_str = "\n".join(files)
@@ -147,6 +143,10 @@ class TaskClassifierAgent(BaseAgent):
 
             response = await self.call_llm(messages, json_mode=True)
             llm_result = json.loads(response)
+
+            if not isinstance(llm_result, dict):
+                logger.warning(f"LLM 응답이 dict가 아님: {type(llm_result)}")
+                return plan_data
 
             # LLM 결과에서 우선순위만 추출하여 기존 plan에 적용
             return self._apply_llm_priorities(plan_data, llm_result)
@@ -196,8 +196,8 @@ class TaskClassifierAgent(BaseAgent):
         llm_priority_map: dict[str, int] = {}
         for task in llm_tasks:
             file_path = task.get("file", "")
-            priority = task.get("priority", 0)
-            if file_path and priority:
+            priority = task.get("priority")
+            if file_path and isinstance(priority, int):
                 llm_priority_map[file_path] = priority
 
         if not llm_priority_map:

@@ -356,8 +356,8 @@ class TestFileContentReading:
         ])
 
         # nonexistent 파일은 TaskPlanner에서 메타데이터 수집 실패하지만 통과
-        # (TaskPlanner가 fallback 처리)
-        result = await agent.run(files=[c_file])
+        # (TaskPlanner가 fallback 처리, 지원되지 않는 확장자는 필터링)
+        result = await agent.run(files=[c_file, nonexistent])
         plan = ExecutionPlan.model_validate(result)
         assert plan.total_files >= 1
 

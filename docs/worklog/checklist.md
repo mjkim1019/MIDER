@@ -51,7 +51,7 @@
   - [x] T8.6: proc_analyzer (error_focused + heuristic)
   - [x] T8.7: sql_analyzer (error_focused + heuristic)
   - [x] T8.8: reporter.txt
-- [ ] T9: TaskClassifierAgent (Phase 0)
+- [x] T9: TaskClassifierAgent (Phase 0)
   - [x] T9.1: task_classifier.py 구현
   - [x] T9.2: dependency_resolver 연동
   - [x] T9.3: LLM 우선순위 보정
