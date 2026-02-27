@@ -52,11 +52,11 @@
   - [x] T8.7: sql_analyzer (error_focused + heuristic)
   - [x] T8.8: reporter.txt
 - [ ] T9: TaskClassifierAgent (Phase 0)
-  - [ ] T9.1: task_classifier.py 구현
-  - [ ] T9.2: dependency_resolver 연동
-  - [ ] T9.3: LLM 우선순위 보정
-  - [ ] T9.4: ExecutionPlan 반환
-  - [ ] T9.5: 단위 테스트
+  - [x] T9.1: task_classifier.py 구현
+  - [x] T9.2: dependency_resolver 연동
+  - [x] T9.3: LLM 우선순위 보정
+  - [x] T9.4: ExecutionPlan 반환
+  - [x] T9.5: 단위 테스트
 - [ ] T10: ContextCollectorAgent (Phase 1)
   - [ ] T10.1: context_collector.py 구현
   - [ ] T10.2: 호출 관계 매핑
