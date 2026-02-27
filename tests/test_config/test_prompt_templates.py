@@ -74,6 +74,7 @@ PROMPT_VARIABLES = {
     "sql_analyzer_error_focused": {
         "static_patterns": '[{"type": "full_table_scan"}]',
         "file_path": "/app/test.sql",
+        "file_context": '{"imports": []}',
         "file_content": "SELECT * FROM orders;",
     },
     "sql_analyzer_heuristic": {

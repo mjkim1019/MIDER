@@ -10,6 +10,9 @@
 {file_content}
 ```
 
+## 파일 컨텍스트
+{file_context}
+
 ## 분석 절차 (Chain-of-Thought)
 
 ### Step 1: 정적 패턴 분석 결과 검증
