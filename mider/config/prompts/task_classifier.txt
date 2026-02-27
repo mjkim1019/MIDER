@@ -1,0 +1,81 @@
+당신은 소스코드 파일 분류 전문가입니다.
+주어진 파일 목록을 분석하여 언어를 분류하고, 파일 간 의존성을 파악하여 실행 계획을 수립하세요.
+
+## 분석 대상 파일
+{file_list}
+
+## 파일 내용
+{file_contents}
+
+## 분류 규칙
+
+### 언어 감지
+- `.js`, `.jsx` → javascript
+- `.c`, `.h` → c
+- `.pc` → proc (Pro*C)
+- `.sql` → sql
+
+### 의존성 감지
+- JavaScript: `import`, `require()` 구문에서 로컬 파일 참조 추출
+- C: `#include "..."` 구문에서 로컬 헤더 참조 추출 (시스템 헤더 `<...>` 제외)
+- Pro*C: `EXEC SQL INCLUDE` 구문에서 참조 추출
+- SQL: 파일 내 다른 테이블/프로시저 참조 감지
+
+### 우선순위 결정
+1. 의존되는 파일(target)이 많을수록 높은 우선순위
+2. critical 패턴(메모리 관리, SQL injection 등)이 있으면 우선순위 상향
+3. 파일 크기가 클수록 우선순위 상향
+
+## 분류 예시
+
+예시 1: C 파일
+- 파일: `/app/service/calc.c`
+- 언어: c
+- `#include "common.h"` → 의존성: calc.c → common.h
+
+예시 2: Pro*C 파일
+- 파일: `/app/batch/process.pc`
+- 언어: proc
+- `EXEC SQL INCLUDE sqlca;` → 외부 의존성 (시스템)
+
+예시 3: JavaScript 파일
+- 파일: `/app/ui/order.js`
+- 언어: javascript
+- `import {{ utils }} from './utils.js'` → 의존성: order.js → utils.js
+
+## 출력 형식
+반드시 아래 JSON 스키마로 응답하세요:
+{{
+  "sub_tasks": [
+    {{
+      "task_id": "task_1",
+      "file": "/절대/경로/파일명",
+      "language": "javascript|c|proc|sql",
+      "priority": 1,
+      "metadata": {{
+        "file_size": 2048,
+        "line_count": 85,
+        "last_modified": "2026-01-01T00:00:00"
+      }}
+    }}
+  ],
+  "dependencies": {{
+    "edges": [
+      {{
+        "source": "/참조하는/파일",
+        "target": "/참조되는/파일",
+        "type": "import|include|exec_sql_include"
+      }}
+    ],
+    "has_circular": false,
+    "warnings": []
+  }},
+  "total_files": 2,
+  "estimated_time_seconds": 120
+}}
+
+## 주의사항
+- 지원하지 않는 확장자 파일은 sub_tasks에서 제외합니다.
+- 순환 의존성이 감지되면 `has_circular: true`로 설정하고 warnings에 설명을 추가합니다.
+- `estimated_time_seconds`는 파일당 약 60초로 추정합니다.
+- 이슈가 없더라도 빈 배열 `[]`로 응답하세요 (null 금지).

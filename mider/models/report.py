@@ -99,10 +99,10 @@ class RiskAssessment(BaseModel):
         description="배포 위험 등급"
     )
     deployment_allowed: bool = Field(
-        description="critical == 0이면 True"
+        description="critical == 0 and high < 3이면 True"
     )
     blocking_issues: List[str] = Field(
-        description="critical issue_id 목록"
+        description="배포 차단 issue_id 목록 (critical + high)"
     )
     risk_description: str = Field(description="한국어 위험 설명")
 

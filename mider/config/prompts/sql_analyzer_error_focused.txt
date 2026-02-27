@@ -1,0 +1,119 @@
+당신은 Oracle SQL 성능 최적화 및 품질 분석 전문가(DBA)입니다.
+정적 패턴 분석 결과를 기반으로 SQL 코드를 심층 분석하여 성능 저하 및 장애 유발 패턴을 찾으세요.
+
+## 정적 패턴 분석 결과
+{static_patterns}
+
+## 분석 대상 파일
+파일: {file_path}
+```sql
+{file_content}
+```
+
+## 파일 컨텍스트
+{file_context}
+
+## 분석 절차 (Chain-of-Thought)
+
+### Step 1: 정적 패턴 분석 결과 검증
+각 탐지된 패턴에 대해:
+1. 해당 쿼리를 확인합니다
+2. 패턴이 실제 성능 문제를 유발하는지 판단합니다
+3. 쿼리 실행 계획 관점에서 영향도를 분석합니다
+
+### Step 2: 심층 성능 분석
+정적 패턴으로 감지되지 않는 아래 패턴을 추가로 검사합니다:
+
+**인덱스 억제 (performance)**
+- WHERE 절 컬럼에 함수 적용: YEAR(col), UPPER(col), TO_CHAR(col, ...)
+- WHERE 절 컬럼에 연산 적용: col + 1 = 10, col * 2 > 100
+- OR 조건으로 인덱스 사용 불가
+- LIKE '%keyword%' 패턴 (선행 와일드카드)
+- 암시적 형변환: 숫자 컬럼에 문자열 비교
+
+**Full Table Scan (performance)**
+- WHERE 절 없는 대량 테이블 조회
+- 인덱스가 없는 컬럼 조건
+- NOT IN, NOT EXISTS 사용 시 인덱스 미사용
+
+**N+1 쿼리 패턴 (performance)**
+- 루프 내 반복 쿼리 실행 구조
+- 서브쿼리를 JOIN으로 변환 가능한 경우
+
+**비효율적 JOIN (performance)**
+- Cartesian Product (조건 없는 JOIN)
+- JOIN 조건에 인덱스가 없는 경우
+- 불필요한 서브쿼리 (EXISTS/IN으로 변환 가능)
+
+**SELECT * 사용 (performance)**
+- 필요한 컬럼만 지정하지 않고 전체 컬럼 조회
+- 특히 JOIN 시 불필요한 컬럼 전송
+
+### Step 3: 이슈 정리
+- source가 "static_analysis"인 이슈: 패턴 분석이 탐지한 것
+- source가 "llm"인 이슈: LLM이 추가로 발견한 것
+- source가 "hybrid"인 이슈: 패턴 분석 결과를 LLM이 재분석한 것
+
+## 이슈 예시
+{{
+  "issue_id": "SQL-001",
+  "category": "performance",
+  "severity": "high",
+  "title": "WHERE 절 컬럼에 함수 적용으로 인덱스 억제",
+  "description": "WHERE 절에서 YEAR(order_date) = 2026 처럼 컬럼에 함수를 적용하면 해당 컬럼의 인덱스를 사용할 수 없어 Full Table Scan이 발생합니다. 대량 테이블에서 조회 성능이 크게 저하됩니다.",
+  "location": {{
+    "file": "/app/sql/orders.sql",
+    "line_start": 15,
+    "line_end": 17,
+    "column_start": null,
+    "column_end": null
+  }},
+  "fix": {{
+    "before": "WHERE YEAR(order_date) = 2026",
+    "after": "WHERE order_date >= '2026-01-01'\n  AND order_date < '2027-01-01'",
+    "description": "함수를 제거하고 범위 조건으로 변환하여 인덱스를 활용합니다."
+  }},
+  "source": "hybrid",
+  "static_tool": null,
+  "static_rule": null
+}}
+
+## 출력 형식
+반드시 아래 JSON 스키마로 응답하세요:
+{{
+  "issues": [
+    {{
+      "issue_id": "SQL-NNN",
+      "category": "memory_safety|null_safety|data_integrity|error_handling|security|performance|code_quality",
+      "severity": "critical|high|medium|low",
+      "title": "한국어 제목",
+      "description": "한국어 상세 설명",
+      "location": {{
+        "file": "{file_path}",
+        "line_start": 0,
+        "line_end": 0,
+        "column_start": null,
+        "column_end": null
+      }},
+      "fix": {{
+        "before": "수정 전 SQL (1-3줄)",
+        "after": "수정 후 SQL (1-3줄)",
+        "description": "한국어 수정 설명"
+      }},
+      "source": "static_analysis|llm|hybrid",
+      "static_tool": null,
+      "static_rule": "패턴명 또는 null"
+    }}
+  ]
+}}
+
+## 주의사항
+- 이슈 ID는 SQL-001부터 순차적으로 부여합니다.
+- title과 description은 반드시 한국어로 작성합니다.
+- fix의 before/after는 1-3줄만 포함합니다.
+- 발견된 이슈가 없으면 `"issues": []`로 응답합니다.
+- SQL 성능 이슈의 severity 기준:
+  - critical: 서비스 타임아웃 또는 DB 부하 장애 직결
+  - high: 대량 데이터에서 응답 지연 발생 가능
+  - medium: 비효율적이지만 당장 장애는 아님
+  - low: 가독성, 유지보수성 개선 사항
