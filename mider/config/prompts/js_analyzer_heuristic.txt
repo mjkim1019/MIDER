@@ -18,8 +18,8 @@
 - [ ] 컴포넌트 언마운트 시 cleanup 함수가 있는가?
 - [ ] 전역 변수에 큰 객체/배열을 저장하고 있지 않은가?
 
-### 2. 보안 취약점 (security)
-- [ ] innerHTML, outerHTML에 동적 값을 대입하는가?
+### 2. 보안 취약점 — XSS, Injection (security)
+- [ ] innerHTML, outerHTML에 동적 값을 대입하는가? (XSS 위험)
 - [ ] eval(), new Function() 을 사용하는가?
 - [ ] document.write()를 사용하는가?
 - [ ] 사용자 입력을 검증 없이 사용하는가?

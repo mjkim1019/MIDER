@@ -42,15 +42,15 @@
 - [x] T7: LSP Tool
   - [x] T7.1: lsp_client.py
   - [x] T7.2: 단위 테스트
-- [ ] T8: Prompt Templates
-  - [ ] T8.1: orchestrator.txt
-  - [ ] T8.2: task_classifier.txt
-  - [ ] T8.3: context_collector.txt
-  - [ ] T8.4: js_analyzer (error_focused + heuristic)
-  - [ ] T8.5: c_analyzer (error_focused + heuristic)
-  - [ ] T8.6: proc_analyzer (error_focused + heuristic)
-  - [ ] T8.7: sql_analyzer (error_focused + heuristic)
-  - [ ] T8.8: reporter.txt
+- [x] T8: Prompt Templates
+  - [x] T8.1: orchestrator.txt
+  - [x] T8.2: task_classifier.txt
+  - [x] T8.3: context_collector.txt
+  - [x] T8.4: js_analyzer (error_focused + heuristic)
+  - [x] T8.5: c_analyzer (error_focused + heuristic)
+  - [x] T8.6: proc_analyzer (error_focused + heuristic)
+  - [x] T8.7: sql_analyzer (error_focused + heuristic)
+  - [x] T8.8: reporter.txt
 - [ ] T9: TaskClassifierAgent (Phase 0)
   - [ ] T9.1: task_classifier.py 구현
   - [ ] T9.2: dependency_resolver 연동
