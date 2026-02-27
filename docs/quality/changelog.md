@@ -126,3 +126,6 @@
 - `2026-02-27 17:09:22` [feat/T8-prompt-templates] **Write**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/reporter.txt`
 - `2026-02-27 17:10:35` [feat/T8-prompt-templates] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_config/test_prompt_templates.py`
 - `2026-02-27 17:11:37` [feat/T8-prompt-templates] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/js_analyzer_heuristic.txt`
+- `2026-02-27 17:16:25` [feat/T8-prompt-templates] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/models/report.py`
+- `2026-02-27 17:16:35` [feat/T8-prompt-templates] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/sql_analyzer_error_focused.txt`
+- `2026-02-27 17:16:44` [feat/T8-prompt-templates] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_config/test_prompt_templates.py`

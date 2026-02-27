@@ -37,3 +37,6 @@
 | 2026-02-27 | LSP 전체 핸드셰이크 시퀀스 구현 (initialize→initialized→didOpen→request→shutdown) | initialize 없이 바로 요청하면 대부분의 LSP 서버가 응답 거부 |
 | 2026-02-27 | `_extract_response()` Content-Length 기반 멀티메시지 파싱 + request_id 매칭 | LSP 서버가 여러 JSON-RPC 메시지를 stdout에 출력하므로 단순 split으로는 실제 요청 응답을 찾을 수 없음 |
 | 2026-02-27 | subprocess 호출 시 `cwd` 파라미터 추가, returncode/stderr 로깅 | LSP 서버가 프로젝트 루트 기준으로 동작해야 정확한 분석 가능, 에러 진단을 위한 로깅 필요 |
+| 2026-02-27 | `RiskAssessment.deployment_allowed` description 수정: `critical == 0` → `critical == 0 and high < 3` | reporter 프롬프트의 배포 차단 로직(high 3개 이상도 차단)과 Pydantic 모델 description이 불일치 |
+| 2026-02-27 | `sql_analyzer_error_focused.txt`에 `file_context` 변수 추가 | 다른 3개 error_focused 프롬프트(JS/C/ProC)에는 file_context가 있으나 SQL만 누락, Phase 2 일관성 확보 |
+| 2026-02-27 | TECH_SPEC.md의 `estimated_effort` 필드는 1차 PoC에서 의도적으로 제외 | report.py와 reporter.txt 모두 해당 필드 없이 구현, 2차에서 추가 예정 |
