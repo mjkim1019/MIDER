@@ -36,6 +36,14 @@ pytest tests/ -v
 1. docs/worklog/checklist.md에서 완료된 Task/Subtask를 [x]로 변경한다
 2. TaskUpdate로 Task를 completed로 변경한다
 
+## Step 6.5: context.md 변경 이력 업데이트
+1. `docs/worklog/context.md`의 변경 이력 테이블에 이번 Task에서 발생한 설계 변경, 버그 수정, 리뷰 반영 사항을 기록한다
+2. 형식: `| 날짜 | 내용 | 이유 |`
+   - "내용": **무엇을** 변경했는지
+   - "이유": **왜** 그렇게 판단했는지
+3. 변경 사항이 없으면 기록하지 않는다
+4. 커밋하고 push한다
+
 ## Step 7: Push & PR
 1. `git push -u origin {현재 브랜치}`
 2. `gh pr create`로 PR 생성:
