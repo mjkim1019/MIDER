@@ -34,11 +34,11 @@
   - [ ] T5.3: task_planner.py
   - [ ] T5.4: checklist_generator.py
   - [ ] T5.5: 단위 테스트
-- [ ] T6: Static Analysis Tools
-  - [ ] T6.1: eslint_runner.py
-  - [ ] T6.2: clang_tidy_runner.py
-  - [ ] T6.3: proc_runner.py
-  - [ ] T6.4: 단위 테스트
+- [x] T6: Static Analysis Tools
+  - [x] T6.1: eslint_runner.py
+  - [x] T6.2: clang_tidy_runner.py
+  - [x] T6.3: proc_runner.py
+  - [x] T6.4: 단위 테스트
 - [ ] T7: LSP Tool
   - [ ] T7.1: lsp_client.py
   - [ ] T7.2: 단위 테스트

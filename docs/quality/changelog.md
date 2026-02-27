@@ -68,3 +68,11 @@
 - `2026-02-26 12:13:02` [feat/T4-file-io-search-tools] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_grep.py`
 - `2026-02-26 12:13:13` [feat/T4-file-io-search-tools] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_glob_tool.py`
 - `2026-02-26 12:13:31` [feat/T4-file-io-search-tools] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_ast_grep_search.py`
+- `2026-02-26 15:07:54` [feat/T6-static-analysis-tools] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/eslint_runner.py`
+- `2026-02-26 15:08:25` [feat/T6-static-analysis-tools] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/clang_tidy_runner.py`
+- `2026-02-26 15:08:55` [feat/T6-static-analysis-tools] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/proc_runner.py`
+- `2026-02-26 15:09:31` [feat/T6-static-analysis-tools] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_eslint_runner.py`
+- `2026-02-26 15:09:52` [feat/T6-static-analysis-tools] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_clang_tidy_runner.py`
+- `2026-02-26 15:15:10` [feat/T6-static-analysis-tools] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_proc_runner.py`
+- `2026-02-27 10:07:23` [feat/T6-static-analysis-tools] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_eslint_runner.py`
+- `2026-02-27 10:07:28` [feat/T6-static-analysis-tools] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_eslint_runner.py`
