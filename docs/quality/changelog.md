@@ -104,3 +104,5 @@
 - `2026-02-27 10:12:19` [feat/T6-static-analysis-tools] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_eslint_runner.py`
 - `2026-02-27 10:12:31` [feat/T6-static-analysis-tools] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_clang_tidy_runner.py`
 - `2026-02-27 10:17:35` [feat/T6-static-analysis-tools] **Edit**: `/Users/a11401/Documents/2026/Mider/CLAUDE.md`- `2026-02-27 10:41:14` [feat/T7-lsp-tool] **Write**: `/Users/a11401/Documents/2026/Mider/mider/tools/lsp/lsp_client.py`
+- `2026-02-27 10:42:09` [feat/T7-lsp-tool] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_lsp_client.py`
+- `2026-02-27 10:42:26` [feat/T7-lsp-tool] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_lsp_client.py`
