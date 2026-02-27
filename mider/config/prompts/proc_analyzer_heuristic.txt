@@ -1,0 +1,81 @@
+당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다.
+프리컴파일러에서 에러가 감지되지 않았지만, 코드에 잠재적 장애 유발 패턴이 있을 수 있습니다.
+휴리스틱 기반으로 코드를 심층 분석하세요.
+
+## 추출된 SQL 블록
+{sql_blocks}
+
+## 분석 대상 파일
+파일: {file_path}
+```c
+{file_content}
+```
+
+## 휴리스틱 체크리스트
+
+아래 항목을 하나씩 순서대로 검사하세요:
+
+### 1. SQLCA 에러 처리 (data_integrity)
+- [ ] 모든 EXEC SQL DML 문(INSERT, UPDATE, DELETE) 후에 sqlca.sqlcode를 검사하는가?
+- [ ] SELECT INTO 후 "데이터 없음"(sqlcode == 1403) 처리가 있는가?
+- [ ] WHENEVER SQLERROR가 적절히 설정되어 있는가?
+
+### 2. INDICATOR 변수 (null_safety)
+- [ ] NULL 가능 컬럼을 SELECT/FETCH 할 때 INDICATOR 변수를 사용하는가?
+- [ ] INDICATOR 변수 값에 따른 분기 처리가 있는가?
+
+### 3. 커서 라이프사이클 (data_integrity)
+- [ ] 모든 DECLARE CURSOR에 대응하는 OPEN이 있는가?
+- [ ] 모든 OPEN CURSOR에 대응하는 CLOSE가 있는가?
+- [ ] 에러 경로에서도 커서가 닫히는가?
+- [ ] FETCH 루프에서 sqlca.sqlcode == 1403 종료 조건이 있는가?
+
+### 4. 트랜잭션 무결성 (data_integrity)
+- [ ] 에러 발생 시 EXEC SQL ROLLBACK이 실행되는가?
+- [ ] 정상 완료 시 EXEC SQL COMMIT이 실행되는가?
+- [ ] 부분 커밋(일부 DML만 COMMIT) 위험이 있는가?
+- [ ] 데드락 발생 가능성이 있는가? (여러 테이블을 다른 순서로 잠금)
+
+### 5. 호스트 변수 (data_integrity)
+- [ ] 호스트 변수 크기가 DB 컬럼 크기와 맞는가? (VARCHAR 절삭 위험)
+- [ ] 호스트 변수 타입이 DB 컬럼 타입과 호환되는가?
+
+### 6. C 코드 영역 (memory_safety)
+- [ ] malloc/free 쌍이 맞는가?
+- [ ] 에러 경로에서 메모리가 해제되는가?
+- [ ] 버퍼 오버플로우 위험이 있는가?
+
+## 출력 형식
+반드시 아래 JSON 스키마로 응답하세요:
+{{
+  "issues": [
+    {{
+      "issue_id": "PC-NNN",
+      "category": "memory_safety|null_safety|data_integrity|error_handling|security|performance|code_quality",
+      "severity": "critical|high|medium|low",
+      "title": "한국어 제목",
+      "description": "한국어 상세 설명",
+      "location": {{
+        "file": "{file_path}",
+        "line_start": 0,
+        "line_end": 0,
+        "column_start": null,
+        "column_end": null
+      }},
+      "fix": {{
+        "before": "수정 전 코드 (1-3줄)",
+        "after": "수정 후 코드 (1-3줄)",
+        "description": "한국어 수정 설명"
+      }},
+      "source": "llm",
+      "static_tool": null,
+      "static_rule": null
+    }}
+  ]
+}}
+
+## 주의사항
+- 실제로 탐지된 이슈만 보고합니다. 문제가 없으면 `"issues": []`로 응답하세요.
+- source는 항상 "llm"입니다.
+- 추측이나 가능성만으로 이슈를 보고하지 마세요. 코드에서 명확히 확인된 패턴만 보고합니다.
+- Pro*C의 SQLCA 미검사, INDICATOR 누락, 커서 미닫힘은 운영 장애 직결이므로 severity를 높게 책정합니다.
