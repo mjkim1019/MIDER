@@ -101,6 +101,15 @@ mider/
 - **맥락 노트**: `docs/worklog/context.md` — 설계 결정, 주의사항, 변경 이력
 - **체크리스트**: `docs/worklog/checklist.md` — Task/Subtask 진행 상태 추적
 
+### context.md 변경 이력 기록 규칙
+
+**Task 완료(`/done`) 시 반드시 `docs/worklog/context.md`의 변경 이력 테이블을 업데이트한다.**
+
+- 해당 Task에서 발생한 설계 변경, 버그 수정, 리뷰 반영 사항을 모두 기록
+- 형식: `| 날짜 | 내용 | 이유 |`
+- "내용"은 **무엇을** 변경했는지, "이유"는 **왜** 그렇게 판단했는지 작성
+- 작업 중간에도 설계 변경이 발생하면 즉시 기록
+
 ## 품질 자동 관리
 
 - **변경 이력**: `docs/quality/changelog.md` — PostToolUse hook이 자동 기록
