@@ -15,7 +15,7 @@ from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 logger = logging.getLogger(__name__)
 
 # 패키지 기준 기본 경로
-_PACKAGE_DIR = Path(__file__).parent.parent  # mider/
+_PACKAGE_DIR = Path(__file__).parent.parent.parent  # mider/
 _DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "clang-tidy"
 _DEFAULT_CHECKS = "-*,clang-analyzer-*,bugprone-*"
 
@@ -44,7 +44,6 @@ class ClangTidyRunner(BaseTool):
         *,
         file: str,
         checks: str | None = None,
-        **kwargs: Any,
     ) -> ToolResult:
         """clang-tidy를 실행하여 분석 결과를 반환한다.
 

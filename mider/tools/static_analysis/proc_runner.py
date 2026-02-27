@@ -5,6 +5,7 @@ Oracle proc를 실행하여 Pro*C 파일의 문법/구문 오류를 추출한다
 """
 
 import logging
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -15,7 +16,7 @@ from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 logger = logging.getLogger(__name__)
 
 # 패키지 기준 기본 경로
-_PACKAGE_DIR = Path(__file__).parent.parent  # mider/
+_PACKAGE_DIR = Path(__file__).parent.parent.parent  # mider/
 _DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "proc"
 
 # proc 출력 에러 파싱 정규표현식
@@ -53,7 +54,6 @@ class ProcRunner(BaseTool):
         *,
         file: str,
         include_dirs: list[str] | None = None,
-        **kwargs: Any,
     ) -> ToolResult:
         """proc를 실행하여 분석 결과를 반환한다.
 
@@ -89,7 +89,7 @@ class ProcRunner(BaseTool):
             "parse=full",       # 전체 파싱 모드
             "sqlcheck=full",    # SQL 문법 검사
             "code=ansi_c",      # ANSI C 출력
-            "oname=/dev/null",  # 출력 파일 없음 (검사만)
+            f"oname={os.devnull}",  # 출력 파일 없음 (검사만)
         ]
 
         for inc_dir in include_dirs:
@@ -127,19 +127,22 @@ class ProcRunner(BaseTool):
         """proc 출력을 파싱한다."""
         combined = f"{stdout}\n{stderr}"
         errors: list[dict[str, Any]] = []
+        last_pcc_code: str | None = None
 
         for line in combined.splitlines():
             line = line.strip()
             if not line:
                 continue
 
-            # PCC 에러 코드 추출
+            # PCC 에러 코드 추출 (이후 Semantic error에 연결하기 위해 기억)
             pcc_match = _PCC_CODE_PATTERN.search(line)
-            pcc_code = pcc_match.group(1) if pcc_match else None
+            if pcc_match:
+                last_pcc_code = pcc_match.group(1)
 
             # Semantic error 패턴
             sem_match = _SEMANTIC_ERROR_PATTERN.search(line)
             if sem_match:
+                pcc_code = pcc_match.group(1) if pcc_match else last_pcc_code
                 errors.append({
                     "file": file_path,
                     "line": int(sem_match.group(1)),
@@ -147,19 +150,21 @@ class ProcRunner(BaseTool):
                     "message": line,
                     "code": pcc_code,
                 })
+                last_pcc_code = None
                 continue
 
-            # 일반 에러 패턴
-            err_match = _PROC_ERROR_PATTERN.match(line)
-            if err_match and pcc_code:
-                line_num = int(err_match.group(2)) if err_match.group(2) else 0
-                errors.append({
-                    "file": file_path,
-                    "line": line_num,
-                    "column": 0,
-                    "message": err_match.group(3).strip(),
-                    "code": pcc_code,
-                })
+            # PCC 코드가 포함된 에러 라인 (Semantic error가 아닌 경우)
+            if pcc_match and line.startswith("PCC-"):
+                err_match = _PROC_ERROR_PATTERN.match(line)
+                if err_match:
+                    line_num = int(err_match.group(2)) if err_match.group(2) else 0
+                    errors.append({
+                        "file": file_path,
+                        "line": line_num,
+                        "column": 0,
+                        "message": err_match.group(3).strip(),
+                        "code": last_pcc_code or pcc_match.group(1),
+                    })
 
         success = returncode == 0 and len(errors) == 0
 

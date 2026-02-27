@@ -15,7 +15,7 @@ from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 logger = logging.getLogger(__name__)
 
 # 패키지 기준 기본 경로
-_PACKAGE_DIR = Path(__file__).parent.parent  # mider/
+_PACKAGE_DIR = Path(__file__).parent.parent.parent  # mider/
 _DEFAULT_CONFIG = _PACKAGE_DIR / "resources" / "lint-configs" / ".eslintrc.json"
 _DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "node"
 
@@ -43,7 +43,6 @@ class ESLintRunner(BaseTool):
         *,
         file: str,
         config: str | None = None,
-        **kwargs: Any,
     ) -> ToolResult:
         """ESLint를 실행하여 분석 결과를 반환한다.
 
@@ -158,19 +157,23 @@ class ESLintRunner(BaseTool):
 
         for file_result in results:
             for msg in file_result.get("messages", []):
+                line_num = msg.get("line", 0)
+                col_num = msg.get("column", 0)
                 item = {
-                    "rule": msg.get("ruleId", "unknown"),
+                    "rule": msg.get("ruleId") or "unknown",
                     "message": msg.get("message", ""),
-                    "line": msg.get("line", 0),
-                    "column": msg.get("column", 0),
-                    "end_line": msg.get("endLine", msg.get("line", 0)),
-                    "end_column": msg.get("endColumn", msg.get("column", 0)),
+                    "line": line_num,
+                    "column": col_num,
+                    "end_line": msg.get("endLine", line_num),
+                    "end_column": msg.get("endColumn", col_num),
                 }
 
-                if msg.get("severity", 0) == 2:
+                severity = msg.get("severity", 0)
+                if severity == 2:
                     errors.append(item)
-                else:
+                elif severity == 1:
                     warnings.append(item)
+                # severity 0 (off) → 무시
 
         logger.debug(
             f"ESLint 분석 완료: {len(errors)} errors, {len(warnings)} warnings"
