@@ -39,9 +39,9 @@
   - [x] T6.2: clang_tidy_runner.py
   - [x] T6.3: proc_runner.py
   - [x] T6.4: 단위 테스트
-- [ ] T7: LSP Tool
-  - [ ] T7.1: lsp_client.py
-  - [ ] T7.2: 단위 테스트
+- [x] T7: LSP Tool
+  - [x] T7.1: lsp_client.py
+  - [x] T7.2: 단위 테스트
 - [ ] T8: Prompt Templates
   - [ ] T8.1: orchestrator.txt
   - [ ] T8.2: task_classifier.txt
