@@ -40,7 +40,7 @@
   - [x] T6.3: proc_runner.py
   - [x] T6.4: 단위 테스트
 - [ ] T7: LSP Tool
-  - [ ] T7.1: lsp_client.py
+  - [x] T7.1: lsp_client.py
   - [ ] T7.2: 단위 테스트
 - [ ] T8: Prompt Templates
   - [ ] T8.1: orchestrator.txt
