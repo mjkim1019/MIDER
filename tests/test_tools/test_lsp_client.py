@@ -213,7 +213,7 @@ class TestLSPClient:
     def test_goto_definition_success(self, mock_run, client, c_file):
         lsp_response = json.dumps({
             "jsonrpc": "2.0",
-            "id": 1,
+            "id": 2,
             "result": {
                 "uri": f"file://{c_file}",
                 "range": {"start": {"line": 0, "character": 4}},
@@ -236,7 +236,7 @@ class TestLSPClient:
     def test_find_references_success(self, mock_run, client, c_file):
         lsp_response = json.dumps({
             "jsonrpc": "2.0",
-            "id": 1,
+            "id": 2,
             "result": [
                 {
                     "uri": f"file://{c_file}",
@@ -260,7 +260,7 @@ class TestLSPClient:
     def test_hover_success(self, mock_run, client, c_file):
         lsp_response = json.dumps({
             "jsonrpc": "2.0",
-            "id": 1,
+            "id": 2,
             "result": {
                 "contents": {"kind": "plaintext", "value": "int main()"},
             },

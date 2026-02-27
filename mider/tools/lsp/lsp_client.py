@@ -12,6 +12,7 @@ import logging
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 
@@ -125,8 +126,10 @@ def _parse_lsp_response(
         uri = loc.get("uri", "")
         rng = loc.get("range", {})
         start = rng.get("start", {})
+        parsed_uri = urlparse(uri)
+        file_path = unquote(parsed_uri.path)
         locations.append({
-            "file": uri.replace("file://", ""),
+            "file": file_path,
             "line": start.get("line", 0) + 1,  # LSP는 0-based
             "column": start.get("character", 0) + 1,
         })
@@ -150,7 +153,7 @@ class LSPClient(BaseTool):
         action: str,
         file: str,
         line: int,
-        column: int = 0,
+        column: int = 1,
     ) -> ToolResult:
         """LSP 요청을 실행한다.
 
@@ -158,7 +161,7 @@ class LSPClient(BaseTool):
             action: LSP 액션 (goto_definition, find_references, hover)
             file: 대상 파일 경로
             line: 행 번호 (1-based)
-            column: 열 번호 (1-based, 기본값 0)
+            column: 열 번호 (1-based, 기본값 1)
 
         Returns:
             ToolResult (data: locations, hover_info, available)
@@ -208,21 +211,19 @@ class LSPClient(BaseTool):
                 },
             )
 
-        # LSP 요청 구성
-        file_uri = file_path.resolve().as_uri()
-        lsp_request = _build_lsp_request(
+        # LSP 요청 구성 (initialize → initialized → didOpen → 실제 요청)
+        resolved_path = file_path.resolve()
+        file_uri = resolved_path.as_uri()
+        root_uri = resolved_path.parent.as_uri()
+
+        lsp_message = self._build_full_lsp_message(
             action=action,
             file_uri=file_uri,
+            file_content=resolved_path.read_text(errors="replace"),
+            root_uri=root_uri,
+            language=language,
             line=line - 1,      # 1-based → 0-based
             column=column - 1,  # 1-based → 0-based
-        )
-
-        request_body = json.dumps(lsp_request)
-        content_length = len(request_body.encode("utf-8"))
-        lsp_message = (
-            f"Content-Length: {content_length}\r\n"
-            f"\r\n"
-            f"{request_body}"
         )
 
         try:
@@ -232,6 +233,7 @@ class LSPClient(BaseTool):
                 capture_output=True,
                 text=True,
                 timeout=_TIMEOUT_SECONDS,
+                cwd=str(resolved_path.parent),
             )
         except FileNotFoundError:
             logger.warning(f"LSP server binary not executable: {server}")
@@ -250,8 +252,15 @@ class LSPClient(BaseTool):
                 f"LSP request timeout after {_TIMEOUT_SECONDS}s",
             )
 
-        # 응답 파싱
-        response_data = self._extract_response(proc.stdout)
+        # returncode 검사
+        if proc.returncode != 0 and proc.stderr:
+            logger.warning(
+                f"LSP server exited with code {proc.returncode}: "
+                f"{proc.stderr[:200]}"
+            )
+
+        # 응답 파싱 (request_id=2가 실제 요청 응답)
+        response_data = self._extract_response(proc.stdout, request_id=2)
         if response_data is None:
             logger.debug(f"LSP empty response for {action} on {file}:{line}")
             return ToolResult(
@@ -279,29 +288,119 @@ class LSPClient(BaseTool):
             },
         )
 
-    def _extract_response(self, stdout: str) -> dict[str, Any] | None:
-        """LSP stdout에서 JSON-RPC 응답을 추출한다."""
+    @staticmethod
+    def _encode_lsp_message(obj: dict[str, Any]) -> str:
+        """JSON-RPC 객체를 LSP 메시지로 인코딩한다."""
+        body = json.dumps(obj)
+        length = len(body.encode("utf-8"))
+        return f"Content-Length: {length}\r\n\r\n{body}"
+
+    def _build_full_lsp_message(
+        self,
+        *,
+        action: str,
+        file_uri: str,
+        file_content: str,
+        root_uri: str,
+        language: str,
+        line: int,
+        column: int,
+    ) -> str:
+        """LSP 프로토콜 전체 시퀀스를 생성한다.
+
+        initialize → initialized → didOpen → 실제 요청 → shutdown
+        """
+        # 1. initialize 요청
+        init_request = {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "processId": None,
+                "rootUri": root_uri,
+                "capabilities": {},
+            },
+        }
+
+        # 2. initialized 통지 (id 없음)
+        initialized_notification = {
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {},
+        }
+
+        # 3. textDocument/didOpen 통지
+        did_open_notification = {
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": file_uri,
+                    "languageId": language,
+                    "version": 1,
+                    "text": file_content,
+                },
+            },
+        }
+
+        # 4. 실제 요청
+        actual_request = _build_lsp_request(
+            action=action,
+            file_uri=file_uri,
+            line=line,
+            column=column,
+            request_id=2,
+        )
+
+        # 5. shutdown 요청
+        shutdown_request = {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "shutdown",
+            "params": None,
+        }
+
+        parts = [
+            self._encode_lsp_message(init_request),
+            self._encode_lsp_message(initialized_notification),
+            self._encode_lsp_message(did_open_notification),
+            self._encode_lsp_message(actual_request),
+            self._encode_lsp_message(shutdown_request),
+        ]
+        return "".join(parts)
+
+    def _extract_response(
+        self, stdout: str, *, request_id: int = 2
+    ) -> dict[str, Any] | None:
+        """LSP stdout에서 특정 id의 JSON-RPC 응답을 추출한다."""
         if not stdout.strip():
             return None
 
-        # Content-Length 헤더 이후 JSON 본문 추출
-        parts = stdout.split("\r\n\r\n", 1)
-        if len(parts) == 2:
-            body = parts[1]
-        else:
-            # 헤더 없이 JSON만 온 경우
-            body = stdout
+        # Content-Length 헤더로 각 메시지를 파싱
+        import re
+        pattern = re.compile(r"Content-Length:\s*(\d+)\r\n\r\n")
+        responses: list[dict[str, Any]] = []
 
-        try:
-            return json.loads(body)
-        except json.JSONDecodeError:
-            # 여러 응답이 연결된 경우 마지막 JSON 추출 시도
-            lines = body.strip().splitlines()
-            for line in reversed(lines):
-                line = line.strip()
-                if line.startswith("{"):
-                    try:
-                        return json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-            return None
+        for match in pattern.finditer(stdout):
+            start = match.end()
+            length = int(match.group(1))
+            body = stdout[start:start + length]
+            try:
+                responses.append(json.loads(body))
+            except json.JSONDecodeError:
+                continue
+
+        # 요청 id에 해당하는 응답 찾기
+        for resp in responses:
+            if resp.get("id") == request_id:
+                return resp
+
+        # Content-Length 파싱 실패 시 fallback
+        if not responses:
+            try:
+                return json.loads(stdout.strip())
+            except json.JSONDecodeError:
+                return None
+
+        # id 매칭 실패 시 마지막 응답 반환
+        return responses[-1] if responses else None
