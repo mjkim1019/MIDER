@@ -1,0 +1,219 @@
+"""ProCAnalyzerAgent: Phase 2 - Pro*C 분석.
+
+Oracle proc 프리컴파일러 + SQLExtractor + LLM 심층분석을 결합하여
+Pro*C 파일의 데이터 무결성 위협 패턴을 탐지한다.
+"""
+
+import json
+import logging
+import time
+from typing import Any
+
+from mider.agents.base_agent import BaseAgent
+from mider.config.prompt_loader import load_prompt
+from mider.models.analysis_result import AnalysisResult
+from mider.tools.file_io.file_reader import FileReader
+from mider.tools.static_analysis.proc_runner import ProcRunner
+from mider.tools.utility.sql_extractor import SQLExtractor
+
+logger = logging.getLogger(__name__)
+
+
+class ProCAnalyzerAgent(BaseAgent):
+    """Phase 2: Pro*C 파일을 분석하는 Agent.
+
+    proc 프리컴파일러 에러 + SQL 블록 추출 결과를 기반으로
+    LLM이 심층 분석하여 Error-Focused 또는 Heuristic 경로로
+    데이터 무결성 이슈를 탐지한다.
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-4o",
+        fallback_model: str | None = None,
+        temperature: float = 0.0,
+    ) -> None:
+        super().__init__(
+            model=model,
+            fallback_model=fallback_model,
+            temperature=temperature,
+        )
+        self._file_reader = FileReader()
+        self._proc_runner = ProcRunner()
+        self._sql_extractor = SQLExtractor()
+
+    async def run(
+        self,
+        *,
+        task_id: str,
+        file: str,
+        language: str = "proc",
+        file_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Pro*C 파일을 분석한다.
+
+        Args:
+            task_id: ExecutionPlan의 task_id
+            file: 분석할 파일 경로
+            language: 파일 언어 ("proc")
+            file_context: Phase 1에서 수집한 파일 컨텍스트
+
+        Returns:
+            AnalysisResult 형식의 딕셔너리
+        """
+        start_time = time.time()
+        logger.info(f"Pro*C 분석 시작: {file}")
+
+        try:
+            # Step 1: 파일 읽기
+            read_result = self._file_reader.execute(path=file)
+            file_content = read_result.data["content"]
+
+            # Step 2: proc 프리컴파일러 실행
+            proc_errors = self._run_proc(file)
+
+            # Step 3: SQL 블록 추출
+            sql_blocks = self._extract_sql_blocks(file)
+
+            # Step 4: Error-Focused / Heuristic 판정
+            has_proc_errors = bool(proc_errors)
+            has_missing_sqlca = any(
+                not block.get("has_sqlca_check", True)
+                for block in sql_blocks
+            )
+            use_error_focused = has_proc_errors or has_missing_sqlca
+
+            # Step 5: LLM 분석
+            prompt, messages = self._build_messages(
+                file=file,
+                file_content=file_content,
+                proc_errors=proc_errors,
+                sql_blocks=sql_blocks,
+                file_context=file_context,
+                use_error_focused=use_error_focused,
+            )
+
+            response = await self.call_llm(messages, json_mode=True)
+            llm_result = json.loads(response)
+
+            if not isinstance(llm_result, dict):
+                raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
+
+            issues = llm_result.get("issues", [])
+
+            # Step 6: AnalysisResult 생성
+            elapsed = time.time() - start_time
+            tokens_estimate = (len(prompt) + len(response)) // 4
+
+            result = AnalysisResult.model_validate({
+                "task_id": task_id,
+                "file": file,
+                "language": language,
+                "agent": "ProCAnalyzerAgent",
+                "issues": issues,
+                "analysis_time_seconds": round(elapsed, 2),
+                "llm_tokens_used": tokens_estimate,
+            })
+
+            logger.info(
+                f"Pro*C 분석 완료: {file} → {len(result.issues)}개 이슈, "
+                f"{result.analysis_time_seconds}초"
+            )
+
+            return result.model_dump()
+
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(f"Pro*C 분석 실패: {file}: {e}")
+            return AnalysisResult(
+                task_id=task_id,
+                file=file,
+                language=language,
+                agent="ProCAnalyzerAgent",
+                issues=[],
+                analysis_time_seconds=round(elapsed, 2),
+                llm_tokens_used=0,
+                error=str(e),
+            ).model_dump()
+
+    def _run_proc(self, file: str) -> list[dict[str, Any]]:
+        """proc 프리컴파일러를 실행하여 에러 목록을 반환한다.
+
+        실행 실패 시 빈 리스트를 반환한다.
+        """
+        try:
+            result = self._proc_runner.execute(file=file)
+            return result.data.get("errors", [])
+        except Exception as e:
+            logger.warning(f"proc 실행 실패, 에러 정보 없이 진행: {e}")
+            return []
+
+    def _extract_sql_blocks(self, file: str) -> list[dict[str, Any]]:
+        """SQL 블록을 추출한다.
+
+        추출 실패 시 빈 리스트를 반환한다.
+        """
+        try:
+            result = self._sql_extractor.execute(file=file)
+            return result.data.get("sql_blocks", [])
+        except Exception as e:
+            logger.warning(f"SQL 블록 추출 실패: {e}")
+            return []
+
+    def _build_messages(
+        self,
+        *,
+        file: str,
+        file_content: str,
+        proc_errors: list[dict[str, Any]],
+        sql_blocks: list[dict[str, Any]],
+        file_context: dict[str, Any] | None,
+        use_error_focused: bool,
+    ) -> tuple[str, list[dict[str, str]]]:
+        """프롬프트 경로를 선택하고 LLM 메시지를 구성한다.
+
+        Returns:
+            (prompt_text, messages) 튜플
+        """
+        sql_blocks_str = json.dumps(
+            sql_blocks, ensure_ascii=False, indent=2,
+        )
+
+        if use_error_focused:
+            # Error-Focused 경로
+            proc_errors_str = json.dumps(
+                proc_errors, ensure_ascii=False, indent=2,
+            )
+            file_context_str = json.dumps(
+                file_context, ensure_ascii=False, indent=2,
+            ) if file_context else "컨텍스트 정보 없음"
+
+            prompt = load_prompt(
+                "proc_analyzer_error_focused",
+                proc_errors=proc_errors_str,
+                sql_blocks=sql_blocks_str,
+                file_path=file,
+                file_content=file_content,
+                file_context=file_context_str,
+            )
+        else:
+            # Heuristic 경로
+            prompt = load_prompt(
+                "proc_analyzer_heuristic",
+                sql_blocks=sql_blocks_str,
+                file_path=file,
+                file_content=file_content,
+            )
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다. "
+                    "반드시 JSON 형식으로 응답하세요."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        return prompt, messages
