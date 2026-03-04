@@ -71,9 +71,9 @@
   - [x] T11.5: 단위 테스트 4개
 - [ ] T12: ReporterAgent (Phase 3)
   - [x] T12.1: reporter.py 구현
-  - [ ] T12.2: checklist_generator 연동
-  - [ ] T12.3: 3개 JSON 출력
-  - [ ] T12.4: RiskAssessment 생성
+  - [x] T12.2: checklist_generator 연동
+  - [x] T12.3: 3개 JSON 출력
+  - [x] T12.4: RiskAssessment 생성
   - [ ] T12.5: 단위 테스트
 - [ ] T13: OrchestratorAgent
   - [ ] T13.1: orchestrator.py 구현
