@@ -58,10 +58,10 @@
   - [x] T9.4: ExecutionPlan 반환
   - [x] T9.5: 단위 테스트
 - [ ] T10: ContextCollectorAgent (Phase 1)
-  - [ ] T10.1: context_collector.py 기본 구조
-  - [ ] T10.2: Import/Include 추출 + 호출 관계 매핑
-  - [ ] T10.3: 공통 패턴 탐지
-  - [ ] T10.4: LLM 컨텍스트 보정 + FileContext 반환
+  - [x] T10.1: context_collector.py 기본 구조
+  - [x] T10.2: Import/Include 추출 + 호출 관계 매핑
+  - [x] T10.3: 공통 패턴 탐지
+  - [x] T10.4: LLM 컨텍스트 보정 + FileContext 반환
   - [ ] T10.5: 단위 테스트
 - [ ] T11: Phase 2 Analyzer Agents
   - [ ] T11.1: js_analyzer.py
