@@ -266,7 +266,7 @@ class ReporterAgent(BaseAgent):
 
         # LLM으로 risk_description 생성
         risk_description = await self._generate_risk_description(
-            by_severity, risk_assessment["deployment_risk"],
+            by_severity, risk_assessment["deployment_risk"], generated_at,
         )
         risk_assessment["risk_description"] = risk_description
 
@@ -306,14 +306,14 @@ class ReporterAgent(BaseAgent):
             deployment_risk = "CRITICAL"
             deployment_allowed = False
             blocking_issues = [
-                issue["issue_id"] for issue in sorted_issues
+                issue.get("issue_id", "") for issue in sorted_issues
                 if issue.get("severity") in ("critical", "high")
             ]
         elif high_count >= 3:
             deployment_risk = "HIGH"
             deployment_allowed = False
             blocking_issues = [
-                issue["issue_id"] for issue in sorted_issues
+                issue.get("issue_id", "") for issue in sorted_issues
                 if issue.get("severity") == "high"
             ]
         elif high_count >= 1:
@@ -334,6 +334,7 @@ class ReporterAgent(BaseAgent):
         self,
         by_severity: dict[str, int],
         deployment_risk: str,
+        generated_at: datetime,
     ) -> str:
         """LLM으로 한국어 배포 위험 설명을 생성한다.
 
@@ -349,7 +350,7 @@ class ReporterAgent(BaseAgent):
                     },
                     ensure_ascii=False,
                 ),
-                generated_at=datetime.now(timezone.utc).isoformat(),
+                generated_at=generated_at.isoformat(),
                 session_id="risk_description_generation",
             )
 
