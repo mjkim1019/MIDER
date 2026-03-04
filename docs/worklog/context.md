@@ -81,3 +81,9 @@
 | 2026-03-04 | OrchestratorAgent: Sub-Agent lazy init (None이면 초기화) | 테스트에서 mock 주입 후 run() 호출 시 덮어쓰기 방지 |
 | 2026-03-04 | OrchestratorAgent: LLM 직접 호출 없음, Sub-Agent에 위임 | Orchestrator는 워크플로우 제어만 담당, 프롬프트는 사용하지 않음 |
 | 2026-03-04 | OrchestratorAgent: ProgressCallback Protocol 정의 | Rich Progress Bar 연동을 위한 타입 안전 콜백 인터페이스 |
+| 2026-03-04 | Phase 2 루프에 sub-task KeyError 방어 추가 | 리뷰 반영: TaskClassifierAgent가 malformed dict를 반환할 경우 전체 파이프라인 크래시 방지 |
+| 2026-03-04 | `_analyze_single_file`에 try-except 추가 | 리뷰 반영: Analyzer 예외 시 에러 결과를 반환하여 나머지 파일 분석 계속 |
+| 2026-03-04 | Analyzer 인스턴스를 언어별로 캐싱 (`self._analyzers`) | 리뷰 반영: 같은 언어 N개 파일에 N개 인스턴스 생성 방지 |
+| 2026-03-04 | `_build_context_map`에서 경로를 `resolve()`로 정규화 | 리뷰 반영: `_validate_and_expand_files`에서 resolve()한 경로와 매칭 보장 |
+| 2026-03-04 | `output_dir` 파라미터 제거 | 리뷰 반영: 파일 쓰기는 T14 CLI에서 담당, 미사용 파라미터 제거 |
+| 2026-03-04 | 성공 경로 반환에 `errors` 키 추가 | 리뷰 반영: `_empty_result()`와 일관된 반환 구조 |

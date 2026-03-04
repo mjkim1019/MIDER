@@ -75,7 +75,7 @@
   - [x] T12.3: 3개 JSON 출력
   - [x] T12.4: RiskAssessment 생성
   - [x] T12.5: 단위 테스트
-- [ ] T13: OrchestratorAgent
+- [x] T13: OrchestratorAgent
   - [x] T13.1: orchestrator.py 구현
   - [x] T13.2: call_agent, glob_expand, validate_files
   - [x] T13.3: Sub-agent 호출 관리
