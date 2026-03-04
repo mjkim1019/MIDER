@@ -15,6 +15,7 @@ from mider.agents.base_agent import BaseAgent
 from mider.config.prompt_loader import load_prompt
 from mider.models.execution_plan import DependencyGraph
 from mider.models.file_context import FileContext
+from mider.tools.file_io.file_reader import FileReader
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ _CALL_SKIP_KEYWORDS = frozenset({
     "SELECT", "INSERT", "UPDATE", "DELETE", "FROM", "WHERE",
     "OPEN", "CLOSE", "FETCH", "COMMIT", "ROLLBACK", "WHENEVER",
     "INCLUDE", "INTO", "VALUES", "SET", "ORDER", "GROUP", "HAVING",
-    "function", "class", "var", "let", "const", "import", "export",
+    "function", "class", "var", "let", "import", "export",
     "async", "await", "new", "delete", "require",
 })
 
@@ -97,7 +98,6 @@ class ContextCollectorAgent(BaseAgent):
             fallback_model=fallback_model,
             temperature=temperature,
         )
-        from mider.tools.file_io.file_reader import FileReader
         self._file_reader = FileReader()
 
     async def run(
@@ -301,8 +301,8 @@ class ContextCollectorAgent(BaseAgent):
 
         for line_num, line in enumerate(content.splitlines(), start=1):
             stripped = line.strip()
-            # 주석 건너뛰기
-            if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
+            # 주석 건너뛰기 (블록 주석 내부의 "* " 라인 포함)
+            if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("* "):
                 continue
             # 전처리기 지시문 건너뛰기
             if stripped.startswith("#"):
@@ -465,15 +465,11 @@ class ContextCollectorAgent(BaseAgent):
             }
             merged_contexts.append(merged)
 
-        common_patterns = llm_result.get(
-            "common_patterns",
-            tool_result.get("common_patterns", {}),
-        )
-
         return {
             "file_contexts": merged_contexts,
             "dependencies": tool_result["dependencies"],
-            "common_patterns": common_patterns,
+            # common_patterns는 Tool 결과 우선 (LLM이 빈도를 할루시네이션할 수 있음)
+            "common_patterns": tool_result.get("common_patterns", {}),
         }
 
     @staticmethod
