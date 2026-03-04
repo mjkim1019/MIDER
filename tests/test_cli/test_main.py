@@ -256,7 +256,7 @@ class TestWriteOutputFiles:
 class TestPrintFileList:
     """파일 목록 출력 테스트."""
 
-    def test_prints_file_count(self, capsys):
+    def test_prints_file_count(self):
         """파일 개수를 출력한다."""
         console = MagicMock()
         print_file_list(console, ["test.js", "calc.c"])

@@ -12,8 +12,9 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -103,7 +104,9 @@ def validate_api_key() -> str:
     return api_key
 
 
-def _create_progress_callback(console: Console) -> Any:
+def _create_progress_callback(
+    console: Console,
+) -> Callable[[int, str, int, int, str], None]:
     """OrchestratorAgent용 Rich Progress 콜백을 생성한다."""
     phase_names = {
         0: "파일 분류",
@@ -126,7 +129,7 @@ def _create_progress_callback(console: Console) -> Any:
 
         display_name = phase_names.get(phase, phase_name)
 
-        if current >= total and phase not in completed_phases:
+        if total > 0 and current >= total and phase not in completed_phases:
             completed_phases.add(phase)
             elapsed = time.time() - phase_start_times[phase]
             console.print(
@@ -154,7 +157,7 @@ def print_file_list(console: Console, files: list[str]) -> None:
         ".sql": "SQL",
     }
 
-    console.print(f"\n[파일] {len(files)}개")
+    console.print(f"\n\\[파일] {len(files)}개")
     for f in files:
         ext = Path(f).suffix.lower()
         lang = ext_to_lang.get(ext, "Unknown")
@@ -336,6 +339,7 @@ async def run_analysis(
     total_issues = issue_list.get("total_issues", 0)
 
     if errors and total_issues == 0 and not result.get("execution_plan", {}).get("sub_tasks"):
+        write_output_files(output_dir, result)
         return EXIT_FILE_ERROR
 
     # 결과 출력
@@ -358,8 +362,9 @@ def main() -> None:
     console = Console()
     console.print(f"Mider v{__version__}")
 
-    # API 키 검증
-    validate_api_key()
+    # API 키 검증 및 OPENAI_API_KEY 설정
+    api_key = validate_api_key()
+    os.environ["OPENAI_API_KEY"] = api_key
 
     # 모델 결정
     model = resolve_model(args.model)
@@ -384,17 +389,15 @@ def main() -> None:
         )
     except KeyboardInterrupt:
         console.print("\n[yellow]분석이 사용자에 의해 중단되었습니다.[/]")
-        sys.exit(EXIT_FILE_ERROR)
+        sys.exit(130)
+    except (APIError, APIConnectionError, RateLimitError, APITimeoutError, EnvironmentError) as e:
+        logger.error(f"LLM API 오류: {e}")
+        console.print(f"[red bold]LLM API 오류:[/] {e}")
+        sys.exit(EXIT_LLM_ERROR)
     except Exception as e:
         logger.error(f"분석 중 오류 발생: {e}")
-        # LLM 관련 에러 구분
-        error_str = str(e).lower()
-        if any(keyword in error_str for keyword in ("openai", "api", "rate_limit", "timeout", "connection")):
-            console.print(f"[red bold]LLM API 오류:[/] {e}")
-            sys.exit(EXIT_LLM_ERROR)
-        else:
-            console.print(f"[red bold]오류:[/] {e}")
-            sys.exit(EXIT_FILE_ERROR)
+        console.print(f"[red bold]오류:[/] {e}")
+        sys.exit(EXIT_FILE_ERROR)
 
     sys.exit(exit_code)
 
