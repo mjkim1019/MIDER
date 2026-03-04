@@ -101,6 +101,7 @@ Utility (4개)
 - 개발자가 지정한 파일들만 정밀 분석 (프로젝트 전체 스캔 X)
 - 언어별 전문 Agent 자동 할당 (JS/C/Pro*C/SQL)
 - 정적 분석(ESLint, clang-tidy, proc) 먼저 한 후에, LLM 정밀 분석 (하이브리드)
+- 토큰 최적화: 정적분석 에러를 포함하는 함수만 LLM에 전달 (Structure + Function Window 방식으로 대형 파일의 토큰 효율성 확보)
 
 ### 4.3 구체적인 코드 수정 제안 기능
 - Before/After 코드 수정 제안
