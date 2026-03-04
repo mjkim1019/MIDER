@@ -1,7 +1,7 @@
 # 기술 설계서: Mider - Agent 상세 설계
 
-> **1차 PoC 범위**: 정적 분석 + LLM 하이브리드 분석 (RAG 미포함)
-> **2차 PoC 예정**: RAG (Knowledge Base + Vector DB), Context 압축
+> **1차 PoC 범위**: 정적 분석 + LLM 하이브리드 분석 (RAG 미포함), 토큰 최적화 (Structure + Function Window)
+> **2차 PoC 예정**: RAG (Knowledge Base + Vector DB)
 
 ---
 
@@ -347,18 +347,30 @@ FileContext 생성:
    ]
 ```
 
-**Step 2: LLM Deep Analysis**
+**Step 2: LLM Deep Analysis (토큰 최적화: Structure + Function Window)**
 ```
 If ESLint errors found:
   # 경로 A: Error-Focused
+  # 토큰 최적화: 파일 전체 대신 구조 요약 + 에러 포함 함수만 전달
+  structure_summary = _build_structure_summary(file_context)
+    # - imports/includes (Phase 1 file_context에서 추출)
+    # - 함수 시그니처 목록 (ast-grep)
+    # - 전역 변수/상수
+  error_functions = _extract_error_functions(file_content, eslint_errors)
+    # - 에러 라인을 포함하는 함수 전체 추출
+    # - 함수 밖 에러는 에러 주변 ±20줄 추출
+
   prompt = f"""
   당신은 JavaScript 전문가입니다.
 
   [ESLint 오류]
   {eslint_errors}
 
-  [파일 전체]
-  {file_content}
+  [구조 요약]
+  {structure_summary}
+
+  [에러 관련 함수 전체 코드]
+  {error_functions}
 
   [파일 컨텍스트]
   {file_context}
@@ -374,11 +386,16 @@ If ESLint errors found:
 
 Else:
   # 경로 B: Heuristic
+  # 토큰 최적화: 500줄 이하 전체, 초과 시 head+tail+구조요약
+  file_content_optimized = _optimize_file_content(file_content, file_context)
+    # - ≤500줄: 전체 코드
+    # - >500줄: head(200줄) + "...(중략)..." + tail(100줄) + 구조 요약
+
   prompt = f"""
   당신은 JavaScript 전문가입니다.
 
-  [파일 전체]
-  {file_content}
+  [파일 코드]
+  {file_content_optimized}
 
   [휴리스틱 체크리스트]
   - 메모리 누수 (이벤트 리스너, 타이머, DOM 참조)
@@ -452,17 +469,24 @@ clang_tidy_runner(
   ]
 ```
 
-**Step 2: LLM Analysis**
+**Step 2: LLM Analysis (토큰 최적화: Structure + Function Window)**
 ```
 경로 A (Error-Focused, warnings 있을 때):
+  # 토큰 최적화: 파일 전체 대신 구조 요약 + 에러 포함 함수만 전달
+  structure_summary = _build_structure_summary(file_context)
+  error_functions = _extract_error_functions(file_content, warnings)
+
   prompt = """
   C 메모리 안전성 전문가입니다.
 
   [clang-tidy 경고]
   {warnings}
 
-  [파일 전체]
-  {file_content}
+  [구조 요약]
+  {structure_summary}
+
+  [에러 관련 함수 전체 코드]
+  {error_functions}
 
   [파일 컨텍스트]
   {file_context}
@@ -477,9 +501,12 @@ clang_tidy_runner(
   """
 
 경로 B (Heuristic, warnings 없을 때):
+  # 토큰 최적화: 500줄 이하 전체, 초과 시 head+tail+구조요약
+  file_content_optimized = _optimize_file_content(file_content, file_context)
+
   prompt = """
-  [파일 전체]
-  {file_content}
+  [파일 코드]
+  {file_content_optimized}
 
   [휴리스틱 체크]
   - Use-after-free (복잡한 포인터)
@@ -565,9 +592,13 @@ sql_extractor(file_path)
   ]
 ```
 
-**Step 3: LLM Analysis**
+**Step 3: LLM Analysis (토큰 최적화: Structure + Function Window)**
 ```
 경로 A (errors 있거나 sqlca_check 누락):
+  # 토큰 최적화: 파일 전체 대신 구조 요약 + 에러 포함 함수만 전달
+  structure_summary = _build_structure_summary(file_context)
+  error_functions = _extract_error_functions(file_content, proc_errors)
+
   prompt = """
   Pro*C 전문가입니다.
 
@@ -577,8 +608,11 @@ sql_extractor(file_path)
   [EXEC SQL 블록]
   {sql_blocks}
 
-  [파일 전체]
-  {file_content}
+  [구조 요약]
+  {structure_summary}
+
+  [에러 관련 함수 전체 코드]
+  {error_functions}
 
   [파일 컨텍스트]
   {file_context}
@@ -593,9 +627,12 @@ sql_extractor(file_path)
   """
 
 경로 B (Heuristic):
+  # 토큰 최적화: 500줄 이하 전체, 초과 시 head+tail+구조요약
+  file_content_optimized = _optimize_file_content(file_content, file_context)
+
   prompt = """
-  [파일 전체]
-  {file_content}
+  [파일 코드]
+  {file_content_optimized}
 
   [EXEC SQL 블록]
   {sql_blocks}
@@ -670,17 +707,26 @@ sql_extractor(file_path)
   ]
 ```
 
-**Step 2: LLM Analysis**
+**Step 2: LLM Analysis (토큰 최적화: Structure + Function Window)**
 ```
 경로 A (patterns 있을 때):
+  # 토큰 최적화: 파일 전체 대신 구조 요약 + 패턴 매치된 SQL 문 전체 추출
+  structure_summary = _build_structure_summary(file_context)
+  error_queries = _extract_error_queries(file_content, patterns)
+    # - 패턴이 매치된 SQL 문(SELECT/INSERT/UPDATE/DELETE) 전체 추출
+    # - 프로시저/함수 내 패턴이면 해당 프로시저/함수 전체 추출
+
   prompt = """
   SQL 성능 전문가입니다.
 
   [정적 패턴]
   {patterns}
 
-  [SQL 파일]
-  {file_content}
+  [구조 요약]
+  {structure_summary}
+
+  [패턴 매치된 SQL 문 전체]
+  {error_queries}
 
   분석:
   1. 패턴별 성능 영향도 (응답 시간)
@@ -691,9 +737,12 @@ sql_extractor(file_path)
   """
 
 경로 B (Heuristic):
+  # SQL 파일은 보통 소형이므로 전체 유지, 대형 파일만 truncation
+  file_content_optimized = _optimize_file_content(file_content, file_context)
+
   prompt = """
   [SQL 파일]
-  {file_content}
+  {file_content_optimized}
 
   [휴리스틱]
   - 인덱스 억제 패턴
@@ -960,10 +1009,10 @@ mider/
 - 7개 Agent (Orchestrator + 6 Sub-agents)
 - CLI 기반 실행
 - 폐쇄망 실행파일 패키징
+- 토큰 최적화 (Structure + Function Window)
 
 ### 2차 PoC (예정)
 - Session Resume (세션 저장/복구, Checkpoint)
 - RAG (Knowledge Base + ChromaDB + sentence-transformers)
 - KnowledgeRetrieverAgent 추가
-- Context 압축 (토큰 최적화)
 - LangFlow 서버 연동

@@ -7,6 +7,14 @@
 - LSP Tool (T7)은 1차 PoC에서 선택적 기능 — 바이너리 없을 시 graceful degradation
 - ContextCollectorAgent는 Tool 기반 추출 + LLM 보정 하이브리드 방식 채택 (TaskClassifierAgent 패턴 동일)
 
+## 토큰 최적화 설계 결정 (Structure + Function Window)
+- **Error-Focused 경로**: `{file_content}` (파일 전체) → `{structure_summary}` + `{error_functions}` (에러 포함 함수 전체)
+- **에러 포함 함수 전체 추출**: ±N줄이 아닌 함수 단위 — 함수는 논리적 완결 단위이므로 LLM이 더 정확하게 분석 가능
+- **구조 요약**: Phase 1 file_context의 imports/calls/patterns + ast-grep 함수 시그니처 + 전역변수
+- **Heuristic 경로**: 에러 위치를 모르므로 파일 크기 기반 분기 — ≤500줄 전체, >500줄 head(200)+tail(100)+구조요약
+- **SQL 특화**: SQL은 함수가 아닌 SQL 문(SELECT/INSERT/UPDATE/DELETE) 단위로 추출
+- **구현 위치**: 4개 Analyzer의 `_build_messages()` + 8개 프롬프트 템플릿 변수 변경
+
 ## T10 설계 결정
 - **Tool 우선 추출**: AstGrepSearch로 import/함수 호출/패턴을 먼저 추출, LLM은 보정만 담당
 - **LLM graceful degradation**: LLM 실패 시 Tool 결과만으로 FileContext 생성 (TaskClassifierAgent 패턴)
@@ -21,7 +29,7 @@
 - docs/manuals/agents.md: BaseAgent 패턴, call_llm() 재시도
 
 ## 주의사항
-- 1차 PoC 범위: RAG, Session Resume, Context 압축 제외
+- 1차 PoC 범위: RAG, Session Resume 제외 (토큰 최적화는 1차에 포함)
 - print() 금지 → rich/logging 사용
 - Agent는 코드 수정 불가 (제안만)
 - Before/After 코드는 1-3줄만
@@ -56,3 +64,8 @@
 | 2026-03-04 | FileReader import를 `__init__` 내부 → 모듈 레벨로 이동 | TaskClassifierAgent와 패턴 일치, 리뷰 반영 |
 | 2026-03-04 | 주석 필터 `startswith("*")` → `startswith("* ")` | `*ptr = malloc(...)` 같은 포인터 역참조가 주석으로 오인되는 버그 방지 |
 | 2026-03-04 | `common_patterns`를 Tool 결과 우선으로 변경 | LLM이 빈도 수치를 할루시네이션할 수 있으므로 정확한 Tool 집계 사용 |
+| 2026-03-04 | JS/C Analyzer: `file_context_str` 연산을 Error-Focused 분기 안으로 이동 | Heuristic 프롬프트에 file_context 변수가 없으므로 불필요 연산 제거 (리뷰 반영) |
+| 2026-03-04 | SQL analyzer `match["line"]` → `match.get("line", 0)` 안전 접근 | AstGrepSearch 결과에 키 누락 시 KeyError 방지 (리뷰 반영) |
+| 2026-03-04 | `llm_tokens_used` 추정값 사용: `(len(prompt) + len(response)) // 4` | LLMClient.chat()이 토큰 수를 반환하지 않으므로 근사값 사용 (2차에서 개선 예정) |
+| 2026-03-04 | 토큰 최적화 설계: `{file_content}` → `{structure_summary}` + `{error_functions}` | 대형 파일에서 LLM 토큰 과다 소비 방지, 함수 단위 추출로 논리적 완결성 확보 |
+| 2026-03-04 | Context 압축을 2차 PoC에서 1차 PoC로 이동 | 토큰 최적화가 1차 PoC 비용 효율성에 직결되므로 조기 적용 |

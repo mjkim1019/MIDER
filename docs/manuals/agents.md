@@ -92,3 +92,50 @@ for attempt in range(3):
 - 모든 Agent 출력은 Pydantic 모델로 직렬화 (JSON)
 - OrchestratorAgent가 중간 결과를 메모리에 보관하고 다음 Agent에 전달
 - Agent는 자신의 입출력 스키마만 알면 된다 (다른 Agent 내부 로직 불필요)
+
+## 1.7 토큰 최적화 패턴 (Structure + Function Window)
+
+Phase 2 Analyzer가 LLM에 전달하는 코드를 최적화한다. 파일 전체(`{file_content}`)를 보내는 대신, 필요한 부분만 선별하여 토큰 소비를 줄인다.
+
+### Error-Focused 경로 (정적분석 에러 있을 때)
+
+```python
+def _build_structure_summary(self, file_context: dict) -> str:
+    """파일 구조 요약 생성.
+
+    Phase 1 file_context의 imports/calls/patterns + ast-grep 함수 시그니처를 결합.
+    LLM이 전체 파일 구조를 파악할 수 있는 최소 정보를 제공한다.
+    """
+    # - imports/includes 목록
+    # - 함수 시그니처 목록 (본문 제외)
+    # - 전역 변수/상수
+
+def _extract_error_functions(self, file_content: str, errors: list) -> str:
+    """정적분석 에러 라인을 포함하는 함수를 통째로 추출.
+
+    - 에러 라인 → AST 또는 정규식으로 함수 경계 탐색 → 함수 전체 코드 추출
+    - 함수 밖 에러(전역 스코프)는 에러 주변 ±20줄 추출
+    - 중복 함수 제거 (여러 에러가 같은 함수에 있을 경우)
+    """
+```
+
+프롬프트 변수:
+- `{structure_summary}`: 구조 요약 (imports, 시그니처, 전역변수)
+- `{error_functions}`: 에러 포함 함수 전체 코드
+- SQL의 경우 `{error_queries}`: 패턴 매치된 SQL 문 전체
+
+### Heuristic 경로 (정적분석 에러 없을 때)
+
+에러 위치를 모르므로 파일 크기 기반 분기:
+
+```python
+def _optimize_file_content(self, file_content: str, file_context: dict) -> str:
+    """파일 크기에 따라 코드를 최적화.
+
+    - ≤500줄: 전체 코드 그대로 반환
+    - >500줄: head(200줄) + "...(중략)..." + tail(100줄) + 구조 요약
+    """
+```
+
+프롬프트 변수:
+- `{file_content_optimized}`: 최적화된 파일 코드

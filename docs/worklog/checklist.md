@@ -63,12 +63,12 @@
   - [x] T10.3: 공통 패턴 탐지
   - [x] T10.4: LLM 컨텍스트 보정 + FileContext 반환
   - [x] T10.5: 단위 테스트
-- [ ] T11: Phase 2 Analyzer Agents
-  - [ ] T11.1: js_analyzer.py
-  - [ ] T11.2: c_analyzer.py
-  - [ ] T11.3: proc_analyzer.py
-  - [ ] T11.4: sql_analyzer.py
-  - [ ] T11.5: 단위 테스트 4개
+- [x] T11: Phase 2 Analyzer Agents
+  - [x] T11.1: js_analyzer.py
+  - [x] T11.2: c_analyzer.py
+  - [x] T11.3: proc_analyzer.py
+  - [x] T11.4: sql_analyzer.py
+  - [x] T11.5: 단위 테스트 4개
 - [ ] T12: ReporterAgent (Phase 3)
   - [ ] T12.1: reporter.py 구현
   - [ ] T12.2: checklist_generator 연동
@@ -93,3 +93,9 @@
   - [ ] T15.2: E2E 테스트
   - [ ] T15.3: Exit code 검증
   - [ ] T15.4: 출력 파일 검증
+- [ ] T16: 토큰 최적화 (Structure + Function Window)
+  - [ ] T16.1: _extract_error_functions() 구현
+  - [ ] T16.2: _build_structure_summary() 구현
+  - [ ] T16.3: 4개 Analyzer _build_messages() 수정
+  - [ ] T16.4: 8개 프롬프트 템플릿 변수 변경
+  - [ ] T16.5: 단위 테스트
