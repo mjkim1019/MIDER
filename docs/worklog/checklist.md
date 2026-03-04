@@ -64,11 +64,11 @@
   - [x] T10.4: LLM 컨텍스트 보정 + FileContext 반환
   - [x] T10.5: 단위 테스트
 - [ ] T11: Phase 2 Analyzer Agents
-  - [ ] T11.1: js_analyzer.py
-  - [ ] T11.2: c_analyzer.py
-  - [ ] T11.3: proc_analyzer.py
-  - [ ] T11.4: sql_analyzer.py
-  - [ ] T11.5: 단위 테스트 4개
+  - [x] T11.1: js_analyzer.py
+  - [x] T11.2: c_analyzer.py
+  - [x] T11.3: proc_analyzer.py
+  - [x] T11.4: sql_analyzer.py
+  - [x] T11.5: 단위 테스트 4개
 - [ ] T12: ReporterAgent (Phase 3)
   - [ ] T12.1: reporter.py 구현
   - [ ] T12.2: checklist_generator 연동
