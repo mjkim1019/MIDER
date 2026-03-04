@@ -70,7 +70,7 @@
   - [x] T11.4: sql_analyzer.py
   - [x] T11.5: 단위 테스트 4개
 - [ ] T12: ReporterAgent (Phase 3)
-  - [ ] T12.1: reporter.py 구현
+  - [x] T12.1: reporter.py 구현
   - [ ] T12.2: checklist_generator 연동
   - [ ] T12.3: 3개 JSON 출력
   - [ ] T12.4: RiskAssessment 생성
