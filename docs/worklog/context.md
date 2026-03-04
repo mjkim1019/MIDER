@@ -87,3 +87,8 @@
 | 2026-03-04 | `_build_context_map`에서 경로를 `resolve()`로 정규화 | 리뷰 반영: `_validate_and_expand_files`에서 resolve()한 경로와 매칭 보장 |
 | 2026-03-04 | `output_dir` 파라미터 제거 | 리뷰 반영: 파일 쓰기는 T14 CLI에서 담당, 미사용 파라미터 제거 |
 | 2026-03-04 | 성공 경로 반환에 `errors` 키 추가 | 리뷰 반영: `_empty_result()`와 일관된 반환 구조 |
+| 2026-03-04 | OrchestratorAgent import를 `run_analysis` 내부 → 모듈 레벨로 이동 | `patch("mider.main.OrchestratorAgent")` mock이 동작하도록 |
+| 2026-03-04 | `MIDER_API_KEY` → `OPENAI_API_KEY` 환경변수 브리징 추가 | 리뷰 반영: LLMClient가 `OPENAI_API_KEY`를 읽으므로 CLI에서 브리징 필수 |
+| 2026-03-04 | LLM 에러 감지: 문자열 매칭 → OpenAI 예외 타입 검사 | 리뷰 반영: "api", "connection" 등 문자열 매칭은 false positive 위험 |
+| 2026-03-04 | KeyboardInterrupt exit code: 2 → 130 (Unix SIGINT 관례) | 리뷰 반영: 파일 에러(2)와 사용자 취소를 구분 |
+| 2026-03-04 | Progress callback `total > 0` 가드 추가 | 리뷰 반영: total==0일 때 `0 >= 0`이 true가 되어 즉시 done 표시 방지 |
