@@ -53,3 +53,6 @@
 | 2026-02-27 | `_apply_llm_priorities`에서 priority 0 처리: `if priority` → `isinstance(priority, int)` | Python에서 0이 falsy이므로 priority 0이 무시되는 버그 방지 |
 | 2026-02-27 | LLM 응답 `json.loads` 후 `isinstance(dict)` 타입 체크 추가 | LLM이 list 등 비-dict JSON을 반환할 경우 AttributeError 방지 |
 | 2026-03-04 | T10~T15 계획 수립, T10부터 재개 | T1~T9 완료 후 후속 개발 |
+| 2026-03-04 | FileReader import를 `__init__` 내부 → 모듈 레벨로 이동 | TaskClassifierAgent와 패턴 일치, 리뷰 반영 |
+| 2026-03-04 | 주석 필터 `startswith("*")` → `startswith("* ")` | `*ptr = malloc(...)` 같은 포인터 역참조가 주석으로 오인되는 버그 방지 |
+| 2026-03-04 | `common_patterns`를 Tool 결과 우선으로 변경 | LLM이 빈도 수치를 할루시네이션할 수 있으므로 정확한 Tool 집계 사용 |

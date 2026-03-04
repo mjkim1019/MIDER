@@ -57,7 +57,7 @@
   - [x] T9.3: LLM 우선순위 보정
   - [x] T9.4: ExecutionPlan 반환
   - [x] T9.5: 단위 테스트
-- [ ] T10: ContextCollectorAgent (Phase 1)
+- [x] T10: ContextCollectorAgent (Phase 1)
   - [x] T10.1: context_collector.py 기본 구조
   - [x] T10.2: Import/Include 추출 + 호출 관계 매핑
   - [x] T10.3: 공통 패턴 탐지
