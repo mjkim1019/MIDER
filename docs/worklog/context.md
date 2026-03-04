@@ -5,19 +5,27 @@
 - T4/T6/T7/T8 병렬 구현: 모두 T3(Base Infrastructure)만 의존하므로 독립적
 - T11/T12 병렬 구현: Phase 2 Analyzer와 Phase 3 Reporter는 스키마가 확정되어 있으므로 병렬 가능
 - LSP Tool (T7)은 1차 PoC에서 선택적 기능 — 바이너리 없을 시 graceful degradation
+- ContextCollectorAgent는 Tool 기반 추출 + LLM 보정 하이브리드 방식 채택 (TaskClassifierAgent 패턴 동일)
+
+## T10 설계 결정
+- **Tool 우선 추출**: AstGrepSearch로 import/함수 호출/패턴을 먼저 추출, LLM은 보정만 담당
+- **LLM graceful degradation**: LLM 실패 시 Tool 결과만으로 FileContext 생성 (TaskClassifierAgent 패턴)
+- **프롬프트**: `context_collector.txt` 이미 구현됨 — execution_plan, file_contents 변수 사용
+- **FileContext 모델**: `models/file_context.py` 이미 구현됨 — SingleFileContext, ImportInfo, CallInfo, PatternInfo
+- **DependencyGraph 재사용**: ExecutionPlan의 dependencies를 그대로 FileContext에 전달
 
 ## 참조 문서
-- docs/TECH_SPEC.md: Agent 워크플로우 전체 (섹션 2)
-- docs/DATA_SCHEMA.md: Pydantic 스키마 정의 (섹션 1-4)
+- docs/TECH_SPEC.md: Agent 워크플로우 전체 (섹션 2, Agent 3: ContextCollectorAgent)
+- docs/DATA_SCHEMA.md: Pydantic 스키마 정의 (섹션 2: FileContext)
 - docs/CLI_SPEC.md: CLI 옵션, 터미널 출력 형식
 - docs/manuals/agents.md: BaseAgent 패턴, call_llm() 재시도
-- docs/manuals/tools.md: BaseTool 인터페이스
 
 ## 주의사항
 - 1차 PoC 범위: RAG, Session Resume, Context 압축 제외
 - print() 금지 → rich/logging 사용
 - Agent는 코드 수정 불가 (제안만)
 - Before/After 코드는 1-3줄만
+- `**kwargs` 남용 금지 — 명시적 파라미터 사용 (TaskClassifierAgent에서 이미 적용됨)
 
 ## 변경 이력
 | 날짜 | 내용 | 이유 |
@@ -44,3 +52,4 @@
 | 2026-02-27 | 빈 파일 목록 시 `DependencyGraph()` 모델 인스턴스 사용 | raw dict 대신 Pydantic 모델을 사용하여 타입 안전성 확보 |
 | 2026-02-27 | `_apply_llm_priorities`에서 priority 0 처리: `if priority` → `isinstance(priority, int)` | Python에서 0이 falsy이므로 priority 0이 무시되는 버그 방지 |
 | 2026-02-27 | LLM 응답 `json.loads` 후 `isinstance(dict)` 타입 체크 추가 | LLM이 list 등 비-dict JSON을 반환할 경우 AttributeError 방지 |
+| 2026-03-04 | T10~T15 계획 수립, T10부터 재개 | T1~T9 완료 후 후속 개발 |
