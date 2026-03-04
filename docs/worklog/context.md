@@ -74,3 +74,7 @@
 | 2026-03-04 | `llm_tokens_used` 추정값 사용: `(len(prompt) + len(response)) // 4` | LLMClient.chat()이 토큰 수를 반환하지 않으므로 근사값 사용 (2차에서 개선 예정) |
 | 2026-03-04 | 토큰 최적화 설계: `{file_content}` → `{structure_summary}` + `{error_functions}` | 대형 파일에서 LLM 토큰 과다 소비 방지, 함수 단위 추출로 논리적 완결성 확보 |
 | 2026-03-04 | Context 압축을 2차 PoC에서 1차 PoC로 이동 | 토큰 최적화가 1차 PoC 비용 효율성에 직결되므로 조기 적용 |
+| 2026-03-04 | ReporterAgent: LLM은 risk_description 생성에만 사용, 집계는 코드에서 처리 | 통계 집계는 정확해야 하므로 LLM 할루시네이션 방지, LLM은 한국어 설명 생성에 집중 |
+| 2026-03-04 | ReporterAgent: gpt-4o-mini (temp 0.3, fallback gpt-4o) | TECH_SPEC 스펙 준수 — 간단한 요약이므로 경량 모델 |
+| 2026-03-04 | `_determine_risk()`에서 `issue["issue_id"]` → `issue.get("issue_id", "")` | 리뷰 반영: issue dict에 issue_id 키 누락 시 KeyError 방지 |
+| 2026-03-04 | `_generate_risk_description()`에 generated_at 매개변수 전달 | 리뷰 반영: 리포트 전체의 timestamp 일관성 확보 |
