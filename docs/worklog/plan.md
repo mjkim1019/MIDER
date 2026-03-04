@@ -65,12 +65,29 @@ T1~T9 완료, T10부터 재개.
 - T15.3: Exit code 검증
 - T15.4: 출력 파일 검증 (3개 JSON)
 
+### T16: 토큰 최적화 (Structure + Function Window) (depends: T11)
+- T16.1: `_extract_error_functions()` 유틸리티 구현 → 대상: `mider/agents/` 또는 `mider/tools/utility/`
+  - 정적분석 에러 라인 → AST/정규식으로 함수 경계 탐색 → 함수 전체 추출
+  - 함수 밖 에러는 에러 주변 ±20줄 추출
+  - SQL은 SQL 문(SELECT/INSERT/UPDATE/DELETE) 단위로 추출
+- T16.2: `_build_structure_summary()` 유틸리티 구현 → 대상: `mider/agents/` 또는 `mider/tools/utility/`
+  - Phase 1 file_context의 imports/calls/patterns + ast-grep 함수 시그니처 + 전역변수
+- T16.3: 4개 Analyzer `_build_messages()` 수정 → 대상: `mider/agents/{js,c,proc,sql}_analyzer.py`
+  - Error-Focused: `{file_content}` → `{structure_summary}` + `{error_functions}`
+  - Heuristic: `{file_content}` → `{file_content_optimized}` (≤500줄 전체, >500줄 head+tail+구조요약)
+- T16.4: 8개 프롬프트 템플릿 변수 변경 → 대상: `mider/config/prompts/*_analyzer_*.txt`
+  - Error-Focused 4개: `{file_content}` → `{structure_summary}` + `{error_functions}`
+  - Heuristic 4개: `{file_content}` → `{file_content_optimized}`
+- T16.5: 단위 테스트 → 대상: `tests/test_agents/`, `tests/test_tools/`
+
 ## 일정 요약
 | Task | 의존성 | 병렬 가능 | 상태 |
 |------|--------|----------|------|
 | T1~T9 | - | - | ✅ 완료 |
-| T10 | T2~T4, T7, T8 | - | 🔜 다음 |
-| T11, T12 | T2~T8 | **병렬** | 대기 |
+| T10 | T2~T4, T7, T8 | - | ✅ 완료 |
+| T11 | T2~T8 | T12와 병렬 | ✅ 완료 |
+| T12 | T2, T3, T5, T8 | T11과 병렬 | 대기 |
 | T13 | T9~T12 | - | 대기 |
 | T14 | T13 | - | 대기 |
 | T15 | T14 | - | 대기 |
+| T16 | T11 | T12~T15와 병렬 | 대기 |
