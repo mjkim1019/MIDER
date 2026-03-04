@@ -185,3 +185,9 @@
 - `2026-03-04 22:40:37` [feat/T13-orchestrator-agent] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_orchestrator.py`
 - `2026-03-04 22:40:47` [feat/T13-orchestrator-agent] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_orchestrator.py`
 - `2026-03-04 22:41:05` [feat/T13-orchestrator-agent] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_orchestrator.py`
+- `2026-03-04 22:49:24` [feat/T14-cli-entry-point] **Write**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-03-04 22:50:51` [feat/T14-cli-entry-point] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_cli/test_main.py`
+- `2026-03-04 22:51:11` [feat/T14-cli-entry-point] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_cli/test_main.py`
+- `2026-03-04 22:51:21` [feat/T14-cli-entry-point] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-03-04 22:51:25` [feat/T14-cli-entry-point] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-03-04 22:51:29` [feat/T14-cli-entry-point] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_cli/test_main.py`
