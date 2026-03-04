@@ -148,15 +148,14 @@ class CAnalyzerAgent(BaseAgent):
         Returns:
             (prompt_text, messages) 튜플
         """
-        file_context_str = json.dumps(
-            file_context, ensure_ascii=False, indent=2,
-        ) if file_context else "컨텍스트 정보 없음"
-
         if clang_data:
             # Error-Focused 경로
             clang_warnings_str = json.dumps(
                 clang_data["warnings"], ensure_ascii=False, indent=2,
             )
+            file_context_str = json.dumps(
+                file_context, ensure_ascii=False, indent=2,
+            ) if file_context else "컨텍스트 정보 없음"
             prompt = load_prompt(
                 "c_analyzer_error_focused",
                 clang_tidy_warnings=clang_warnings_str,

@@ -147,8 +147,8 @@ class SQLAnalyzerAgent(BaseAgent):
                 for match in matches:
                     all_matches.append({
                         "pattern": pattern_name,
-                        "line": match["line"],
-                        "content": match["content"],
+                        "line": match.get("line", 0),
+                        "content": match.get("content", ""),
                     })
             except Exception as e:
                 logger.warning(f"패턴 검색 실패 ({pattern_name}): {e}")

@@ -149,15 +149,14 @@ class JavaScriptAnalyzerAgent(BaseAgent):
         Returns:
             (prompt_text, messages) 튜플
         """
-        file_context_str = json.dumps(
-            file_context, ensure_ascii=False, indent=2,
-        ) if file_context else "컨텍스트 정보 없음"
-
         if eslint_data:
             # Error-Focused 경로
             eslint_errors_str = json.dumps(
                 eslint_data, ensure_ascii=False, indent=2,
             )
+            file_context_str = json.dumps(
+                file_context, ensure_ascii=False, indent=2,
+            ) if file_context else "컨텍스트 정보 없음"
             prompt = load_prompt(
                 "js_analyzer_error_focused",
                 eslint_errors=eslint_errors_str,
