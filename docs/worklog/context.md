@@ -78,3 +78,6 @@
 | 2026-03-04 | ReporterAgent: gpt-4o-mini (temp 0.3, fallback gpt-4o) | TECH_SPEC 스펙 준수 — 간단한 요약이므로 경량 모델 |
 | 2026-03-04 | `_determine_risk()`에서 `issue["issue_id"]` → `issue.get("issue_id", "")` | 리뷰 반영: issue dict에 issue_id 키 누락 시 KeyError 방지 |
 | 2026-03-04 | `_generate_risk_description()`에 generated_at 매개변수 전달 | 리뷰 반영: 리포트 전체의 timestamp 일관성 확보 |
+| 2026-03-04 | OrchestratorAgent: Sub-Agent lazy init (None이면 초기화) | 테스트에서 mock 주입 후 run() 호출 시 덮어쓰기 방지 |
+| 2026-03-04 | OrchestratorAgent: LLM 직접 호출 없음, Sub-Agent에 위임 | Orchestrator는 워크플로우 제어만 담당, 프롬프트는 사용하지 않음 |
+| 2026-03-04 | OrchestratorAgent: ProgressCallback Protocol 정의 | Rich Progress Bar 연동을 위한 타입 안전 콜백 인터페이스 |
