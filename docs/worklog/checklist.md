@@ -63,7 +63,7 @@
   - [x] T10.3: 공통 패턴 탐지
   - [x] T10.4: LLM 컨텍스트 보정 + FileContext 반환
   - [x] T10.5: 단위 테스트
-- [ ] T11: Phase 2 Analyzer Agents
+- [x] T11: Phase 2 Analyzer Agents
   - [x] T11.1: js_analyzer.py
   - [x] T11.2: c_analyzer.py
   - [x] T11.3: proc_analyzer.py

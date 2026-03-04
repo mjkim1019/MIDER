@@ -56,3 +56,8 @@
 | 2026-03-04 | FileReader import를 `__init__` 내부 → 모듈 레벨로 이동 | TaskClassifierAgent와 패턴 일치, 리뷰 반영 |
 | 2026-03-04 | 주석 필터 `startswith("*")` → `startswith("* ")` | `*ptr = malloc(...)` 같은 포인터 역참조가 주석으로 오인되는 버그 방지 |
 | 2026-03-04 | `common_patterns`를 Tool 결과 우선으로 변경 | LLM이 빈도 수치를 할루시네이션할 수 있으므로 정확한 Tool 집계 사용 |
+| 2026-03-04 | JS/C/ProC Analyzer: gpt-4o(fallback 없음), SQL Analyzer: gpt-4o-mini(fallback gpt-4o) | TECH_SPEC 스펙 준수 — 복잡한 분석은 gpt-4o, SQL 패턴은 gpt-4o-mini |
+| 2026-03-04 | ProC Error-Focused 조건: proc 에러 OR SQLCA 미검사 블록 존재 | TECH_SPEC "errors 있거나 sqlca_check 누락" 조건 |
+| 2026-03-04 | `file_context_str` 연산을 Error-Focused 분기 안으로 이동 (JS/C) | Heuristic 프롬프트에 file_context 변수가 없으므로 불필요 연산 제거 (리뷰 반영) |
+| 2026-03-04 | SQL analyzer `match["line"]` → `match.get("line", 0)` 안전 접근 | AstGrepSearch 결과에 키 누락 시 KeyError 방지 (리뷰 반영) |
+| 2026-03-04 | `llm_tokens_used` 추정값 사용: `(len(prompt) + len(response)) // 4` | LLMClient.chat()이 토큰 수를 반환하지 않으므로 근사값 사용 (2차에서 개선 예정) |
