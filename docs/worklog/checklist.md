@@ -81,13 +81,13 @@
   - [x] T13.3: Sub-agent 호출 관리
   - [x] T13.4: Progress 콜백
   - [x] T13.5: 단위 테스트
-- [ ] T14: CLI Entry Point
-  - [ ] T14.1: main.py argparse
-  - [ ] T14.2: 환경 변수 처리
-  - [ ] T14.3: Rich Progress Bar
-  - [ ] T14.4: Before/After 출력
-  - [ ] T14.5: 종료 코드
-  - [ ] T14.6: 단위 테스트
+- [x] T14: CLI Entry Point
+  - [x] T14.1: main.py argparse
+  - [x] T14.2: 환경 변수 처리
+  - [x] T14.3: Rich Progress Bar
+  - [x] T14.4: Before/After 출력
+  - [x] T14.5: 종료 코드
+  - [x] T14.6: 단위 테스트
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 4개
   - [ ] T15.2: E2E 테스트
