@@ -117,10 +117,13 @@ class OrchestratorAgent(BaseAgent):
 
         self._report_progress(0, "입력 검증", 1, 1, f"{len(valid_files)}개 파일 확인")
 
-        # Sub-Agent 초기화
-        self._task_classifier = TaskClassifierAgent()
-        self._context_collector = ContextCollectorAgent()
-        self._reporter = ReporterAgent()
+        # Sub-Agent 초기화 (이미 설정된 경우 유지 — 테스트 시 mock 주입용)
+        if self._task_classifier is None:
+            self._task_classifier = TaskClassifierAgent()
+        if self._context_collector is None:
+            self._context_collector = ContextCollectorAgent()
+        if self._reporter is None:
+            self._reporter = ReporterAgent()
 
         # Phase 0: Task Classification
         execution_plan = await self._run_phase0(valid_files)
