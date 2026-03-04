@@ -9,7 +9,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Optional, Protocol
+from typing import Any, Optional, Protocol
 
 from mider.agents.base_agent import BaseAgent
 from mider.agents.c_analyzer import CAnalyzerAgent
@@ -66,7 +66,7 @@ class OrchestratorAgent(BaseAgent):
         model: str = "gpt-4o",
         fallback_model: str | None = "gpt-4-turbo",
         temperature: float = 0.3,
-        progress_callback: Optional[Callable[..., None]] = None,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> None:
         super().__init__(
             model=model,
@@ -84,22 +84,21 @@ class OrchestratorAgent(BaseAgent):
         self._task_classifier: Optional[TaskClassifierAgent] = None
         self._context_collector: Optional[ContextCollectorAgent] = None
         self._reporter: Optional[ReporterAgent] = None
+        self._analyzers: dict[str, BaseAgent] = {}
 
     async def run(
         self,
         *,
         files: list[str],
-        output_dir: str = "./output",
     ) -> dict[str, Any]:
         """전체 분석 파이프라인을 실행한다.
 
         Args:
             files: 분석 대상 파일 경로 리스트 (glob 패턴 포함 가능)
-            output_dir: JSON 리포트 출력 디렉토리
 
         Returns:
             {"issue_list": ..., "checklist": ..., "summary": ...,
-             "execution_plan": ..., "session_id": ...}
+             "execution_plan": ..., "session_id": ..., "errors": ...}
         """
         pipeline_start = time.time()
         logger.info(f"분석 시작: session={self.session_id}, 입력 {len(files)}건")
@@ -157,6 +156,7 @@ class OrchestratorAgent(BaseAgent):
             "issue_list": report["issue_list"],
             "checklist": report["checklist"],
             "summary": report["summary"],
+            "errors": file_errors,
         }
 
     # ──────────────────────────────────────────────
@@ -225,9 +225,23 @@ class OrchestratorAgent(BaseAgent):
         self._report_progress(2, "코드 분석", 0, total_tasks, "분석 시작")
 
         for idx, task in enumerate(sub_tasks):
-            file_path = task["file"]
-            language = task["language"]
-            task_id = task["task_id"]
+            try:
+                file_path = task["file"]
+                language = task["language"]
+                task_id = task["task_id"]
+            except (KeyError, TypeError) as e:
+                logger.error(f"Sub-task 데이터 오류: {e}")
+                analysis_results.append({
+                    "task_id": task.get("task_id", f"unknown_{idx}") if isinstance(task, dict) else f"unknown_{idx}",
+                    "file": task.get("file", "unknown") if isinstance(task, dict) else "unknown",
+                    "language": task.get("language", "unknown") if isinstance(task, dict) else "unknown",
+                    "agent": "OrchestratorAgent",
+                    "issues": [],
+                    "analysis_time_seconds": 0.0,
+                    "llm_tokens_used": 0,
+                    "error": f"Sub-task 데이터 오류: {e}",
+                })
+                continue
 
             self._report_progress(
                 2, "코드 분석", idx, total_tasks,
@@ -338,14 +352,31 @@ class OrchestratorAgent(BaseAgent):
                 "error": f"지원하지 않는 언어: {language}",
             }
 
-        analyzer = agent_cls()
-        return await self._call_agent(
-            analyzer,
-            task_id=task_id,
-            file=file,
-            language=language,
-            file_context=file_context,
-        )
+        # Analyzer 캐싱: 같은 언어는 같은 인스턴스 재사용
+        if language not in self._analyzers:
+            self._analyzers[language] = agent_cls()
+        analyzer = self._analyzers[language]
+
+        try:
+            return await self._call_agent(
+                analyzer,
+                task_id=task_id,
+                file=file,
+                language=language,
+                file_context=file_context,
+            )
+        except Exception as e:
+            logger.error(f"Analyzer 실행 실패: {file}: {e}")
+            return {
+                "task_id": task_id,
+                "file": file,
+                "language": language,
+                "agent": type(analyzer).__name__,
+                "issues": [],
+                "analysis_time_seconds": 0.0,
+                "llm_tokens_used": 0,
+                "error": str(e),
+            }
 
     # ──────────────────────────────────────────────
     # 입력 검증 도구
@@ -473,12 +504,21 @@ class OrchestratorAgent(BaseAgent):
     def _build_context_map(
         file_context: dict[str, Any],
     ) -> dict[str, dict[str, Any]]:
-        """FileContext에서 파일 경로 → SingleFileContext 매핑을 생성한다."""
+        """FileContext에서 파일 경로 → SingleFileContext 매핑을 생성한다.
+
+        절대경로로 정규화하여 _validate_and_expand_files에서 resolve()한
+        경로와 매칭되도록 한다.
+        """
         context_map: dict[str, dict[str, Any]] = {}
         for ctx in file_context.get("file_contexts", []):
             file_path = ctx.get("file", "")
             if file_path:
-                context_map[file_path] = ctx
+                # 절대경로 정규화 (검증 단계에서 resolve()된 경로와 매칭)
+                resolved = str(Path(file_path).resolve())
+                context_map[resolved] = ctx
+                # 원본 경로도 등록 (resolve 전 경로로 접근하는 경우 대비)
+                if resolved != file_path:
+                    context_map[file_path] = ctx
         return context_map
 
     def _report_progress(

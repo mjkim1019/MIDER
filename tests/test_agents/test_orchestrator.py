@@ -1,6 +1,5 @@
 """OrchestratorAgent 단위 테스트."""
 
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -362,6 +361,9 @@ class TestRunPipeline:
 
         assert result["session_id"] == agent.session_id
         assert result["execution_plan"]["total_files"] == 0
+        assert "issue_list" in result
+        assert "checklist" in result
+        assert "summary" in result
         assert "errors" in result
 
     @pytest.mark.asyncio
@@ -411,6 +413,7 @@ class TestRunPipeline:
         assert "checklist" in result
         assert "summary" in result
         assert "execution_plan" in result
+        assert "errors" in result
 
         mock_classifier.run.assert_called_once()
         mock_collector.run.assert_called_once()
@@ -609,9 +612,77 @@ class TestAnalyzeSingleFile:
                 file_context=None,
             )
 
-        mock_cls.assert_called_once()
         mock_inst.run.assert_called_once()
         assert result["task_id"] == "task_1"
+
+    @pytest.mark.asyncio
+    async def test_analyzer_exception_returns_error(self, agent):
+        """Analyzer가 예외를 발생시키면 에러 결과를 반환한다."""
+        mock_cls = MagicMock()
+        mock_inst = AsyncMock()
+        mock_inst.run.side_effect = RuntimeError("LLM 장애")
+        mock_cls.return_value = mock_inst
+
+        with patch.dict(_LANGUAGE_AGENT_MAP, {"javascript": mock_cls}):
+            result = await agent._analyze_single_file(
+                task_id="task_1",
+                file="/app/test.js",
+                language="javascript",
+                file_context=None,
+            )
+
+        assert result["error"] == "LLM 장애"
+        assert result["issues"] == []
+
+    @pytest.mark.asyncio
+    async def test_analyzer_cached_by_language(self, agent):
+        """같은 언어의 Analyzer 인스턴스가 재사용된다."""
+        mock_cls = MagicMock()
+        mock_inst = AsyncMock()
+        mock_inst.run.return_value = _make_analysis_result()
+        mock_cls.return_value = mock_inst
+
+        with patch.dict(_LANGUAGE_AGENT_MAP, {"javascript": mock_cls}):
+            await agent._analyze_single_file(
+                task_id="task_1", file="/a.js",
+                language="javascript", file_context=None,
+            )
+            await agent._analyze_single_file(
+                task_id="task_2", file="/b.js",
+                language="javascript", file_context=None,
+            )
+
+        # 생성자는 한 번만 호출
+        mock_cls.assert_called_once()
+
+
+# ──────────────────────────────────────────────
+# TestMalformedSubTask
+# ──────────────────────────────────────────────
+
+class TestMalformedSubTask:
+    """Phase 2에서 malformed sub-task 처리 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_missing_key_in_subtask(self, agent, js_file):
+        """sub-task에 필수 키가 없으면 에러로 처리된다."""
+        plan = _make_execution_plan([
+            {"task_id": "task_1"},  # file, language 누락
+        ])
+        fc = _make_file_context([js_file])
+        report = _make_report_result()
+
+        agent._task_classifier = AsyncMock()
+        agent._task_classifier.run.return_value = plan
+        agent._context_collector = AsyncMock()
+        agent._context_collector.run.return_value = fc
+        agent._reporter = AsyncMock()
+        agent._reporter.run.return_value = report
+
+        result = await agent.run(files=[js_file])
+
+        # 파이프라인이 크래시하지 않고 완료됨
+        assert "issue_list" in result
 
 
 # ──────────────────────────────────────────────
