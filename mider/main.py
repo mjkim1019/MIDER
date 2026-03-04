@@ -19,6 +19,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from mider import __version__
+from mider.agents.orchestrator import OrchestratorAgent
 from mider.config.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -320,8 +321,6 @@ async def run_analysis(
     Returns:
         종료 코드 (0, 1, 2, 3)
     """
-    from mider.agents.orchestrator import OrchestratorAgent
-
     progress_callback = _create_progress_callback(console)
 
     orchestrator = OrchestratorAgent(
