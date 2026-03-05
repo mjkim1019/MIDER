@@ -342,8 +342,8 @@ class TestPrintIssues:
         print_issues(console, issue_list)
         assert console.print.called
 
-    def test_low_issues_not_displayed(self):
-        """Low 이슈는 Before/After 미표시."""
+    def test_low_issues_displayed_without_before_after(self):
+        """Low 이슈도 출력되지만 Before/After 코드는 생략."""
         console = MagicMock()
         issue_list = {
             "issues": [
@@ -359,9 +359,9 @@ class TestPrintIssues:
             ],
         }
         print_issues(console, issue_list)
-        # Panel은 critical/high에만 사용
+        # LOW도 Panel로 표시됨
         calls_str = str(console.print.call_args_list)
-        assert "Panel" not in calls_str
+        assert "Panel" in calls_str
 
 
 # ──────────────────────────────────────────────
