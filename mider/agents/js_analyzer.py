@@ -182,7 +182,9 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             error_functions_str = "\n\n".join(
                 f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
                 for block in error_blocks
-            ) if error_blocks else file_content
+            ) if error_blocks else optimize_file_content(
+                file_content, file_context, "javascript",
+            )
 
             prompt = load_prompt(
                 "js_analyzer_error_focused",

@@ -90,6 +90,32 @@ def _extract_function_blocks(
     return blocks
 
 
+def _count_braces_in_line(line: str, count_ref: list[int]) -> None:
+    """한 줄에서 문자열/주석을 무시하고 중괄호를 세어 count_ref[0]을 갱신한다."""
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        # 한 줄 주석 (//) → 나머지 무시
+        if ch == "/" and i + 1 < n and line[i + 1] == "/":
+            break
+        # 문자열 리터럴 건너뛰기
+        if ch in ('"', "'"):
+            quote = ch
+            i += 1
+            while i < n and line[i] != quote:
+                if line[i] == "\\":
+                    i += 1  # 이스케이프 건너뛰기
+                i += 1
+            i += 1  # 닫는 따옴표
+            continue
+        if ch == "{":
+            count_ref[0] += 1
+        elif ch == "}":
+            count_ref[0] -= 1
+        i += 1
+
+
 def _find_function_boundaries(
     lines: list[str],
     language: str,
@@ -106,7 +132,7 @@ def _find_function_boundaries(
             r"(?:async\s+)?function\s+\w+|"  # function name
             r"(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\(|"  # export function(
             r"(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?(?:function|\(.*?\)\s*=>|\w+\s*=>)|"  # arrow
-            r"\w+\s*\(.*?\)\s*\{|"  # method()
+            r"(?!(?:if|else|for|while|switch|return|catch|try|do)\s*\()\w+\s*\(.*?\)\s*\{|"  # method (제어문 제외)
             r"(?:get|set)\s+\w+\s*\("  # getter/setter
             r")"
         )
@@ -133,12 +159,10 @@ def _find_function_boundaries(
             j = i
 
             while j < len(lines):
-                for ch in lines[j]:
-                    if ch == "{":
-                        brace_count += 1
-                        found_brace = True
-                    elif ch == "}":
-                        brace_count -= 1
+                _count_braces_in_line(lines[j], brace_count_ref := [brace_count])
+                brace_count = brace_count_ref[0]
+                if not found_brace and brace_count > 0:
+                    found_brace = True
 
                 if found_brace and brace_count == 0:
                     functions.append((func_start, j + 1))
@@ -277,7 +301,7 @@ def build_structure_summary(
 
         # 4. 공통 패턴
         patterns = file_context.get("common_patterns", {})
-        if patterns:
+        if isinstance(patterns, dict) and patterns:
             pattern_strs = [f"{k}({v})" for k, v in patterns.items() if v]
             if pattern_strs:
                 parts.append(f"[공통 패턴] {', '.join(pattern_strs)}")
