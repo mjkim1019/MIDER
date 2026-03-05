@@ -64,11 +64,20 @@ class ClangTidyRunner(BaseTool):
             )
 
         if not self._binary.exists():
-            raise ToolExecutionError(
-                "clang_tidy_runner",
-                f"binary not found: {self._binary}. "
-                "clang-tidy 바이너리를 resources/binaries/에 배치하세요.",
-            )
+            # 시스템 PATH에서 clang-tidy 탐색
+            import shutil
+            system_binary = shutil.which("clang-tidy")
+            if system_binary:
+                self._binary = Path(system_binary)
+            else:
+                logger.info(
+                    "clang-tidy 바이너리 없음 — Heuristic 모드로 분석합니다. "
+                    "(resources/binaries/ 또는 시스템 PATH에 clang-tidy가 없음)"
+                )
+                return ToolResult(
+                    success=True,
+                    data={"warnings": [], "total_warnings": 0, "skipped": True},
+                )
 
         checks_arg = checks or _DEFAULT_CHECKS
 

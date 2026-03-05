@@ -40,12 +40,15 @@ class TestProcRunner:
         with pytest.raises(ToolExecutionError, match="file not found"):
             runner.execute(file="/nonexistent.pc")
 
-    def test_binary_not_found(self, tmp_path):
+    def test_binary_not_found_skips_gracefully(self, tmp_path):
+        """바이너리 없으면 skipped=True로 빈 결과 반환."""
         runner = ProcRunner(binary_path="/nonexistent/proc")
         f = tmp_path / "test.pc"
         f.write_text("EXEC SQL SELECT 1;")
-        with pytest.raises(ToolExecutionError, match="binary not found"):
-            runner.execute(file=str(f))
+        result = runner.execute(file=str(f))
+        assert result.success is True
+        assert result.data["skipped"] is True
+        assert result.data["errors"] == []
 
     @patch("mider.tools.static_analysis.proc_runner.subprocess.run")
     def test_parse_errors(self, mock_run, runner, tmp_path):
