@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mider"
+version = "0.1.0"
+description = "폐쇄망 소스코드 분석 CLI"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0.0,<2.0.0",
+    "httpx>=0.28.0,<1.0.0",
+    "pydantic>=2.10.0,<3.0.0",
+    "rich>=13.9.0,<14.0.0",
+    "pyyaml>=6.0.0,<7.0.0",
+    "sqlparse>=0.5.0,<1.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+]
+
+[project.scripts]
+mider = "mider.main:main"
+
+[tool.setuptools.packages.find]
+include = ["mider*"]
