@@ -138,3 +138,10 @@
 | 2026-03-05 | ExplainPlanParser `_parse_data_row`: 빈 셀 skip 제거, positional alignment 유지 | Name 빈 셀(`\|        \|`)을 skip하면 이후 컬럼이 밀려 Cost가 Time에 매핑되는 버그 |
 | 2026-03-05 | sql_syntax_checker.py: 미사용 import 제거 (Parenthesis, Punctuation, String) | 리뷰 반영 — 코드 정리 |
 | 2026-03-05 | orchestrator.py: `_explain_plan_file`을 `__init__`에서 초기화 | 리뷰 반영 — `getattr` 방어 패턴 제거, 명시적 초기화 |
+| 2026-03-05 | CHeuristicScanner regex 6종 패턴 + 함수 매핑 구현 | 대형 C 파일(>500줄) 분석 누락 해결 — token 최적화 head/tail로 중간 코드 못잡는 문제 |
+| 2026-03-05 | 2-Pass 전략: Pass 1(gpt-4o-mini 선별) → Pass 2(gpt-4o 심층) | 비용 효율 — 전체 파일을 gpt-4o로 보내는 대신 regex로 사전 필터링 |
+| 2026-03-05 | `_find_function_boundaries` → `find_function_boundaries` (public) | 리뷰 반영 — 외부 모듈에서 private 함수 import하는 커플링 해소 |
+| 2026-03-05 | FORMAT_STRING 패턴에서 `fprintf` 제거 | 리뷰 반영 — fprintf 첫 인자가 FILE*이라 항상 false positive |
+| 2026-03-05 | 블록 주석 시작 전 코드도 스캔하도록 수정 | 리뷰 반영 — `int x; /* comment` 줄에서 `int x;` 부분 누락 방지 |
+| 2026-03-05 | 2-Pass 경로 `tokens_estimate` 초기값 0으로 선언 | 리뷰 반영 — UnboundLocalError를 제어흐름으로 사용하는 안티패턴 제거 |
+| 2026-03-05 | Pass 1 model 전환 시 `fallback_model`도 저장/복원 | 리뷰 반영 — gpt-4o-mini에서 의도치 않은 fallback 방지 |
