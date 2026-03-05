@@ -97,7 +97,7 @@
   - [x] T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
   - [x] T18.7: 단위 테스트
 - [ ] T20: C Heuristic Pre-Scanner (2-Pass 분석)
-  - [ ] T20.1: C Heuristic Scanner Tool (regex 6종 패턴)
+  - [x] T20.1: C Heuristic Scanner Tool (regex 6종 패턴)
   - [ ] T20.2: Pass 1 프롬프트 (few-shot 선별)
   - [ ] T20.3: CAnalyzerAgent 2-Pass 흐름 구현
   - [ ] T20.4: c_analyzer_heuristic 프롬프트에 few-shot 예시 추가
