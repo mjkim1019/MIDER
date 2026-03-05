@@ -109,7 +109,7 @@ def classify_c_file(file_path: str, first_line: str) -> str:
         upper = stripped.upper()
         if "SERVICE" in upper:
             return "tp"
-        if "MODULE" in stripped.lower():
+        if "module" in stripped.lower():
             return "module"
 
     # 규칙 2: 파일명 검사 (뒤에서 3번째 문자가 't')
