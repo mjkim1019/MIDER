@@ -90,7 +90,7 @@
   - [x] T14.6: 단위 테스트
 - [ ] T18: SQL 성능개선 강화
   - [x] T18.1: SQL 문법 검증 도구 (sqlparse)
-  - [ ] T18.2: Explain Plan 파서
+  - [x] T18.2: Explain Plan 파서
   - [ ] T18.3: ExplainPlan Pydantic 스키마
   - [ ] T18.4: SQLAnalyzerAgent 강화
   - [ ] T18.5: 프롬프트 템플릿 수정
