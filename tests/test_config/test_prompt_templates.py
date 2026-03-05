@@ -42,34 +42,37 @@ PROMPT_VARIABLES = {
     "js_analyzer_error_focused": {
         "eslint_errors": '[{"line": 1}]',
         "file_path": "/app/test.js",
-        "file_content": "const x = 1;",
+        "structure_summary": "[파일 정보] 1줄, 언어: javascript",
+        "error_functions": "const x = 1;",
         "file_context": '{"imports": []}',
     },
     "js_analyzer_heuristic": {
         "file_path": "/app/test.js",
-        "file_content": "const x = 1;",
+        "file_content_optimized": "const x = 1;",
     },
     "c_analyzer_error_focused": {
         "clang_tidy_warnings": '[{"line": 1}]',
         "file_path": "/app/test.c",
-        "file_content": "int main() {}",
+        "structure_summary": "[파일 정보] 1줄, 언어: c",
+        "error_functions": "int main() {}",
         "file_context": '{"imports": []}',
     },
     "c_analyzer_heuristic": {
         "file_path": "/app/test.c",
-        "file_content": "int main() {}",
+        "file_content_optimized": "int main() {}",
     },
     "proc_analyzer_error_focused": {
         "proc_errors": '[{"line": 1}]',
         "sql_blocks": '[{"sql": "SELECT 1"}]',
         "file_path": "/app/test.pc",
-        "file_content": "EXEC SQL SELECT 1;",
+        "structure_summary": "[파일 정보] 1줄, 언어: proc",
+        "error_functions": "EXEC SQL SELECT 1;",
         "file_context": '{"imports": []}',
     },
     "proc_analyzer_heuristic": {
         "sql_blocks": '[{"sql": "SELECT 1"}]',
         "file_path": "/app/test.pc",
-        "file_content": "EXEC SQL SELECT 1;",
+        "file_content_optimized": "EXEC SQL SELECT 1;",
     },
     "sql_analyzer_error_focused": {
         "static_patterns": '[{"type": "full_table_scan"}]',
@@ -134,7 +137,7 @@ class TestPromptVariableSubstitution:
             **PROMPT_VARIABLES["js_analyzer_error_focused"],
         )
         assert "/app/test.js" in result
-        assert "const x = 1;" in result
+        assert "const x = 1;" in result  # error_functions
         assert "eslint" in result.lower() or "ESLint" in result
 
     def test_c_analyzer_error_focused_substitution(self):
@@ -159,7 +162,7 @@ class TestPromptVariableSubstitution:
             **PROMPT_VARIABLES["sql_analyzer_error_focused"],
         )
         assert "/app/test.sql" in result
-        assert "SELECT * FROM orders;" in result
+        assert "SELECT * FROM orders;" in result  # error_functions
 
     def test_reporter_substitution(self):
         result = load_prompt("reporter", **PROMPT_VARIABLES["reporter"])
@@ -224,6 +227,16 @@ class TestPromptContent:
         )
         assert "Full Table Scan" in result or "full_table_scan" in result
         assert "인덱스" in result
+
+    def test_error_focused_has_structure_summary(self):
+        """Error-Focused 프롬프트에 structure_summary 변수가 포함되는지 검증 (SQL 제외)."""
+        for name in [
+            "js_analyzer_error_focused",
+            "c_analyzer_error_focused",
+            "proc_analyzer_error_focused",
+        ]:
+            result = load_prompt(name, **PROMPT_VARIABLES[name])
+            assert "파일 정보" in result, f"{name}: structure_summary 미치환"
 
     def test_reporter_has_risk_assessment(self):
         result = load_prompt("reporter", **PROMPT_VARIABLES["reporter"])

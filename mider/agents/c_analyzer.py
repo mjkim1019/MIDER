@@ -14,6 +14,11 @@ from mider.config.prompt_loader import load_prompt
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.static_analysis.clang_tidy_runner import ClangTidyRunner
+from mider.tools.utility.token_optimizer import (
+    build_structure_summary,
+    extract_error_functions,
+    optimize_file_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,19 +161,44 @@ class CAnalyzerAgent(BaseAgent):
             file_context_str = json.dumps(
                 file_context, ensure_ascii=False, indent=2,
             ) if file_context else "컨텍스트 정보 없음"
+
+            # 에러 라인 추출
+            error_lines = []
+            for item in clang_data.get("warnings", []):
+                if isinstance(item, dict) and "line" in item:
+                    error_lines.append(item["line"])
+
+            # 토큰 최적화
+            structure_summary = build_structure_summary(
+                file_content, file_context, "c",
+            )
+            error_blocks = extract_error_functions(
+                file_content, error_lines, "c",
+            )
+            error_functions_str = "\n\n".join(
+                f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
+                for block in error_blocks
+            ) if error_blocks else optimize_file_content(
+                file_content, file_context, "c",
+            )
+
             prompt = load_prompt(
                 "c_analyzer_error_focused",
                 clang_tidy_warnings=clang_warnings_str,
                 file_path=file,
-                file_content=file_content,
+                structure_summary=structure_summary,
+                error_functions=error_functions_str,
                 file_context=file_context_str,
             )
         else:
             # Heuristic 경로
+            file_content_optimized = optimize_file_content(
+                file_content, file_context, "c",
+            )
             prompt = load_prompt(
                 "c_analyzer_heuristic",
                 file_path=file,
-                file_content=file_content,
+                file_content_optimized=file_content_optimized,
             )
 
         messages = [

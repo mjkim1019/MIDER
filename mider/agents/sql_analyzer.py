@@ -169,7 +169,7 @@ class SQLAnalyzerAgent(BaseAgent):
             (prompt_text, messages) 튜플
         """
         if static_patterns:
-            # Error-Focused 경로
+            # Error-Focused 경로 (SQL은 파일 전체 전달)
             patterns_str = json.dumps(
                 static_patterns, ensure_ascii=False, indent=2,
             )
@@ -185,7 +185,7 @@ class SQLAnalyzerAgent(BaseAgent):
                 file_context=file_context_str,
             )
         else:
-            # Heuristic 경로
+            # Heuristic 경로 (SQL은 파일 전체 전달)
             prompt = load_prompt(
                 "sql_analyzer_heuristic",
                 file_path=file,
