@@ -89,7 +89,7 @@
   - [x] T14.5: 종료 코드
   - [x] T14.6: 단위 테스트
 - [ ] T18: SQL 성능개선 강화
-  - [ ] T18.1: SQL 문법 검증 도구 (sqlparse)
+  - [x] T18.1: SQL 문법 검증 도구 (sqlparse)
   - [ ] T18.2: Explain Plan 파서
   - [ ] T18.3: ExplainPlan Pydantic 스키마
   - [ ] T18.4: SQLAnalyzerAgent 강화
