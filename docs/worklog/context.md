@@ -17,6 +17,7 @@
 
 ## T18 설계 결정 (SQL 성능개선 강화)
 - **SQL 문법 검증**: sqlparse 라이브러리 활용 — Oracle SQL 파싱 후 syntax error 추출
+- **ExplainPlan 별도 Pydantic 스키마 생략**: 다른 Tool(ESLint, clang-tidy, proc)과 동일하게 ToolResult.data dict로 전달 — Agent에서 직접 dict 접근
 - **Explain Plan 입력**: CLI `--explain-plan` 옵션으로 파일 경로 전달
 - **통계정보**: Explain Plan 내의 Cost/Rows/Bytes가 통계정보 — 별도 통계 파일 불필요
 - **튜닝 포인트**: Full Table Scan, Cartesian Join, 높은 Cost 등 비효율 오퍼레이션 자동 탐지

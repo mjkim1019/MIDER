@@ -91,8 +91,8 @@
 - [ ] T18: SQL 성능개선 강화
   - [x] T18.1: SQL 문법 검증 도구 (sqlparse)
   - [x] T18.2: Explain Plan 파서
-  - [ ] T18.3: ExplainPlan Pydantic 스키마
-  - [ ] T18.4: SQLAnalyzerAgent 강화
+  - [x] T18.3: ExplainPlan Pydantic 스키마 (별도 모델 생략 — ToolResult.data dict 패턴)
+  - [x] T18.4: SQLAnalyzerAgent 강화
   - [ ] T18.5: 프롬프트 템플릿 수정
   - [ ] T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
   - [ ] T18.7: 단위 테스트
