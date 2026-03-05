@@ -121,3 +121,43 @@ mider -f tests/fixtures/sample_skb/ordsb0100010t01.c -m gpt-4o-mini
 | `.c`, `.h` | C | clang-tidy + LLM |
 | `.pc` | Pro*C | Oracle proc + LLM |
 | `.sql` | SQL | sqlparse + Explain Plan + LLM |
+
+## 폐쇄망 배포 준비
+
+폐쇄망에서는 외부 도구 설치가 불가능하므로, **배포 전에 정적 분석 바이너리를 `mider/resources/binaries/`에 복사**해야 합니다.
+
+바이너리가 없으면 해당 도구는 skip되고 LLM 휴리스틱 분석만 수행됩니다.
+
+### 필요 바이너리
+
+| 바이너리 | 대상 언어 | 설치 출처 |
+|----------|-----------|-----------|
+| `clang-tidy` | C (`.c`, `.h`) | LLVM (`brew install llvm` 또는 OS 패키지) |
+| `node` + `eslint` | JavaScript (`.js`) | Node.js + `npm install eslint` |
+| `proc` | Pro*C (`.pc`) | Oracle Pro*C Precompiler (Oracle Client) |
+
+### 준비 방법
+
+배포 패키지를 만드는 머신(인터넷 가능 환경)에서:
+
+```bash
+# 1. clang-tidy
+brew install llvm  # macOS
+# apt install clang-tidy  # Ubuntu
+cp $(which clang-tidy) mider/resources/binaries/clang-tidy
+
+# 2. node + eslint
+cp $(which node) mider/resources/binaries/node
+npm install eslint --prefix mider/resources/binaries/
+
+# 3. Oracle proc (Oracle Client 설치 필요)
+cp $(which proc) mider/resources/binaries/proc
+```
+
+> **주의**: 바이너리는 **대상 폐쇄망 서버의 OS/아키텍처와 동일한 환경**에서 복사해야 합니다.
+> (예: 폐쇄망이 RHEL 8 x86_64이면 같은 OS에서 빌드/복사)
+
+### ESLint 설정 파일
+
+ESLint 룰셋은 `mider/resources/lint-configs/.eslintrc.json`에 미리 포함되어 있습니다.
+프로젝트에 맞게 수정하려면 해당 파일을 편집하세요.
