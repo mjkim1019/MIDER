@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
-from mider.tools.utility.token_optimizer import _find_function_boundaries
+from mider.tools.utility.token_optimizer import find_function_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ _PATTERNS: list[dict[str, Any]] = [
         "id": "FORMAT_STRING",
         "description": "외부 입력 가능 포맷 스트링",
         "regex": re.compile(
-            r"\b(printf|fprintf|syslog)\s*\(\s*[^\"']"
+            r"\b(printf|syslog)\s*\(\s*[^\"']"
         ),
         "severity": "high",
     },
@@ -117,7 +117,7 @@ class CHeuristicScanner(BaseTool):
         lines = content.splitlines()
 
         # 함수 경계 추출
-        func_boundaries = _find_function_boundaries(lines, "c")
+        func_boundaries = find_function_boundaries(lines, "c")
         func_names = self._extract_func_names(lines, func_boundaries)
 
         # 패턴 스캔
@@ -199,9 +199,13 @@ class CHeuristicScanner(BaseTool):
                     in_block_comment = False
                 continue
 
-            if _BLOCK_COMMENT_START.search(line) and not _BLOCK_COMMENT_END.search(line):
+            block_start_match = _BLOCK_COMMENT_START.search(line)
+            if block_start_match and not _BLOCK_COMMENT_END.search(line):
                 in_block_comment = True
-                continue
+                # /* 앞 코드만 스캔 대상으로 남김
+                line = line[:block_start_match.start()]
+                if not line.strip():
+                    continue
 
             # 한 줄 주석 제거
             clean_line = _LINE_COMMENT.sub("", line)

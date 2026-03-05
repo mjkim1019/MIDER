@@ -23,7 +23,7 @@ from mider.tools.utility.token_optimizer import (
     build_structure_summary,
     extract_error_functions,
     optimize_file_content,
-    _find_function_boundaries,
+    find_function_boundaries,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,7 @@ class CAnalyzerAgent(BaseAgent):
             clang_data = self._run_clang_tidy(file)
 
             # Step 3: 분석 경로 선택
+            tokens_estimate = 0
             if not clang_data and line_count > 500:
                 # 2-Pass 전략: clang-tidy 없고 대형 파일
                 issues = await self._run_two_pass(
@@ -106,13 +107,10 @@ class CAnalyzerAgent(BaseAgent):
                     raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
 
                 issues = llm_result.get("issues", [])
+                tokens_estimate = (len(prompt) + len(response)) // 4
 
             # Step 4: AnalysisResult 생성
             elapsed = time.time() - start_time
-            try:
-                tokens_estimate = (len(prompt) + len(response)) // 4
-            except UnboundLocalError:
-                tokens_estimate = 0
 
             result = AnalysisResult.model_validate({
                 "task_id": task_id,
@@ -172,7 +170,7 @@ class CAnalyzerAgent(BaseAgent):
         func_summary = self._build_function_findings_summary(findings)
 
         lines = file_content.splitlines()
-        boundaries = _find_function_boundaries(lines, "c")
+        boundaries = find_function_boundaries(lines, "c")
 
         # Pass 1-c: gpt-4o-mini로 위험 함수 선별
         prescan_prompt = load_prompt(
@@ -191,13 +189,16 @@ class CAnalyzerAgent(BaseAgent):
             {"role": "user", "content": prescan_prompt},
         ]
 
-        # gpt-4o-mini로 빠르게 선별
+        # gpt-4o-mini로 빠르게 선별 (호출 후 원래 모델 복원)
         original_model = self.model
+        original_fallback = self.fallback_model
         self.model = "gpt-4o-mini"
+        self.fallback_model = None
         try:
             prescan_response = await self.call_llm(prescan_messages, json_mode=True)
         finally:
             self.model = original_model
+            self.fallback_model = original_fallback
 
         prescan_result = json.loads(prescan_response)
         if not isinstance(prescan_result, dict):

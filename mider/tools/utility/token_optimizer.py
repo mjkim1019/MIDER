@@ -51,7 +51,7 @@ def _extract_function_blocks(
     total_lines = len(lines)
 
     # 함수 경계 탐색
-    functions = _find_function_boundaries(lines, language)
+    functions = find_function_boundaries(lines, language)
 
     blocks: list[CodeBlock] = []
     covered_lines: set[int] = set()
@@ -116,7 +116,7 @@ def _count_braces_in_line(line: str, count_ref: list[int]) -> None:
         i += 1
 
 
-def _find_function_boundaries(
+def find_function_boundaries(
     lines: list[str],
     language: str,
 ) -> list[tuple[int, int]]:

@@ -1,6 +1,6 @@
 """프롬프트 템플릿 검증 테스트.
 
-12개 프롬프트 파일의 존재 여부, 로드, 변수 치환을 검증한다.
+13개 프롬프트 파일의 존재 여부, 로드, 변수 치환을 검증한다.
 """
 
 import pytest
@@ -22,6 +22,7 @@ ALL_PROMPTS = [
     "sql_analyzer_error_focused",
     "sql_analyzer_heuristic",
     "reporter",
+    "c_prescan_fewshot",
 ]
 
 # 각 프롬프트의 필수 변수 매핑
@@ -92,6 +93,12 @@ PROMPT_VARIABLES = {
         "generated_at": "2026-02-27T00:00:00",
         "session_id": "20260227_000000",
     },
+    "c_prescan_fewshot": {
+        "file_path": "/app/test.c",
+        "total_functions": "10",
+        "total_findings": "5",
+        "function_findings_summary": "### 함수: foo (2개 패턴)",
+    },
 }
 
 
@@ -105,7 +112,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 12, f"프롬프트 파일 수: {len(txt_files)} (기대: 12)"
+        assert len(txt_files) == 13, f"프롬프트 파일 수: {len(txt_files)} (기대: 13)"
 
 
 class TestPromptLoad:
