@@ -100,3 +100,8 @@
 | 2026-03-05 | Error-Focused fallback에 `optimize_file_content()` 적용 | 리뷰 반영: 에러 블록 추출 실패 시 대형 파일 전체가 프롬프트에 삽입되는 토큰 폭발 방지 |
 | 2026-03-05 | `common_patterns` `isinstance(dict)` 타입 가드 추가 | 리뷰 반영: Phase 1에서 비-dict 타입이 들어올 경우 AttributeError 방지 |
 | 2026-03-05 | SQL Analyzer 토큰 최적화 제거 — `file_content` 전체 전달 | SQL 파일은 크기가 작고 전체 맥락이 중요하므로 최적화 미적용 |
+| 2026-03-05 | DeploymentChecklistGenerator를 BaseTool 상속으로 구현 | ChecklistGenerator와 동일 패턴, LLM 불필요 — 정적 데이터 기반 |
+| 2026-03-05 | classify_c_file에서 `"MODULE" in stripped.lower()` → `"module" in stripped.lower()` 버그 수정 | `.lower()`로 변환한 문자열에서 대문자 "MODULE"을 검색하면 영원히 매칭 불가 |
+| 2026-03-05 | `.xml` 매핑 제거 (`map_file_to_section`) | Mider `_validate_files`가 `.xml`을 지원하지 않아 도달 불가능한 코드, 리뷰 반영 |
+| 2026-03-05 | ReporterAgent 반환 4개 키 (issue_list, checklist, summary, deployment_checklist) | 배포 체크리스트가 4번째 JSON 출력으로 추가 |
+| 2026-03-05 | OrchestratorAgent에 `_collect_first_lines` 추가 | C 파일 TP/Module 판별을 위해 첫 줄 읽기 — `.c`/`.h` 파일에만 적용 |
