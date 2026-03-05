@@ -107,6 +107,32 @@ class RiskAssessment(BaseModel):
     risk_description: str = Field(description="한국어 위험 설명")
 
 
+class DeploymentChecklistItem(BaseModel):
+    """배포 체크리스트 개별 항목."""
+
+    id: str = Field(description="항목 ID (SCR-01, TP-01 등)")
+    item: str = Field(description="체크 항목 설명")
+    checked: bool = Field(default=False, description="확인 여부")
+
+
+class DeploymentChecklistSection(BaseModel):
+    """배포 체크리스트 섹션."""
+
+    section_id: str = Field(description="섹션 ID (screen, tp, module, batch, dbio)")
+    title: str = Field(description="섹션 제목")
+    files: List[str] = Field(description="해당 섹션의 파일 목록")
+    items: List[DeploymentChecklistItem] = Field(description="체크 항목 목록")
+
+
+class DeploymentChecklist(BaseModel):
+    """output/deployment-checklist.json: 배포 체크리스트."""
+
+    generated_at: datetime
+    session_id: str
+    total_items: int
+    sections: List[DeploymentChecklistSection]
+
+
 class Summary(BaseModel):
     """output/summary.json: 분석 요약 리포트."""
 
