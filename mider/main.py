@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from dotenv import load_dotenv
 from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError
 from rich.console import Console
 from rich.panel import Panel
@@ -89,24 +90,43 @@ def resolve_model(args_model: str | None) -> str:
     return os.environ.get("MIDER_MODEL", "gpt-4o")
 
 
-def validate_api_key() -> str:
-    """MIDER_API_KEY 환경변수를 검증한다.
+def validate_api_key() -> str | None:
+    """LLM API 키를 검증한다.
+
+    우선순위:
+    1. AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT (Azure)
+    2. MIDER_API_KEY → OPENAI_API_KEY 브리징
+    3. OPENAI_API_KEY (직접 설정)
 
     Returns:
-        API 키 문자열
+        MIDER_API_KEY 값 (Azure 경로면 None)
 
     Raises:
-        SystemExit: API 키가 없으면 exit code 3으로 종료
+        SystemExit: 어떤 API 키도 없으면 exit code 3으로 종료
     """
-    api_key = os.environ.get("MIDER_API_KEY", "")
-    if not api_key:
-        console = Console(stderr=True)
-        console.print(
-            "[red bold]오류:[/] MIDER_API_KEY 환경변수가 설정되지 않았습니다.",
-        )
-        console.print("  export MIDER_API_KEY='your-api-key'")
-        sys.exit(EXIT_LLM_ERROR)
-    return api_key
+    # Azure 경로: AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT
+    azure_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
+    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    if azure_key and azure_endpoint:
+        return None  # LLMClient가 Azure 변수를 직접 읽음
+
+    # OpenAI 경로: MIDER_API_KEY → OPENAI_API_KEY 브리징
+    mider_key = os.environ.get("MIDER_API_KEY", "")
+    if mider_key:
+        return mider_key
+
+    # OPENAI_API_KEY 직접 설정
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if openai_key:
+        return None  # 이미 설정됨
+
+    console = Console(stderr=True)
+    console.print(
+        "[red bold]오류:[/] LLM API 키가 설정되지 않았습니다.",
+    )
+    console.print("  Azure: AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT")
+    console.print("  OpenAI: MIDER_API_KEY 또는 OPENAI_API_KEY")
+    sys.exit(EXIT_LLM_ERROR)
 
 
 def _create_progress_callback(
@@ -363,6 +383,9 @@ async def run_analysis(
 
 def main() -> None:
     """CLI 메인 함수."""
+    # .env 파일 로드 (있으면)
+    load_dotenv()
+
     parser = build_parser()
     args = parser.parse_args()
 
@@ -373,9 +396,10 @@ def main() -> None:
     console = Console()
     console.print(f"Mider v{__version__}")
 
-    # API 키 검증 및 OPENAI_API_KEY 설정
+    # API 키 검증
     api_key = validate_api_key()
-    os.environ["OPENAI_API_KEY"] = api_key
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
 
     # 모델 결정
     model = resolve_model(args.model)
