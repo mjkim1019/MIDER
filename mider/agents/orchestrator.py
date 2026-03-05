@@ -137,11 +137,14 @@ class OrchestratorAgent(BaseAgent):
 
         # Phase 3: Report Generation
         pipeline_elapsed = time.time() - pipeline_start
+        file_first_lines = self._collect_first_lines(valid_files)
         report = await self._run_phase3(
             analysis_results=analysis_results,
             total_files=len(valid_files),
             total_lines=total_lines,
             analysis_duration_seconds=pipeline_elapsed,
+            file_paths=valid_files,
+            file_first_lines=file_first_lines,
         )
 
         total_elapsed = time.time() - pipeline_start
@@ -156,6 +159,7 @@ class OrchestratorAgent(BaseAgent):
             "issue_list": report["issue_list"],
             "checklist": report["checklist"],
             "summary": report["summary"],
+            "deployment_checklist": report["deployment_checklist"],
             "errors": file_errors,
         }
 
@@ -287,6 +291,8 @@ class OrchestratorAgent(BaseAgent):
         total_files: int,
         total_lines: int,
         analysis_duration_seconds: float,
+        file_paths: list[str],
+        file_first_lines: dict[str, str],
     ) -> dict[str, Any]:
         """Phase 3: ReporterAgent로 통합 리포트 생성."""
         self._report_progress(3, "리포트 생성", 0, 1, "리포트 생성 중")
@@ -298,6 +304,8 @@ class OrchestratorAgent(BaseAgent):
             total_files=total_files,
             total_lines=total_lines,
             analysis_duration_seconds=analysis_duration_seconds,
+            file_paths=file_paths,
+            file_first_lines=file_first_lines,
         )
 
         logger.info("Phase 3 완료: 리포트 생성")
@@ -521,6 +529,24 @@ class OrchestratorAgent(BaseAgent):
                     context_map[file_path] = ctx
         return context_map
 
+    def _collect_first_lines(
+        self,
+        file_paths: list[str],
+    ) -> dict[str, str]:
+        """파일별 첫 줄을 수집한다 (C 파일 TP/Module 판별용)."""
+        first_lines: dict[str, str] = {}
+        for fp in file_paths:
+            ext = Path(fp).suffix.lower()
+            if ext not in (".c", ".h"):
+                continue
+            try:
+                result = self._file_reader.execute(file=fp, max_lines=1)
+                content = result.data.get("content", "")
+                first_lines[fp] = content.split("\n", 1)[0] if content else ""
+            except Exception as e:
+                logger.debug(f"첫 줄 읽기 실패: {fp}: {e}")
+        return first_lines
+
     def _report_progress(
         self,
         phase: int,
@@ -590,6 +616,12 @@ class OrchestratorAgent(BaseAgent):
                     "blocking_issues": [],
                     "risk_description": "분석 대상 파일이 없습니다.",
                 },
+            },
+            "deployment_checklist": {
+                "generated_at": None,
+                "session_id": self.session_id,
+                "total_items": 0,
+                "sections": [],
             },
             "errors": errors,
         }
