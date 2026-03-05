@@ -8,6 +8,43 @@
 
 ## 진행 예정 Task
 
+### T20: C Heuristic Pre-Scanner (2-Pass 분석) (depends: T16)
+
+대형 C 파일(>500줄)에서 clang-tidy 없이도 전체 코드를 분석할 수 있도록
+regex 기반 위험 패턴 스캐너 + few-shot LLM 선별 + 심층 분석 2-Pass 전략 구현.
+
+참조: `docs/issue-log/001-large-file-analysis-gap.md`
+
+#### T20.1: C Heuristic Scanner Tool → 대상: `mider/tools/static_analysis/c_heuristic_scanner.py`
+- BaseTool 상속, execute(file=...) 인터페이스
+- regex 기반 위험 패턴 6종 탐지 (UNINIT_VAR, UNSAFE_FUNC, BOUNDED_FUNC, NULL_DEREF, UNCHECKED_RET, BUFFER_ACCESS)
+- 전체 파일을 스캔하여 패턴별 라인 번호 + 매칭 내용 반환
+- _find_function_boundaries() 재사용하여 패턴을 함수에 매핑
+- ToolResult: {findings: [{pattern_id, line, content, function_name}], functions_at_risk: [함수명 리스트]}
+
+#### T20.2: Pass 1 프롬프트 (few-shot 선별) → 대상: `mider/config/prompts/c_prescan_fewshot.txt`
+- 함수 시그니처 + 위험 패턴 요약을 입력으로 받음
+- few-shot 예시 3개 (위험 2개 + 안전 1개)로 판단 기준 학습
+- 출력: 심층 분석이 필요한 함수 이름 목록 (JSON)
+- 사용자가 few-shot 예시를 추가/수정 가능한 구조
+
+#### T20.3: CAnalyzerAgent 2-Pass 흐름 구현 → 대상: `mider/agents/c_analyzer.py`
+- clang-tidy 없을 때 기존 Heuristic → Pre-Scanner 2-Pass로 변경
+- Pass 1: c_heuristic_scanner 실행 → findings + 함수 목록 → gpt-4o-mini로 위험 함수 선별
+- Pass 2: 선별된 함수 전체 코드 추출 → gpt-4o로 심층 분석 (기존 error_focused 프롬프트 재활용)
+- 500줄 이하 파일은 기존 Heuristic 유지 (전체 코드 전달 가능하므로)
+
+#### T20.4: c_analyzer_heuristic 프롬프트에 few-shot 예시 추가 → 대상: `mider/config/prompts/c_analyzer_heuristic.txt`
+- Pass 2에서 사용하는 프롬프트에 few-shot 예시 섹션 추가
+- 사용자 제공 예시: 초기화 누락, strncpy null-terminator, 안전 패턴 등
+
+#### T20.5: 단위 테스트 → 대상: `tests/test_tools/test_c_heuristic_scanner.py`, `tests/test_agents/test_c_analyzer.py`
+- c_heuristic_scanner 테스트: 6종 패턴 탐지, 함수 매핑, 빈 파일, 안전한 파일
+- c_analyzer 2-Pass 테스트: Pre-Scanner → LLM mock → 함수 추출 → 분석 결과 검증
+- 500줄 이하 파일은 기존 Heuristic 경로 유지 검증
+
+---
+
 ### T18: SQL 성능개선 강화 (depends: T11, T14)
 
 #### T18.1: SQL 문법 검증 도구 → 대상: `mider/tools/static_analysis/sql_syntax_checker.py`
@@ -110,6 +147,7 @@
 | Task | 의존성 | 상태 |
 |------|--------|------|
 | T1~T14, T16, T17 | - | ✅ 완료 |
-| T18 | T11, T14 | 대기 |
-| T19 | T3, T8 | 대기 (T18과 병렬 가능) |
-| T15 | T18, T19 | 대기 (마지막) |
+| T18 | T11, T14 | ✅ 완료 |
+| T20 | T16 | 대기 (다음) |
+| T19 | T3, T8 | 대기 |
+| T15 | T18, T19, T20 | 대기 (마지막) |
