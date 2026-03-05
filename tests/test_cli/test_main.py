@@ -86,6 +86,18 @@ class TestBuildParser:
         args = parser.parse_args(["-f", "test.js"])
         assert args.verbose is False
 
+    def test_explain_plan_option(self):
+        """--explain-plan 옵션."""
+        parser = build_parser()
+        args = parser.parse_args(["-f", "test.sql", "-e", "/tmp/plan.txt"])
+        assert args.explain_plan == "/tmp/plan.txt"
+
+    def test_explain_plan_default_none(self):
+        """--explain-plan 미지정 시 None."""
+        parser = build_parser()
+        args = parser.parse_args(["-f", "test.sql"])
+        assert args.explain_plan is None
+
     def test_version(self):
         """--version 출력."""
         parser = build_parser()

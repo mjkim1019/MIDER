@@ -24,6 +24,7 @@ python main.py --files src/calc.c src/order.pc
 | `--files` | `-f` | **(필수)** | 분석할 파일 경로 (1개 이상, glob 지원) |
 | `--output` | `-o` | `./output` | 결과 출력 디렉토리 |
 | `--model` | `-m` | `gpt-4o` | LLM 모델명 |
+| `--explain-plan` | `-e` | `None` | Explain Plan 결과 파일 경로 (SQL 분석 시 사용) |
 | `--verbose` | `-v` | `false` | 상세 로그 출력 |
 | `--version` | | | 버전 정보 출력 |
 
@@ -36,6 +37,9 @@ mider.exe --files "src/**/*.c" "src/**/*.pc"
 
 # 출력 디렉토리 지정
 mider.exe --files src/calc.c -o ./reports/0224
+
+# SQL + Explain Plan
+mider.exe --files src/db/orders.sql --explain-plan explain_output.txt
 ```
 
 ---
@@ -148,6 +152,7 @@ Mider v0.1.0
 | `issue-list.json` | 전체 이슈 (severity 순, Before/After 포함) |
 | `checklist.json` | Critical/High 검증 체크리스트 |
 | `summary.json` | 통계 요약, 배포 판정 |
+| `deployment-checklist.json` | 배포 체크리스트 (섹션별 배포 절차) |
 
 > 스키마 상세: `docs/DATA_SCHEMA.md`
 

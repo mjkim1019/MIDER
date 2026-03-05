@@ -102,6 +102,7 @@ Utility (4개)
 - 언어별 전문 Agent 자동 할당 (JS/C/Pro*C/SQL)
 - 정적 분석(ESLint, clang-tidy, proc) 먼저 한 후에, LLM 정밀 분석 (하이브리드)
 - 토큰 최적화: 정적분석 에러를 포함하는 함수만 LLM에 전달 (Structure + Function Window 방식으로 대형 파일의 토큰 효율성 확보)
+- SQL 성능개선: 문법 검증(sqlparse) + Explain Plan 파일 입력 시 튜닝 포인트 자동 분석 (Cost, Full Scan 등)
 
 ### 4.3 구체적인 코드 수정 제안 기능
 - Before/After 코드 수정 제안
@@ -140,7 +141,7 @@ Utility (4개)
   - ESLint (JavaScript)
   - clang-tidy (C)
   - Oracle proc (Pro*C)
-  - 정적 패턴 분석 (SQL)
+  - 정적 패턴 분석 + 문법 검증 + Explain Plan 해석 (SQL)
 
 #### 분석범위
 - 메모리 안전성 (오버플로우), 변수 초기화, 변수 데이터 포맷 체크 등

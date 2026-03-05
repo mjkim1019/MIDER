@@ -65,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="LLM 모델명 (기본: MIDER_MODEL 환경변수 또는 gpt-4o)",
     )
     parser.add_argument(
+        "--explain-plan", "-e",
+        default=None,
+        help="Explain Plan 결과 파일 경로 (SQL 분석 시 사용)",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="상세 로그 출력",
@@ -320,6 +325,7 @@ async def run_analysis(
     output_dir: str,
     model: str,
     console: Console,
+    explain_plan: str | None = None,
 ) -> int:
     """분석 파이프라인을 실행한다.
 
@@ -333,7 +339,10 @@ async def run_analysis(
         progress_callback=progress_callback,
     )
 
-    result = await orchestrator.run(files=files)
+    result = await orchestrator.run(
+        files=files,
+        explain_plan_file=explain_plan,
+    )
 
     # 파일 검증 오류만 있고 분석 결과가 없는 경우
     errors = result.get("errors", [])
@@ -379,6 +388,14 @@ def main() -> None:
     # 파일 목록 출력
     print_file_list(console, args.files)
 
+    # Explain Plan 파일 검증
+    explain_plan = getattr(args, "explain_plan", None)
+    if explain_plan and not Path(explain_plan).exists():
+        console.print(
+            f"[red bold]오류:[/] Explain Plan 파일 없음: {explain_plan}",
+        )
+        sys.exit(EXIT_FILE_ERROR)
+
     # 분석 실행
     try:
         exit_code = asyncio.run(
@@ -387,6 +404,7 @@ def main() -> None:
                 output_dir=args.output,
                 model=model,
                 console=console,
+                explain_plan=explain_plan,
             )
         )
     except KeyboardInterrupt:

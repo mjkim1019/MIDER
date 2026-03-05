@@ -15,6 +15,22 @@
 - **SQL 특화**: SQL은 함수가 아닌 SQL 문(SELECT/INSERT/UPDATE/DELETE) 단위로 추출
 - **구현 위치**: 4개 Analyzer의 `_build_messages()` + 8개 프롬프트 템플릿 변수 변경
 
+## T18 설계 결정 (SQL 성능개선 강화)
+- **SQL 문법 검증**: sqlparse 라이브러리 활용 — Oracle SQL 파싱 후 syntax error 추출
+- **ExplainPlan 별도 Pydantic 스키마 생략**: 다른 Tool(ESLint, clang-tidy, proc)과 동일하게 ToolResult.data dict로 전달 — Agent에서 직접 dict 접근
+- **Explain Plan 입력**: CLI `--explain-plan` 옵션으로 파일 경로 전달
+- **통계정보**: Explain Plan 내의 Cost/Rows/Bytes가 통계정보 — 별도 통계 파일 불필요
+- **튜닝 포인트**: Full Table Scan, Cartesian Join, 높은 Cost 등 비효율 오퍼레이션 자동 탐지
+- **LLM 역할**: 문법 오류 설명 + Explain Plan 해석 + 튜닝 제안 (한국어)
+
+## T19 설계 결정 (Proframe XML 지원)
+- **XML 유형**: Proframe WebSquare(Inswave) 화면 정의 XML — w2:dataList, w2:column, ev:on* 이벤트
+- **JS 교차 검증**: XML의 ev:on* 이벤트 핸들러가 대응하는 JS 파일에 존재하는지 확인
+- **JS 파일 매칭**: XML 파일명과 동일 패턴의 JS 파일 탐색 (같은 디렉토리 or 패턴 매칭)
+- **분석 범위**: ID 중복 검사, 이벤트 핸들러 존재 검증, 데이터 바인딩 구조 검증
+- **Agent**: XMLAnalyzerAgent 신규 추가, gpt-4o-mini (fallback gpt-4o)
+- **배포 체크리스트**: XML → 화면 배포 섹션(섹션 1)에 매핑
+
 ## T10 설계 결정
 - **Tool 우선 추출**: AstGrepSearch로 import/함수 호출/패턴을 먼저 추출, LLM은 보정만 담당
 - **LLM graceful degradation**: LLM 실패 시 Tool 결과만으로 FileContext 생성 (TaskClassifierAgent 패턴)
@@ -34,6 +50,7 @@
 - Agent는 코드 수정 불가 (제안만)
 - Before/After 코드는 1-3줄만
 - `**kwargs` 남용 금지 — 명시적 파라미터 사용 (TaskClassifierAgent에서 이미 적용됨)
+- tests/fixtures/sample_skb/는 참조용 — 절대 커밋 금지
 
 ## 변경 이력
 | 날짜 | 내용 | 이유 |
@@ -105,3 +122,11 @@
 | 2026-03-05 | `.xml` 매핑 제거 (`map_file_to_section`) | Mider `_validate_files`가 `.xml`을 지원하지 않아 도달 불가능한 코드, 리뷰 반영 |
 | 2026-03-05 | ReporterAgent 반환 4개 키 (issue_list, checklist, summary, deployment_checklist) | 배포 체크리스트가 4번째 JSON 출력으로 추가 |
 | 2026-03-05 | OrchestratorAgent에 `_collect_first_lines` 추가 | C 파일 TP/Module 판별을 위해 첫 줄 읽기 — `.c`/`.h` 파일에만 적용 |
+| 2026-03-05 | T18/T19/T15 계획 수립 | SQL 성능개선 강화 + Proframe XML 지원 + 통합 테스트 |
+| 2026-03-05 | SQL 통계정보 = Explain Plan 내 Cost/Rows/Bytes | 별도 통계 파일 불필요, Explain Plan 파일 하나로 처리 |
+| 2026-03-05 | XML + JS 교차 검증 필요 | XML 이벤트 핸들러(ev:on*)가 대응 JS 파일에 존재하는지 확인 |
+| 2026-03-05 | T15를 마지막으로 이동 | T18/T19 완료 후 새 기능 포함하여 E2E 검증 — 이중 작업 방지 |
+| 2026-03-05 | ExplainPlanParser `_parse_header`: `(%cpu)` 제거 순서 변경 (replace → strip → replace) | `Cost (%CPU)` → `cost_(%cpu)` → `cost_`로 잘못 변환되어 Cost 컬럼 매핑 실패 |
+| 2026-03-05 | ExplainPlanParser `_parse_data_row`: 빈 셀 skip 제거, positional alignment 유지 | Name 빈 셀(`\|        \|`)을 skip하면 이후 컬럼이 밀려 Cost가 Time에 매핑되는 버그 |
+| 2026-03-05 | sql_syntax_checker.py: 미사용 import 제거 (Parenthesis, Punctuation, String) | 리뷰 반영 — 코드 정리 |
+| 2026-03-05 | orchestrator.py: `_explain_plan_file`을 `__init__`에서 초기화 | 리뷰 반영 — `getattr` 방어 패턴 제거, 명시적 초기화 |

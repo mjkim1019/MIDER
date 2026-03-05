@@ -88,11 +88,26 @@
   - [x] T14.4: Before/After 출력
   - [x] T14.5: 종료 코드
   - [x] T14.6: 단위 테스트
+- [ ] T18: SQL 성능개선 강화
+  - [x] T18.1: SQL 문법 검증 도구 (sqlparse)
+  - [x] T18.2: Explain Plan 파서
+  - [x] T18.3: ExplainPlan Pydantic 스키마 (별도 모델 생략 — ToolResult.data dict 패턴)
+  - [x] T18.4: SQLAnalyzerAgent 강화
+  - [x] T18.5: 프롬프트 템플릿 수정
+  - [x] T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
+  - [x] T18.7: 단위 테스트
+- [ ] T19: Proframe XML 지원
+  - [ ] T19.1: XML 파서/분석 도구
+  - [ ] T19.2: XMLAnalyzerAgent 구현
+  - [ ] T19.3: XML 프롬프트 템플릿
+  - [ ] T19.4: 파이프라인 연동 (TaskClassifier, ContextCollector, Orchestrator)
+  - [ ] T19.5: CLI/배포 체크리스트 XML 지원
+  - [ ] T19.6: 단위 테스트
 - [ ] T15: Integration Test
-  - [ ] T15.1: 샘플 파일 4개
+  - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [ ] T15.2: E2E 테스트
   - [ ] T15.3: Exit code 검증
-  - [ ] T15.4: 출력 파일 검증
+  - [ ] T15.4: 출력 파일 검증 (4개 JSON)
 - [x] T16: 토큰 최적화 (Structure + Function Window)
   - [x] T16.1: _extract_error_functions() 구현
   - [x] T16.2: _build_structure_summary() 구현

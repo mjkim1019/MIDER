@@ -243,6 +243,92 @@ class TestFileContext:
         assert "imports" in prompt
 
 
+class TestExplainPlan:
+    """Explain Plan 연동 테스트."""
+
+    @pytest.fixture
+    def explain_plan_file(self, tmp_path):
+        """테스트용 Explain Plan 파일."""
+        f = tmp_path / "explain.txt"
+        f.write_text(
+            "---------------------------------------------------------------------------\n"
+            "| Id  | Operation          | Name   | Rows  | Bytes | Cost (%CPU)| Time     |\n"
+            "---------------------------------------------------------------------------\n"
+            "|   0 | SELECT STATEMENT   |        |    50 |  2400 |   234  (1) | 00:00:01 |\n"
+            "|   1 |  TABLE ACCESS FULL | ORDERS |    50 |  2400 |   234  (1) | 00:00:01 |\n"
+            "---------------------------------------------------------------------------\n"
+        )
+        return str(f)
+
+    @pytest.mark.asyncio
+    async def test_explain_plan_file_passed_to_prompt(self, agent, sql_file, explain_plan_file):
+        """explain_plan_file이 프롬프트에 포함된다."""
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(
+            task_id="task_1", file=sql_file, language="sql",
+            explain_plan_file=explain_plan_file,
+        )
+
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        assert "TABLE ACCESS FULL" in prompt
+
+    @pytest.mark.asyncio
+    async def test_explain_plan_none_no_error(self, agent, sql_file):
+        """explain_plan_file=None이면 정상 동작."""
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        result = await agent.run(
+            task_id="task_1", file=sql_file, language="sql",
+            explain_plan_file=None,
+        )
+
+        assert result["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_explain_plan_invalid_file_no_crash(self, agent, sql_file):
+        """존재하지 않는 explain_plan_file이면 무시하고 계속."""
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        result = await agent.run(
+            task_id="task_1", file=sql_file, language="sql",
+            explain_plan_file="/nonexistent/explain.txt",
+        )
+
+        assert result["error"] is None
+
+
+class TestSyntaxCheck:
+    """SQL 문법 검증 연동 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_syntax_errors_trigger_error_focused(self, agent, tmp_path):
+        """문법 오류가 있으면 Error-Focused 경로."""
+        f = tmp_path / "bad.sql"
+        f.write_text("SELECT COUNT( FROM orders;\n")
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(task_id="task_1", file=str(f), language="sql")
+
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        # 문법 오류가 Error-Focused 프롬프트에 포함
+        assert "unmatched_paren" in prompt or "괄호" in prompt
+
+    @pytest.mark.asyncio
+    async def test_syntax_checker_failure_graceful(self, agent, sql_file):
+        """문법 검증 도구 실패 시 빈 결과로 계속."""
+        agent._syntax_checker.execute = MagicMock(side_effect=Exception("checker fail"))
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        result = await agent.run(task_id="task_1", file=sql_file, language="sql")
+
+        assert result["error"] is None
+
+
 class TestAgentInit:
     """Agent 초기화 테스트."""
 
@@ -251,3 +337,13 @@ class TestAgentInit:
         agent = SQLAnalyzerAgent()
         assert agent.model == "gpt-4o-mini"
         assert agent.fallback_model == "gpt-4o"
+
+    def test_has_syntax_checker(self):
+        """SQLSyntaxChecker가 초기화된다."""
+        agent = SQLAnalyzerAgent()
+        assert agent._syntax_checker is not None
+
+    def test_has_explain_plan_parser(self):
+        """ExplainPlanParser가 초기화된다."""
+        agent = SQLAnalyzerAgent()
+        assert agent._explain_plan_parser is not None
