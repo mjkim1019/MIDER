@@ -685,14 +685,24 @@ sql_extractor(file_path)
 | 항목 | 정의 내용 |
 |------|----------|
 | Agent 이름 | SQLAnalyzerAgent |
-| 주요 역할 | SQL 파일 전문 분석. 정적 패턴 분석 + LLM 심층 분석(인덱스 억제, Full Scan)을 결합하여 성능 저하 패턴 탐지 |
-| 핵심 목표 | - Full Table Scan 탐지<br>- 인덱스 억제 패턴 탐지 (함수, OR 조건)<br>- N+1 쿼리 패턴 탐지<br>- SELECT * 사용 경고 |
+| 주요 역할 | SQL 파일 전문 분석. 문법 검증(sqlparse) + 정적 패턴 분석 + Explain Plan 해석 + LLM 심층 분석을 결합하여 성능 저하 및 장애 유발 패턴 탐지 |
+| 핵심 목표 | - SQL 문법 오류 탐지<br>- Full Table Scan 탐지<br>- 인덱스 억제 패턴 탐지 (함수, OR 조건)<br>- Explain Plan 기반 튜닝 포인트 분석 (Cost/Rows/Bytes)<br>- N+1 쿼리 패턴 탐지<br>- SELECT * 사용 경고 |
 | 톤앤매너 | DBA, 성능 튜너 스타일. 응답 시간 영향도 수치화 |
-| 제약 사항 | - DB 연결 불가 (EXPLAIN PLAN 실행 불가)<br>- 정적 분석만 (실제 실행 X) |
+| 제약 사항 | - DB 연결 불가 (EXPLAIN PLAN 직접 실행 불가, 사용자가 결과 파일 제공)<br>- 정적 분석만 (실제 실행 X) |
 
 #### 2.7.2 워크플로우
 
-**Step 1: Static Pattern Analysis**
+**Step 1: SQL 문법 검증 (sqlparse)**
+```
+sql_syntax_checker(file_path)
+결과:
+  syntax_errors: [
+    {"line": 15, "message": "ORA-00933: SQL command not properly ended"},
+    ...
+  ]
+```
+
+**Step 2: Static Pattern Analysis**
 ```
 정적 패턴 검색:
   1. SELECT * 사용
@@ -707,42 +717,58 @@ sql_extractor(file_path)
   ]
 ```
 
-**Step 2: LLM Analysis (토큰 최적화: Structure + Function Window)**
+**Step 3: Explain Plan 분석 (선택적, --explain-plan 옵션)**
 ```
-경로 A (patterns 있을 때):
-  # 토큰 최적화: 파일 전체 대신 구조 요약 + 패턴 매치된 SQL 문 전체 추출
-  structure_summary = _build_structure_summary(file_context)
-  error_queries = _extract_error_queries(file_content, patterns)
-    # - 패턴이 매치된 SQL 문(SELECT/INSERT/UPDATE/DELETE) 전체 추출
-    # - 프로시저/함수 내 패턴이면 해당 프로시저/함수 전체 추출
+explain_plan_parser(explain_plan_file)
+결과:
+  steps: [
+    {"id": 0, "operation": "SELECT STATEMENT", "cost": 1234, "rows": 50000},
+    {"id": 1, "operation": "TABLE ACCESS FULL", "object": "ORDERS", "cost": 1200, "rows": 50000},
+    ...
+  ]
+  tuning_points: [
+    {"operation": "TABLE ACCESS FULL", "object": "ORDERS", "suggestion": "인덱스 생성 또는 WHERE 조건 추가 권장"},
+    ...
+  ]
+```
 
+**Step 4: LLM Analysis**
+```
+경로 A (Error-Focused: syntax_errors/patterns/explain_plan 있을 때):
   prompt = """
   SQL 성능 전문가입니다.
+
+  [문법 오류] (있을 경우)
+  {syntax_errors}
 
   [정적 패턴]
   {patterns}
 
-  [구조 요약]
-  {structure_summary}
+  [Explain Plan 분석] (있을 경우)
+  {explain_plan}
 
-  [패턴 매치된 SQL 문 전체]
-  {error_queries}
+  [SQL 파일]
+  {file_content}
+
+  [파일 컨텍스트]
+  {file_context}
 
   분석:
-  1. 패턴별 성능 영향도 (응답 시간)
-  2. 인덱스 추천
-  3. 쿼리 재작성 제안
+  1. 문법 오류 설명 및 수정 제안
+  2. Explain Plan 기반 튜닝 포인트 (Cost, Full Scan 등)
+  3. 패턴별 성능 영향도
+  4. 인덱스 추천 및 쿼리 재작성 제안
 
   출력: JSON (AnalysisResult 스키마)
   """
 
-경로 B (Heuristic):
-  # SQL 파일은 보통 소형이므로 전체 유지, 대형 파일만 truncation
-  file_content_optimized = _optimize_file_content(file_content, file_context)
-
+경로 B (Heuristic: 오류/패턴 없을 때):
   prompt = """
   [SQL 파일]
-  {file_content_optimized}
+  {file_content}
+
+  [Explain Plan 분석] (있을 경우)
+  {explain_plan}
 
   [휴리스틱]
   - 인덱스 억제 패턴
@@ -764,6 +790,8 @@ sql_extractor(file_path)
 |--------|----------|------|------|
 | file_reader | 파일 읽기 | path: str | content: str |
 | grep | SQL 패턴 검색 | pattern: str, file: str | matches: List[Dict] |
+| sql_syntax_checker | SQL 문법 검증 | file: str | syntax_errors: List[Dict] |
+| explain_plan_parser | Explain Plan 파싱 | file: str | steps: List[Dict], tuning_points: List[Dict] |
 
 #### 2.7.5 메모리 전략
 

@@ -232,7 +232,7 @@ class AnalysisResult(BaseModel):
 
 ---
 
-## 4. Phase 3: Report 스키마 (3개)
+## 4. Phase 3: Report 스키마 (4개)
 
 ReporterAgent가 생성. 각각 별도 JSON 파일로 출력.
 
@@ -379,6 +379,25 @@ class Summary(BaseModel):
 }
 ```
 
+### 4.4 DeploymentChecklist (`output/deployment-checklist.json`)
+
+```python
+class DeploymentChecklistItem(BaseModel):
+    step: int                    # 순서
+    description: str             # 체크 항목 설명
+
+class DeploymentChecklistSection(BaseModel):
+    section_id: int              # 섹션 번호 (1~5)
+    title: str                   # 섹션 제목
+    items: List[DeploymentChecklistItem]
+
+class DeploymentChecklist(BaseModel):
+    generated_at: Optional[datetime]
+    session_id: str
+    total_items: int
+    sections: List[DeploymentChecklistSection]
+```
+
 ---
 
 ## 5. Session 스키마 (2차 PoC)
@@ -441,10 +460,11 @@ class SessionConfig(BaseModel):
         │
         ▼
   ┌─ Phase 3 ─┐
-  │ IssueList     │ ──→ output/issue-list.json
-  │ Checklist     │ ──→ output/checklist.json
-  │ Summary       │ ──→ output/summary.json
-  └────────────┘
+  │ IssueList              │ ──→ output/issue-list.json
+  │ Checklist              │ ──→ output/checklist.json
+  │ Summary                │ ──→ output/summary.json
+  │ DeploymentChecklist    │ ──→ output/deployment-checklist.json
+  └────────────────────┘
 ```
 
 ### 키 매칭 규칙
