@@ -94,7 +94,7 @@
   - [x] T18.3: ExplainPlan Pydantic 스키마 (별도 모델 생략 — ToolResult.data dict 패턴)
   - [x] T18.4: SQLAnalyzerAgent 강화
   - [x] T18.5: 프롬프트 템플릿 수정
-  - [ ] T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
+  - [x] T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
   - [ ] T18.7: 단위 테스트
 - [ ] T19: Proframe XML 지원
   - [ ] T19.1: XML 파서/분석 도구

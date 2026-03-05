@@ -90,16 +90,19 @@ class OrchestratorAgent(BaseAgent):
         self,
         *,
         files: list[str],
+        explain_plan_file: str | None = None,
     ) -> dict[str, Any]:
         """전체 분석 파이프라인을 실행한다.
 
         Args:
             files: 분석 대상 파일 경로 리스트 (glob 패턴 포함 가능)
+            explain_plan_file: Explain Plan 결과 파일 경로 (SQL 분석 시 사용)
 
         Returns:
             {"issue_list": ..., "checklist": ..., "summary": ...,
              "execution_plan": ..., "session_id": ..., "errors": ...}
         """
+        self._explain_plan_file = explain_plan_file
         pipeline_start = time.time()
         logger.info(f"분석 시작: session={self.session_id}, 입력 {len(files)}건")
 
@@ -366,12 +369,18 @@ class OrchestratorAgent(BaseAgent):
         analyzer = self._analyzers[language]
 
         try:
+            # SQL 분석 시 Explain Plan 파일 전달
+            extra_kwargs: dict[str, Any] = {}
+            if language == "sql" and getattr(self, "_explain_plan_file", None):
+                extra_kwargs["explain_plan_file"] = self._explain_plan_file
+
             return await self._call_agent(
                 analyzer,
                 task_id=task_id,
                 file=file,
                 language=language,
                 file_context=file_context,
+                **extra_kwargs,
             )
         except Exception as e:
             logger.error(f"Analyzer 실행 실패: {file}: {e}")
