@@ -28,11 +28,10 @@ class TestClassifyCFile:
         result = classify_c_file("abc.c", "/* module: common_util */")
         assert result == "module"
 
-    def test_first_line_module_case_sensitive(self):
-        """module은 소문자만 인식."""
-        # "MODULE"은 대문자 → module로 인식되지 않음
+    def test_first_line_module_case_insensitive(self):
+        """MODULE 대문자도 인식됨 (lower() 비교)."""
         result = classify_c_file("abc.c", "/* MODULE: UTIL */")
-        assert result == "module"  # lower()로 비교하므로 인식됨
+        assert result == "module"
 
     def test_filename_third_from_end_t_is_tp(self):
         """파일명 뒤에서 3번째 문자가 t이면 TP."""
@@ -70,8 +69,9 @@ class TestMapFileToSection:
     def test_js_to_screen(self):
         assert map_file_to_section("app/view.js") == "screen"
 
-    def test_xml_to_screen(self):
-        assert map_file_to_section("app/layout.xml") == "screen"
+    def test_xml_returns_none(self):
+        """xml은 Mider 분석 대상이 아니므로 None."""
+        assert map_file_to_section("app/layout.xml") is None
 
     def test_c_to_tp_by_default(self):
         assert map_file_to_section("service.c") == "tp"

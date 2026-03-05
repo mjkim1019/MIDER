@@ -35,10 +35,10 @@ _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
 class ReporterAgent(BaseAgent):
-    """Phase 3: 분석 결과를 통합하여 3개 리포트를 생성하는 Agent.
+    """Phase 3: 분석 결과를 통합하여 4개 리포트를 생성하는 Agent.
 
-    AnalysisResult 리스트를 받아 IssueList, Checklist, Summary를
-    생성한다. LLM은 risk_description 한국어 생성에 사용한다.
+    AnalysisResult 리스트를 받아 IssueList, Checklist, Summary,
+    DeploymentChecklist를 생성한다. LLM은 risk_description 한국어 생성에 사용한다.
     """
 
     def __init__(

@@ -135,8 +135,6 @@ def map_file_to_section(file_path: str, first_line: str = "") -> str | None:
 
     if ext == ".js":
         return "screen"
-    elif ext == ".xml":
-        return "screen"
     elif ext == ".c":
         return classify_c_file(file_path, first_line)
     elif ext == ".h":
