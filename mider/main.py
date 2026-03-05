@@ -191,23 +191,21 @@ def print_file_list(console: Console, files: list[str]) -> None:
 
 
 def print_issues(console: Console, issue_list: dict[str, Any]) -> None:
-    """Critical/High 이슈를 Before/After 형식으로 출력한다."""
+    """모든 이슈를 심각도별로 출력한다."""
     issues = issue_list.get("issues", [])
     if not issues:
         return
 
-    # Critical/High만 Before/After 표시
-    important_issues = [
-        issue for issue in issues
-        if issue.get("severity") in ("critical", "high")
-    ]
-
-    if not important_issues:
-        return
+    # 심각도 순서로 정렬
+    severity_rank = {s: i for i, s in enumerate(_SEVERITY_ORDER)}
+    sorted_issues = sorted(
+        issues,
+        key=lambda x: severity_rank.get(x.get("severity", "low"), 99),
+    )
 
     console.print()
 
-    for issue in important_issues:
+    for issue in sorted_issues:
         severity = issue.get("severity", "low").upper()
         issue_id = issue.get("issue_id", "")
         title = issue.get("title", "")
@@ -229,25 +227,22 @@ def print_issues(console: Console, issue_list: dict[str, Any]) -> None:
         content.append(title)
         content.append(f"\n  {file_path}:{line}\n")
 
-        if before:
-            content.append("\n  - Before:\n", style="red")
-            for bline in before.strip().splitlines():
-                content.append(f"    {bline}\n", style="red")
+        # Critical/High는 Before/After 코드 표시
+        if issue.get("severity") in ("critical", "high"):
+            if before:
+                content.append("\n  - Before:\n", style="red")
+                for bline in before.strip().splitlines():
+                    content.append(f"    {bline}\n", style="red")
 
-        if after:
-            content.append("  + After:\n", style="green")
-            for aline in after.strip().splitlines():
-                content.append(f"    {aline}\n", style="green")
+            if after:
+                content.append("  + After:\n", style="green")
+                for aline in after.strip().splitlines():
+                    content.append(f"    {aline}\n", style="green")
 
         if description:
             content.append(f"\n  {description}\n")
 
         console.print(Panel(content, border_style="dim"))
-
-    total_shown = len(important_issues)
-    total_all = len(issues)
-    if total_all > total_shown:
-        console.print(f"... (총 {total_all}건)")
 
 
 def print_summary(
