@@ -30,3 +30,6 @@ mider/resources/binaries/*
 # OS
 .DS_Store
 Thumbs.db
+
+# 샘플데이터
+tests/fixtures/*
