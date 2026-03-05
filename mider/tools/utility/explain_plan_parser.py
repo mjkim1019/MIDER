@@ -106,9 +106,6 @@ class ExplainPlanParser(BaseTool):
         header_pattern = re.compile(
             r"\|\s*Id\s*\|\s*Operation\s*\|", re.IGNORECASE,
         )
-        data_pattern = re.compile(
-            r"\|\s*(\d+)\s*\|(.+?)(?:\||$)",
-        )
 
         header_found = False
         header_columns: list[str] = []

@@ -75,6 +75,7 @@ class OrchestratorAgent(BaseAgent):
         )
         self.session_id: str = uuid.uuid4().hex[:12]
         self.progress_callback = progress_callback
+        self._explain_plan_file: str | None = None
 
         # Tools
         self._glob_tool = GlobTool()
@@ -371,7 +372,7 @@ class OrchestratorAgent(BaseAgent):
         try:
             # SQL 분석 시 Explain Plan 파일 전달
             extra_kwargs: dict[str, Any] = {}
-            if language == "sql" and getattr(self, "_explain_plan_file", None):
+            if language == "sql" and self._explain_plan_file:
                 extra_kwargs["explain_plan_file"] = self._explain_plan_file
 
             return await self._call_agent(

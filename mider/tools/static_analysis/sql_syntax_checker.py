@@ -13,13 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import sqlparse
-from sqlparse.sql import Parenthesis, Statement
-from sqlparse.tokens import (
-    DML,
-    Keyword,
-    Punctuation,
-    String,
-)
+from sqlparse.sql import Statement
+from sqlparse.tokens import DML, Keyword
 
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 
