@@ -5,7 +5,7 @@
 ## 분석 대상 파일
 파일: {file_path}
 ```sql
-{file_content_optimized}
+{file_content}
 ```
 
 ## 휴리스틱 체크리스트

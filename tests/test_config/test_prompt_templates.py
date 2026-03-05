@@ -78,12 +78,11 @@ PROMPT_VARIABLES = {
         "static_patterns": '[{"type": "full_table_scan"}]',
         "file_path": "/app/test.sql",
         "file_context": '{"imports": []}',
-        "structure_summary": "[파일 정보] 1줄, 언어: sql",
-        "error_functions": "SELECT * FROM orders;",
+        "file_content": "SELECT * FROM orders;",
     },
     "sql_analyzer_heuristic": {
         "file_path": "/app/test.sql",
-        "file_content_optimized": "SELECT * FROM orders;",
+        "file_content": "SELECT * FROM orders;",
     },
     "reporter": {
         "analysis_results": '[{"task_id": "task_1"}]',
@@ -230,12 +229,11 @@ class TestPromptContent:
         assert "인덱스" in result
 
     def test_error_focused_has_structure_summary(self):
-        """Error-Focused 프롬프트에 structure_summary 변수가 포함되는지 검증."""
+        """Error-Focused 프롬프트에 structure_summary 변수가 포함되는지 검증 (SQL 제외)."""
         for name in [
             "js_analyzer_error_focused",
             "c_analyzer_error_focused",
             "proc_analyzer_error_focused",
-            "sql_analyzer_error_focused",
         ]:
             result = load_prompt(name, **PROMPT_VARIABLES[name])
             assert "파일 정보" in result, f"{name}: structure_summary 미치환"
