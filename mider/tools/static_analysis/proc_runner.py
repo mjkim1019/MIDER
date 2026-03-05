@@ -74,11 +74,19 @@ class ProcRunner(BaseTool):
             )
 
         if not self._binary.exists():
-            raise ToolExecutionError(
-                "proc_runner",
-                f"binary not found: {self._binary}. "
-                "Oracle proc 바이너리를 resources/binaries/에 배치하세요.",
-            )
+            import shutil
+            system_proc = shutil.which("proc")
+            if system_proc:
+                self._binary = Path(system_proc)
+            else:
+                logger.info(
+                    "Oracle proc 바이너리 없음 — Heuristic 모드로 분석합니다. "
+                    "(resources/binaries/ 또는 시스템 PATH에 proc가 없음)"
+                )
+                return ToolResult(
+                    success=True,
+                    data={"errors": [], "total_errors": 0, "skipped": True},
+                )
 
         include_dirs = include_dirs or []
 
