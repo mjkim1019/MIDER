@@ -109,7 +109,10 @@ class CAnalyzerAgent(BaseAgent):
 
             # Step 4: AnalysisResult 생성
             elapsed = time.time() - start_time
-            tokens_estimate = (len(prompt) + len(response)) // 4
+            try:
+                tokens_estimate = (len(prompt) + len(response)) // 4
+            except UnboundLocalError:
+                tokens_estimate = 0
 
             result = AnalysisResult.model_validate({
                 "task_id": task_id,

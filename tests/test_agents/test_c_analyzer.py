@@ -202,6 +202,183 @@ class TestLLMFailure:
         assert result["error"] is not None
 
 
+class TestTwoPassPath:
+    """2-Pass 분석 경로 테스트 (clang-tidy 없음 + 500줄 초과)."""
+
+    @pytest.fixture
+    def large_c_file(self, tmp_path):
+        """500줄 초과 C 파일 (위험 패턴 포함)."""
+        # 안전한 함수 85개 (각 6줄) = 510줄 + 위험 함수 1개
+        safe_funcs = []
+        for i in range(85):
+            safe_funcs.append(
+                f"int safe_func_{i}(int x) {{\n"
+                f"    int result = 0;\n"
+                f"    result = x + {i};\n"
+                f"    return result;\n"
+                f"}}\n\n"
+            )
+        # 위험 함수 (초기화 안 된 변수 + strcpy)
+        dangerous_func = (
+            "void dangerous_handler(char *input) {\n"
+            "    int count;\n"
+            "    char buf[64];\n"
+            "    strcpy(buf, input);\n"
+            "    buf[count] = 0;\n"
+            "}\n"
+        )
+        content = "#include <string.h>\n\n" + "".join(safe_funcs) + dangerous_func
+        f = tmp_path / "large.c"
+        f.write_text(content)
+        assert len(content.splitlines()) > 500
+        return str(f)
+
+    @pytest.fixture
+    def agent_two_pass(self):
+        """2-Pass용 Agent (clang-tidy 비활성)."""
+        agent = CAnalyzerAgent(model="gpt-4o")
+        agent._llm_client = AsyncMock()
+        # clang-tidy 없음 (None 반환)
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.side_effect = Exception("not found")
+        return agent
+
+    @pytest.mark.asyncio
+    async def test_large_file_triggers_two_pass(self, agent_two_pass, large_c_file):
+        """500줄 초과 + clang 없음 → 2-Pass 경로."""
+        # Pass 1: gpt-4o-mini가 위험 함수 선별
+        pass1_response = json.dumps({
+            "risky_functions": [
+                {"function_name": "dangerous_handler", "reason": "UNINIT_VAR + UNSAFE_FUNC"}
+            ]
+        })
+        # Pass 2: gpt-4o가 심층 분석
+        pass2_response = json.dumps({
+            "issues": [_make_issue(
+                issue_id="C-001",
+                title="strcpy 버퍼 오버플로우",
+                file=large_c_file,
+            )]
+        })
+        agent_two_pass._llm_client.chat.side_effect = [pass1_response, pass2_response]
+
+        result = await agent_two_pass.run(
+            task_id="task_1", file=large_c_file, language="c",
+        )
+
+        assert result["error"] is None
+        assert len(result["issues"]) == 1
+        assert result["issues"][0]["issue_id"] == "C-001"
+        # LLM이 2번 호출됨 (Pass 1 + Pass 2)
+        assert agent_two_pass._llm_client.chat.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_two_pass_model_switch(self, agent_two_pass, large_c_file):
+        """Pass 1은 gpt-4o-mini, Pass 2는 gpt-4o로 호출."""
+        pass1_response = json.dumps({
+            "risky_functions": [
+                {"function_name": "dangerous_handler", "reason": "test"}
+            ]
+        })
+        pass2_response = json.dumps({"issues": []})
+        agent_two_pass._llm_client.chat.side_effect = [pass1_response, pass2_response]
+
+        await agent_two_pass.run(
+            task_id="task_1", file=large_c_file, language="c",
+        )
+
+        calls = agent_two_pass._llm_client.chat.call_args_list
+        # Pass 1: model이 gpt-4o-mini로 변경된 상태에서 호출
+        # Pass 2 후 model은 원래 gpt-4o로 복원
+        assert agent_two_pass.model == "gpt-4o"
+
+    @pytest.mark.asyncio
+    async def test_two_pass_no_risky_functions_fallback(
+        self, agent_two_pass, large_c_file,
+    ):
+        """Pass 1에서 위험 함수 없으면 Heuristic 단일 패스로 전환."""
+        pass1_response = json.dumps({"risky_functions": []})
+        heuristic_response = json.dumps({"issues": []})
+        agent_two_pass._llm_client.chat.side_effect = [
+            pass1_response, heuristic_response,
+        ]
+
+        result = await agent_two_pass.run(
+            task_id="task_1", file=large_c_file, language="c",
+        )
+
+        assert result["error"] is None
+        # Pass 1 (mini) + Heuristic fallback = 2회
+        assert agent_two_pass._llm_client.chat.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_two_pass_scanner_no_findings_fallback(self, tmp_path):
+        """Pre-Scanner 패턴 없으면 Heuristic 단일 패스."""
+        # 모든 변수 초기화된 안전한 대형 파일
+        safe_funcs = []
+        for i in range(90):
+            safe_funcs.append(
+                f"int calc_{i}(int x) {{\n"
+                f"    int r = 0;\n"
+                f"    r = x + {i};\n"
+                f"    return r;\n"
+                f"}}\n\n"
+            )
+        content = "".join(safe_funcs)
+        f = tmp_path / "safe_large.c"
+        f.write_text(content)
+
+        agent = CAnalyzerAgent(model="gpt-4o")
+        agent._llm_client = AsyncMock()
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.side_effect = Exception("not found")
+        agent._llm_client.chat.return_value = json.dumps({"issues": []})
+
+        result = await agent.run(task_id="task_1", file=str(f), language="c")
+
+        assert result["error"] is None
+        # Scanner 패턴 없으면 바로 Heuristic 1회
+        assert agent._llm_client.chat.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_small_file_skips_two_pass(self, agent, c_file):
+        """500줄 이하 파일은 2-Pass 안 탐."""
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.side_effect = Exception("not found")
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        result = await agent.run(task_id="task_1", file=c_file, language="c")
+
+        assert result["error"] is None
+        # 단일 패스 = 1회
+        assert agent._llm_client.chat.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_two_pass_issues_mapped_to_result(
+        self, agent_two_pass, large_c_file,
+    ):
+        """2-Pass에서 발견한 이슈가 AnalysisResult에 포함."""
+        pass1_response = json.dumps({
+            "risky_functions": [
+                {"function_name": "dangerous_handler", "reason": "test"}
+            ]
+        })
+        issues = [
+            _make_issue(issue_id="C-001", title="strcpy 버퍼 오버플로우"),
+            _make_issue(issue_id="C-002", title="초기화 안 된 변수 사용"),
+        ]
+        pass2_response = json.dumps({"issues": issues})
+        agent_two_pass._llm_client.chat.side_effect = [pass1_response, pass2_response]
+
+        result = await agent_two_pass.run(
+            task_id="task_1", file=large_c_file, language="c",
+        )
+
+        validated = AnalysisResult.model_validate(result)
+        assert len(validated.issues) == 2
+        assert validated.agent == "CAnalyzerAgent"
+
+
 class TestAgentInit:
     """Agent 초기화 테스트."""
 
