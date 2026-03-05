@@ -104,5 +104,5 @@
   - [x] T17.2: 파일 확장자 → 섹션 매핑 로직
   - [x] T17.3: DeploymentChecklist Pydantic 스키마
   - [x] T17.4: ReporterAgent 연동
-  - [ ] T17.5: CLI 출력 + JSON 파일
+  - [x] T17.5: CLI 출력 + JSON 파일
   - [ ] T17.6: 단위 테스트
