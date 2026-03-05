@@ -99,3 +99,4 @@
 | 2026-03-05 | JS 함수 패턴에 제어문 제외 negative lookahead 추가 | 리뷰 반영: `if()/for()` 등이 함수로 오인되는 false positive 방지 |
 | 2026-03-05 | Error-Focused fallback에 `optimize_file_content()` 적용 | 리뷰 반영: 에러 블록 추출 실패 시 대형 파일 전체가 프롬프트에 삽입되는 토큰 폭발 방지 |
 | 2026-03-05 | `common_patterns` `isinstance(dict)` 타입 가드 추가 | 리뷰 반영: Phase 1에서 비-dict 타입이 들어올 경우 AttributeError 방지 |
+| 2026-03-05 | SQL Analyzer 토큰 최적화 제거 — `file_content` 전체 전달 | SQL 파일은 크기가 작고 전체 맥락이 중요하므로 최적화 미적용 |
