@@ -14,6 +14,11 @@ from mider.config.prompt_loader import load_prompt
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.search.ast_grep_search import AstGrepSearch
+from mider.tools.utility.token_optimizer import (
+    build_structure_summary,
+    extract_error_functions,
+    optimize_file_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,19 +182,41 @@ class SQLAnalyzerAgent(BaseAgent):
                 file_context, ensure_ascii=False, indent=2,
             ) if file_context else "컨텍스트 정보 없음"
 
+            # 에러 라인 추출
+            error_lines = [
+                p["line"] for p in static_patterns
+                if isinstance(p, dict) and "line" in p
+            ]
+
+            # 토큰 최적화
+            structure_summary = build_structure_summary(
+                file_content, file_context, "sql",
+            )
+            error_blocks = extract_error_functions(
+                file_content, error_lines, "sql",
+            )
+            error_functions_str = "\n\n".join(
+                f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
+                for block in error_blocks
+            ) if error_blocks else file_content
+
             prompt = load_prompt(
                 "sql_analyzer_error_focused",
                 static_patterns=patterns_str,
                 file_path=file,
-                file_content=file_content,
+                structure_summary=structure_summary,
+                error_functions=error_functions_str,
                 file_context=file_context_str,
             )
         else:
             # Heuristic 경로
+            file_content_optimized = optimize_file_content(
+                file_content, file_context, "sql",
+            )
             prompt = load_prompt(
                 "sql_analyzer_heuristic",
                 file_path=file,
-                file_content=file_content,
+                file_content_optimized=file_content_optimized,
             )
 
         messages = [

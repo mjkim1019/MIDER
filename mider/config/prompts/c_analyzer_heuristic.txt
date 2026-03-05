@@ -5,7 +5,7 @@
 ## 분석 대상 파일
 파일: {file_path}
 ```c
-{file_content}
+{file_content_optimized}
 ```
 
 ## 휴리스틱 체크리스트

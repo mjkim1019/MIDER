@@ -15,6 +15,11 @@ from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.static_analysis.proc_runner import ProcRunner
 from mider.tools.utility.sql_extractor import SQLExtractor
+from mider.tools.utility.token_optimizer import (
+    build_structure_summary,
+    extract_error_functions,
+    optimize_file_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -188,21 +193,46 @@ class ProCAnalyzerAgent(BaseAgent):
                 file_context, ensure_ascii=False, indent=2,
             ) if file_context else "컨텍스트 정보 없음"
 
+            # 에러 라인 추출
+            error_lines = []
+            for item in proc_errors:
+                if isinstance(item, dict) and "line" in item:
+                    error_lines.append(item["line"])
+            for block in sql_blocks:
+                if not block.get("has_sqlca_check", True) and "line" in block:
+                    error_lines.append(block["line"])
+
+            # 토큰 최적화
+            structure_summary = build_structure_summary(
+                file_content, file_context, "proc",
+            )
+            error_blocks = extract_error_functions(
+                file_content, error_lines, "proc",
+            )
+            error_functions_str = "\n\n".join(
+                f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
+                for block in error_blocks
+            ) if error_blocks else file_content
+
             prompt = load_prompt(
                 "proc_analyzer_error_focused",
                 proc_errors=proc_errors_str,
                 sql_blocks=sql_blocks_str,
                 file_path=file,
-                file_content=file_content,
+                structure_summary=structure_summary,
+                error_functions=error_functions_str,
                 file_context=file_context_str,
             )
         else:
             # Heuristic 경로
+            file_content_optimized = optimize_file_content(
+                file_content, file_context, "proc",
+            )
             prompt = load_prompt(
                 "proc_analyzer_heuristic",
                 sql_blocks=sql_blocks_str,
                 file_path=file,
-                file_content=file_content,
+                file_content_optimized=file_content_optimized,
             )
 
         messages = [

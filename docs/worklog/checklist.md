@@ -96,6 +96,6 @@
 - [ ] T16: 토큰 최적화 (Structure + Function Window)
   - [x] T16.1: _extract_error_functions() 구현
   - [x] T16.2: _build_structure_summary() 구현
-  - [ ] T16.3: 4개 Analyzer _build_messages() 수정
-  - [ ] T16.4: 8개 프롬프트 템플릿 변수 변경
+  - [x] T16.3: 4개 Analyzer _build_messages() 수정
+  - [x] T16.4: 8개 프롬프트 템플릿 변수 변경
   - [ ] T16.5: 단위 테스트

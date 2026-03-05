@@ -6,9 +6,12 @@
 
 ## 분석 대상 파일
 파일: {file_path}
-```sql
-{file_content}
-```
+
+### 파일 구조 요약
+{structure_summary}
+
+### 에러 관련 코드
+{error_functions}
 
 ## 파일 컨텍스트
 {file_context}
