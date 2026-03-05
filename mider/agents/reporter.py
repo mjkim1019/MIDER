@@ -17,6 +17,8 @@ from mider.models.report import (
     AnalysisMetadata,
     Checklist,
     ChecklistItem,
+    DeploymentChecklist,
+    DeploymentChecklistSection,
     IssueList,
     IssueListItem,
     IssueSummary,
@@ -24,6 +26,7 @@ from mider.models.report import (
     Summary,
 )
 from mider.tools.utility.checklist_generator import ChecklistGenerator
+from mider.tools.utility.deployment_checklist import DeploymentChecklistGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +35,10 @@ _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
 class ReporterAgent(BaseAgent):
-    """Phase 3: 분석 결과를 통합하여 3개 리포트를 생성하는 Agent.
+    """Phase 3: 분석 결과를 통합하여 4개 리포트를 생성하는 Agent.
 
-    AnalysisResult 리스트를 받아 IssueList, Checklist, Summary를
-    생성한다. LLM은 risk_description 한국어 생성에 사용한다.
+    AnalysisResult 리스트를 받아 IssueList, Checklist, Summary,
+    DeploymentChecklist를 생성한다. LLM은 risk_description 한국어 생성에 사용한다.
     """
 
     def __init__(
@@ -50,6 +53,7 @@ class ReporterAgent(BaseAgent):
             temperature=temperature,
         )
         self._checklist_generator = ChecklistGenerator()
+        self._deployment_checklist_generator = DeploymentChecklistGenerator()
 
     async def run(
         self,
@@ -59,8 +63,10 @@ class ReporterAgent(BaseAgent):
         total_files: int,
         total_lines: int,
         analysis_duration_seconds: float,
+        file_paths: list[str] | None = None,
+        file_first_lines: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """분석 결과를 통합하여 3개 리포트를 생성한다.
+        """분석 결과를 통합하여 4개 리포트를 생성한다.
 
         Args:
             analysis_results: Phase 2 AnalysisResult dict 리스트
@@ -68,9 +74,12 @@ class ReporterAgent(BaseAgent):
             total_files: 분석한 총 파일 수
             total_lines: 분석한 총 라인 수
             analysis_duration_seconds: 전체 분석 소요 시간 (초)
+            file_paths: 분석 대상 파일 경로 리스트 (배포 체크리스트용)
+            file_first_lines: 파일별 첫 줄 내용 (C 파일 TP/Module 판별용)
 
         Returns:
-            {"issue_list": ..., "checklist": ..., "summary": ...}
+            {"issue_list": ..., "checklist": ..., "summary": ...,
+             "deployment_checklist": ...}
         """
         start_time = time.time()
         logger.info(f"리포트 생성 시작: {len(analysis_results)}개 분석 결과")
@@ -106,16 +115,27 @@ class ReporterAgent(BaseAgent):
                 total_llm_tokens=total_llm_tokens,
             )
 
+            # Step 5: 배포 체크리스트 생성
+            deployment_checklist = self._build_deployment_checklist(
+                file_paths=file_paths or [],
+                file_first_lines=file_first_lines or {},
+                generated_at=generated_at,
+                session_id=session_id,
+            )
+
             elapsed = time.time() - start_time
             logger.info(
                 f"리포트 생성 완료: {issue_list.total_issues}개 이슈, "
-                f"{checklist.total_checks}개 체크항목, {elapsed:.2f}초"
+                f"{checklist.total_checks}개 체크항목, "
+                f"{deployment_checklist.total_items}개 배포항목, "
+                f"{elapsed:.2f}초"
             )
 
             return {
                 "issue_list": issue_list.model_dump(mode="json"),
                 "checklist": checklist.model_dump(mode="json"),
                 "summary": summary.model_dump(mode="json"),
+                "deployment_checklist": deployment_checklist.model_dump(mode="json"),
             }
 
         except Exception as e:
@@ -384,6 +404,32 @@ class ReporterAgent(BaseAgent):
 
         # Graceful degradation: 기본 메시지
         return self._default_risk_description(by_severity, deployment_risk)
+
+    def _build_deployment_checklist(
+        self,
+        *,
+        file_paths: list[str],
+        file_first_lines: dict[str, str],
+        generated_at: datetime,
+        session_id: str,
+    ) -> DeploymentChecklist:
+        """배포 체크리스트를 생성한다."""
+        tool_result = self._deployment_checklist_generator.execute(
+            file_paths=file_paths,
+            file_first_lines=file_first_lines,
+        )
+
+        sections = [
+            DeploymentChecklistSection.model_validate(s)
+            for s in tool_result.data.get("sections", [])
+        ]
+
+        return DeploymentChecklist(
+            generated_at=generated_at,
+            session_id=session_id,
+            total_items=tool_result.data.get("total_items", 0),
+            sections=sections,
+        )
 
     def _default_risk_description(
         self,

@@ -141,6 +141,12 @@ def _make_report_result() -> dict:
                 "risk_description": "심각한 문제 없음",
             },
         },
+        "deployment_checklist": {
+            "generated_at": "2026-03-04T00:00:00Z",
+            "session_id": "test-session",
+            "total_items": 0,
+            "sections": [],
+        },
     }
 
 

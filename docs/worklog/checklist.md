@@ -99,3 +99,10 @@
   - [x] T16.3: 4개 Analyzer _build_messages() 수정
   - [x] T16.4: 8개 프롬프트 템플릿 변수 변경
   - [x] T16.5: 단위 테스트
+- [x] T17: 배포 체크리스트 자동 생성
+  - [x] T17.1: 배포 체크리스트 데이터 정의
+  - [x] T17.2: 파일 확장자 → 섹션 매핑 로직
+  - [x] T17.3: DeploymentChecklist Pydantic 스키마
+  - [x] T17.4: ReporterAgent 연동
+  - [x] T17.5: CLI 출력 + JSON 파일
+  - [x] T17.6: 단위 테스트

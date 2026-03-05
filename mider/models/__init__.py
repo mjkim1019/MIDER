@@ -24,6 +24,9 @@ from mider.models.report import (
     AnalysisMetadata,
     Checklist,
     ChecklistItem,
+    DeploymentChecklist,
+    DeploymentChecklistItem,
+    DeploymentChecklistSection,
     IssueList,
     IssueListItem,
     IssueSummary,
@@ -58,4 +61,7 @@ __all__ = [
     "IssueSummary",
     "RiskAssessment",
     "Summary",
+    "DeploymentChecklistItem",
+    "DeploymentChecklistSection",
+    "DeploymentChecklist",
 ]

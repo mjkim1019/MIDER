@@ -270,6 +270,7 @@ def print_summary(
     console.print(f"\n출력: {output_dir}/issue-list.json")
     console.print(f"      {output_dir}/checklist.json")
     console.print(f"      {output_dir}/summary.json")
+    console.print(f"      {output_dir}/deployment-checklist.json")
 
 
 def write_output_files(
@@ -284,6 +285,7 @@ def write_output_files(
         "issue-list.json": result.get("issue_list", {}),
         "checklist.json": result.get("checklist", {}),
         "summary.json": result.get("summary", {}),
+        "deployment-checklist.json": result.get("deployment_checklist", {}),
     }
 
     for filename, data in files_to_write.items():
