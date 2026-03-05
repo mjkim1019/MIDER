@@ -126,3 +126,7 @@
 | 2026-03-05 | SQL 통계정보 = Explain Plan 내 Cost/Rows/Bytes | 별도 통계 파일 불필요, Explain Plan 파일 하나로 처리 |
 | 2026-03-05 | XML + JS 교차 검증 필요 | XML 이벤트 핸들러(ev:on*)가 대응 JS 파일에 존재하는지 확인 |
 | 2026-03-05 | T15를 마지막으로 이동 | T18/T19 완료 후 새 기능 포함하여 E2E 검증 — 이중 작업 방지 |
+| 2026-03-05 | ExplainPlanParser `_parse_header`: `(%cpu)` 제거 순서 변경 (replace → strip → replace) | `Cost (%CPU)` → `cost_(%cpu)` → `cost_`로 잘못 변환되어 Cost 컬럼 매핑 실패 |
+| 2026-03-05 | ExplainPlanParser `_parse_data_row`: 빈 셀 skip 제거, positional alignment 유지 | Name 빈 셀(`\|        \|`)을 skip하면 이후 컬럼이 밀려 Cost가 Time에 매핑되는 버그 |
+| 2026-03-05 | sql_syntax_checker.py: 미사용 import 제거 (Parenthesis, Punctuation, String) | 리뷰 반영 — 코드 정리 |
+| 2026-03-05 | orchestrator.py: `_explain_plan_file`을 `__init__`에서 초기화 | 리뷰 반영 — `getattr` 방어 패턴 제거, 명시적 초기화 |
