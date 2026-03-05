@@ -92,3 +92,10 @@
 | 2026-03-04 | LLM 에러 감지: 문자열 매칭 → OpenAI 예외 타입 검사 | 리뷰 반영: "api", "connection" 등 문자열 매칭은 false positive 위험 |
 | 2026-03-04 | KeyboardInterrupt exit code: 2 → 130 (Unix SIGINT 관례) | 리뷰 반영: 파일 에러(2)와 사용자 취소를 구분 |
 | 2026-03-04 | Progress callback `total > 0` 가드 추가 | 리뷰 반영: total==0일 때 `0 >= 0`이 true가 되어 즉시 done 표시 방지 |
+| 2026-03-05 | `token_optimizer.py` 신규 유틸리티 (BaseTool 미상속) | 순수 유틸 함수이므로 Tool 인터페이스 불필요 — 4개 Analyzer에서 직접 import |
+| 2026-03-05 | Error-Focused: `{file_content}` → `{structure_summary}` + `{error_functions}` | 함수 단위 추출로 토큰 절감 + 논리적 완결성 확보 |
+| 2026-03-05 | Heuristic: `{file_content}` → `{file_content_optimized}` (≤500줄 전체, >500줄 축약) | 에러 위치 미상이므로 크기 기반 분기 |
+| 2026-03-05 | 중괄호 매칭에 `_count_braces_in_line` 추가 (문자열/주석 무시) | 리뷰 반영: `printf("{")`, `// {` 등에서 함수 경계 오탐 방지 |
+| 2026-03-05 | JS 함수 패턴에 제어문 제외 negative lookahead 추가 | 리뷰 반영: `if()/for()` 등이 함수로 오인되는 false positive 방지 |
+| 2026-03-05 | Error-Focused fallback에 `optimize_file_content()` 적용 | 리뷰 반영: 에러 블록 추출 실패 시 대형 파일 전체가 프롬프트에 삽입되는 토큰 폭발 방지 |
+| 2026-03-05 | `common_patterns` `isinstance(dict)` 타입 가드 추가 | 리뷰 반영: Phase 1에서 비-dict 타입이 들어올 경우 AttributeError 방지 |
