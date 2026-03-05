@@ -1,7 +1,5 @@
 """TokenOptimizer 단위 테스트."""
 
-import pytest
-
 from mider.tools.utility.token_optimizer import (
     CodeBlock,
     build_structure_summary,
