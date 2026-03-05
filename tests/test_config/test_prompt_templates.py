@@ -79,10 +79,13 @@ PROMPT_VARIABLES = {
         "file_path": "/app/test.sql",
         "file_context": '{"imports": []}',
         "file_content": "SELECT * FROM orders;",
+        "syntax_errors": '[{"line": 1, "rule": "missing_from"}]',
+        "explain_plan": "",
     },
     "sql_analyzer_heuristic": {
         "file_path": "/app/test.sql",
         "file_content": "SELECT * FROM orders;",
+        "explain_plan": "",
     },
     "reporter": {
         "analysis_results": '[{"task_id": "task_1"}]',

@@ -95,7 +95,7 @@
   - [x] T18.4: SQLAnalyzerAgent 강화
   - [x] T18.5: 프롬프트 템플릿 수정
   - [x] T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
-  - [ ] T18.7: 단위 테스트
+  - [x] T18.7: 단위 테스트
 - [ ] T19: Proframe XML 지원
   - [ ] T19.1: XML 파서/분석 도구
   - [ ] T19.2: XMLAnalyzerAgent 구현

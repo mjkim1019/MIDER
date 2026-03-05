@@ -148,7 +148,7 @@ class ExplainPlanParser(BaseTool):
         for part in parts:
             col = part.strip()
             if col:
-                columns.append(col.lower().replace(" ", "_").replace("(%cpu)", ""))
+                columns.append(col.lower().replace("(%cpu)", "").strip().replace(" ", "_"))
         return columns
 
     @staticmethod
@@ -157,23 +157,29 @@ class ExplainPlanParser(BaseTool):
         header_columns: list[str],
     ) -> dict[str, Any] | None:
         """데이터 행을 파싱한다."""
+        # | 로 분할 후 양 끝 빈 요소 제거 (positional alignment 유지)
         parts = line.split("|")
-        values: list[str] = []
-        for part in parts:
-            val = part.strip()
-            if val != "":
-                values.append(val)
+        # 앞뒤 빈 문자열 제거 (| 시작/끝)
+        if parts and parts[0].strip() == "":
+            parts = parts[1:]
+        if parts and parts[-1].strip() == "":
+            parts = parts[:-1]
 
-        if not values:
+        if not parts:
             return None
 
         step: dict[str, Any] = {}
 
-        for i, val in enumerate(values):
+        for i, part in enumerate(parts):
+            val = part.strip()
             if i < len(header_columns):
                 col_name = header_columns[i]
             else:
                 col_name = f"col_{i}"
+
+            # 빈 값은 건너뜀 (Name이 비어있는 경우 등)
+            if not val:
+                continue
 
             # 숫자 필드 변환
             if col_name in ("id", "rows", "bytes", "cost"):
@@ -186,16 +192,9 @@ class ExplainPlanParser(BaseTool):
             else:
                 step[col_name] = val
 
-        # 최소한 id와 operation이 있어야 유효
+        # 최소한 id가 있어야 유효
         if "id" not in step:
-            # 첫 값이 숫자면 id로 사용
-            try:
-                step["id"] = int(values[0])
-            except (ValueError, IndexError):
-                return None
-
-        if "operation" not in step and len(values) > 1:
-            step["operation"] = values[1]
+            return None
 
         return step
 
