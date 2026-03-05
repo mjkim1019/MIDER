@@ -292,3 +292,4 @@
 - `2026-03-05 15:26:41` [feat/T18-sql-enhancement] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/utility/explain_plan_parser.py`
 - `2026-03-05 15:26:49` [feat/T18-sql-enhancement] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/orchestrator.py`
 - `2026-03-05 15:26:57` [feat/T18-sql-enhancement] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/orchestrator.py`
+- `2026-03-05 15:55:53` [fix/datetime-serialization] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/context_collector.py`

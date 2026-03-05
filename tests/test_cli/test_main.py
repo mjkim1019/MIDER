@@ -140,21 +140,43 @@ class TestResolveModel:
 class TestValidateApiKey:
     """API 키 검증 테스트."""
 
-    def test_valid_key(self, monkeypatch):
-        """API 키가 설정된 경우 정상 반환."""
+    def _clear_all_keys(self, monkeypatch):
+        """모든 API 키 환경변수 제거."""
+        for key in ["MIDER_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"]:
+            monkeypatch.delenv(key, raising=False)
+
+    def test_mider_key(self, monkeypatch):
+        """MIDER_API_KEY가 설정된 경우 반환."""
+        self._clear_all_keys(monkeypatch)
         monkeypatch.setenv("MIDER_API_KEY", "sk-test-key")
         result = validate_api_key()
         assert result == "sk-test-key"
 
-    def test_missing_key_exits(self, monkeypatch):
-        """API 키 미설정 시 exit code 3."""
-        monkeypatch.delenv("MIDER_API_KEY", raising=False)
+    def test_azure_key(self, monkeypatch):
+        """Azure 키가 설정된 경우 None 반환 (LLMClient가 직접 읽음)."""
+        self._clear_all_keys(monkeypatch)
+        monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
+        monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com/")
+        result = validate_api_key()
+        assert result is None
+
+    def test_openai_key_direct(self, monkeypatch):
+        """OPENAI_API_KEY가 직접 설정된 경우 None 반환."""
+        self._clear_all_keys(monkeypatch)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-direct")
+        result = validate_api_key()
+        assert result is None
+
+    def test_no_key_exits(self, monkeypatch):
+        """어떤 키도 없으면 exit code 3."""
+        self._clear_all_keys(monkeypatch)
         with pytest.raises(SystemExit) as exc_info:
             validate_api_key()
         assert exc_info.value.code == EXIT_LLM_ERROR
 
     def test_empty_key_exits(self, monkeypatch):
         """빈 API 키 시 exit code 3."""
+        self._clear_all_keys(monkeypatch)
         monkeypatch.setenv("MIDER_API_KEY", "")
         with pytest.raises(SystemExit) as exc_info:
             validate_api_key()
@@ -536,10 +558,13 @@ class TestMain:
 
     def test_main_exits_without_api_key(self, monkeypatch):
         """API 키 없으면 exit 3."""
-        monkeypatch.delenv("MIDER_API_KEY", raising=False)
+        for key in ["MIDER_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"]:
+            monkeypatch.delenv(key, raising=False)
         monkeypatch.setattr(
             "sys.argv", ["mider", "--files", "test.js"],
         )
+        # load_dotenv()가 .env 파일에서 키를 로드하지 않도록 차단
+        monkeypatch.setattr("mider.main.load_dotenv", lambda: None)
         with pytest.raises(SystemExit) as exc_info:
             from mider.main import main
             main()
