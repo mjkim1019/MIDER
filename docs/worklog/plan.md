@@ -80,6 +80,19 @@ T1~T9 완료, T10부터 재개.
   - Heuristic 4개: `{file_content}` → `{file_content_optimized}`
 - T16.5: 단위 테스트 → 대상: `tests/test_agents/`, `tests/test_tools/`
 
+### T17: 배포 체크리스트 자동 생성 (depends: T12)
+- T17.1: 배포 체크리스트 데이터 정의 → 대상: `mider/tools/utility/deployment_checklist.py`
+  - 5개 섹션별 체크리스트 항목을 구조화된 데이터로 정의
+  - 섹션 1: 화면 배포 (xml/js), 섹션 2: TP 배포 (.c), 섹션 3: Module 배포 (.c, .h)
+  - 섹션 4: Batch 배포 (.pc), 섹션 5: DBIO 배포 (.sql)
+- T17.2: 파일 확장자 → 섹션 매핑 로직 → 대상: `mider/tools/utility/deployment_checklist.py`
+  - `.js`→섹션1, `.c`→TP/Module판별→섹션2/3, `.h`→섹션3, `.pc`→섹션4, `.sql`→섹션5
+  - TP/Module 판별: 첫줄주석(SERVICE→TP, module→Module) > 파일명(뒤에서3번째 t→TP)
+- T17.3: DeploymentChecklist Pydantic 스키마 → 대상: `mider/models/report.py`
+- T17.4: ReporterAgent 연동 → 대상: `mider/agents/reporter.py`
+- T17.5: CLI 출력 + JSON 파일 → 대상: `mider/main.py`
+- T17.6: 단위 테스트 → 대상: `tests/test_tools/test_deployment_checklist.py`
+
 ## 일정 요약
 | Task | 의존성 | 병렬 가능 | 상태 |
 |------|--------|----------|------|
@@ -89,5 +102,6 @@ T1~T9 완료, T10부터 재개.
 | T12 | T2, T3, T5, T8 | T11과 병렬 | ✅ 완료 |
 | T13 | T9~T12 | - | ✅ 완료 |
 | T14 | T13 | - | ✅ 완료 |
-| T15 | T14 | - | 대기 |
-| T16 | T11 | T12~T15와 병렬 | 대기 |
+| T16 | T11 | - | ✅ 완료 |
+| T17 | T12 | T16과 병렬 | 대기 |
+| T15 | T14, T16, T17 | - | 대기 (마지막)
