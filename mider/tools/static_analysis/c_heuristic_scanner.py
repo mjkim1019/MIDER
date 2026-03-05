@@ -206,6 +206,9 @@ class CHeuristicScanner(BaseTool):
             # 한 줄 주석 제거
             clean_line = _LINE_COMMENT.sub("", line)
 
+            # 한 줄 블록 주석 제거 (/* ... */)
+            clean_line = re.sub(r"/\*.*?\*/", "", clean_line)
+
             # 문자열 리터럴 내부 제거 (간이 처리)
             clean_line = re.sub(r'"[^"]*"', '""', clean_line)
             clean_line = re.sub(r"'[^']*'", "''", clean_line)
