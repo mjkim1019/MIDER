@@ -137,12 +137,17 @@ def _find_function_boundaries(
             r")"
         )
     else:
-        # C / ProC
+        # C / ProC — 한 줄 선언
         func_pattern = re.compile(
             r"^(?!\s*(?:if|else|for|while|switch|return|#|typedef|struct|union|enum)\b)"
             r"\s*(?:static\s+|extern\s+|inline\s+)*"
             r"(?:void|int|char|long|short|unsigned|float|double|size_t|ssize_t|\w+_t|\w+)\s*\*?\s+"
             r"\w+\s*\([^;]*$"
+        )
+        # C / ProC — 반환형만 있는 줄 (다음 줄에 함수명)
+        return_type_only = re.compile(
+            r"^\s*(?:static\s+|extern\s+|inline\s+)*"
+            r"(?:void|int|char|long|short|unsigned|float|double|size_t|ssize_t|\w+_t)\s*\*?\s*$"
         )
 
     functions: list[tuple[int, int]] = []
@@ -150,7 +155,15 @@ def _find_function_boundaries(
     i = 0
     while i < len(lines):
         line = lines[i]
-        if func_pattern.match(line):
+        matched = func_pattern.match(line)
+
+        # C/ProC: 반환형만 있는 줄 → 다음 줄과 합쳐서 매칭
+        if not matched and language in ("c", "proc"):
+            if return_type_only.match(line) and i + 1 < len(lines):
+                combined = line.rstrip() + " " + lines[i + 1].lstrip()
+                matched = func_pattern.match(combined)
+
+        if matched:
             func_start = i + 1  # 1-based
 
             # 중괄호 시작을 찾기
