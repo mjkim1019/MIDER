@@ -23,6 +23,14 @@
 - **튜닝 포인트**: Full Table Scan, Cartesian Join, 높은 Cost 등 비효율 오퍼레이션 자동 탐지
 - **LLM 역할**: 문법 오류 설명 + Explain Plan 해석 + 튜닝 제안 (한국어)
 
+## T20 설계 결정 (C Heuristic Pre-Scanner)
+- **2-Pass 전략**: Pass 1(regex + gpt-4o-mini 선별) → Pass 2(gpt-4o 심층분석). 전체 파일을 gpt-4o로 보내는 것보다 비용 효율적
+- **regex 사전 스캔**: 전체 파일에서 위험 패턴 6종을 즉시 탐지 (비용 0). clang-tidy 대체
+- **few-shot 프롬프트**: 사용자가 위험 패턴 예시를 추가/수정 가능한 구조. `c_prescan_fewshot.txt`에서 관리
+- **500줄 분기 유지**: 500줄 이하 파일은 전체 코드를 LLM에 보낼 수 있으므로 기존 Heuristic 유지
+- **함수 매핑**: 기존 `_find_function_boundaries()` 재사용 → 위험 패턴이 어떤 함수에 있는지 매핑
+- **Error-Focused 경로 재활용**: Pass 2는 기존 `c_analyzer_error_focused` 프롬프트 사용 → 새 프롬프트 불필요
+
 ## T19 설계 결정 (Proframe XML 지원)
 - **XML 유형**: Proframe WebSquare(Inswave) 화면 정의 XML — w2:dataList, w2:column, ev:on* 이벤트
 - **JS 교차 검증**: XML의 ev:on* 이벤트 핸들러가 대응하는 JS 파일에 존재하는지 확인

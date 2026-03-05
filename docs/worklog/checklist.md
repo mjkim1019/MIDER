@@ -96,6 +96,12 @@
   - [x] T18.5: 프롬프트 템플릿 수정
   - [x] T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
   - [x] T18.7: 단위 테스트
+- [ ] T20: C Heuristic Pre-Scanner (2-Pass 분석)
+  - [ ] T20.1: C Heuristic Scanner Tool (regex 6종 패턴)
+  - [ ] T20.2: Pass 1 프롬프트 (few-shot 선별)
+  - [ ] T20.3: CAnalyzerAgent 2-Pass 흐름 구현
+  - [ ] T20.4: c_analyzer_heuristic 프롬프트에 few-shot 예시 추가
+  - [ ] T20.5: 단위 테스트
 - [ ] T19: Proframe XML 지원
   - [ ] T19.1: XML 파서/분석 도구
   - [ ] T19.2: XMLAnalyzerAgent 구현
