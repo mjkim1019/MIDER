@@ -550,7 +550,7 @@ class OrchestratorAgent(BaseAgent):
             if ext not in (".c", ".h"):
                 continue
             try:
-                result = self._file_reader.execute(file=fp, max_lines=1)
+                result = self._file_reader.execute(path=fp)
                 content = result.data.get("content", "")
                 first_lines[fp] = content.split("\n", 1)[0] if content else ""
             except Exception as e:

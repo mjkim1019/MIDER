@@ -211,7 +211,7 @@ def print_issues(console: Console, issue_list: dict[str, Any]) -> None:
         title = issue.get("title", "")
         file_path = issue.get("file", "")
         location = issue.get("location", {})
-        line = location.get("start_line", 0)
+        line = location.get("line_start", 0)
         fix = issue.get("fix", {})
         before = fix.get("before", "")
         after = fix.get("after", "")
