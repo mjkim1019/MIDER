@@ -251,6 +251,7 @@ class CAnalyzerAgent(BaseAgent):
         for func_name in risky_functions:
             start_line = func_start_lines.get(func_name)
             if start_line is None:
+                logger.warning(f"함수 경계 찾기 실패, 분석 건너뜀: {func_name}")
                 continue
             tasks.append(_analyze_with_limit(func_name, start_line))
 
