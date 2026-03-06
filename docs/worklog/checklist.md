@@ -119,7 +119,7 @@
   - [x] T21.1: `_run_two_pass()` 함수별 개별 호출 리팩토링
   - [x] T21.2: 함수별 프롬프트 최적화
   - [x] T21.3: asyncio.gather 병렬 호출
-  - [ ] T21.4: 단위 테스트
+  - [x] T21.4: 단위 테스트
 - [ ] T22: clang-tidy + Heuristic 하이브리드 분석
   - [ ] T22.1: Error-Focused 경로에 Heuristic Scanner 추가
   - [ ] T22.2: 합산 로직 구현 (`_merge_warnings`)
