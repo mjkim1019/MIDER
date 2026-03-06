@@ -245,14 +245,14 @@ class TestTwoPassPath:
 
     @pytest.mark.asyncio
     async def test_large_file_triggers_two_pass(self, agent_two_pass, large_c_file):
-        """500줄 초과 + clang 없음 → 2-Pass 경로."""
+        """500줄 초과 + clang 없음 → 2-Pass 경로 (함수별 개별 호출)."""
         # Pass 1: gpt-4o-mini가 위험 함수 선별
         pass1_response = json.dumps({
             "risky_functions": [
                 {"function_name": "dangerous_handler", "reason": "UNINIT_VAR + UNSAFE_FUNC"}
             ]
         })
-        # Pass 2: gpt-4o가 심층 분석
+        # Pass 2: 함수별 개별 gpt-4o 호출 (1개 함수 → 1회)
         pass2_response = json.dumps({
             "issues": [_make_issue(
                 issue_id="C-001",
@@ -269,8 +269,123 @@ class TestTwoPassPath:
         assert result["error"] is None
         assert len(result["issues"]) == 1
         assert result["issues"][0]["issue_id"] == "C-001"
-        # LLM이 2번 호출됨 (Pass 1 + Pass 2)
+        # Pass 1(mini) + Pass 2(1개 함수) = 2회
         assert agent_two_pass._llm_client.chat.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_two_pass_per_function_calls(self, tmp_path):
+        """위험 함수 N개 → Pass 2에서 N번 개별 LLM 호출."""
+        # 2개 위험 함수가 있는 대형 파일
+        safe_funcs = []
+        for i in range(85):
+            safe_funcs.append(
+                f"int safe_{i}(int x) {{\n"
+                f"    int r = 0;\n"
+                f"    r = x + {i};\n"
+                f"    return r;\n"
+                f"}}\n\n"
+            )
+        dangerous_a = (
+            "void handler_a(char *input) {\n"
+            "    int count;\n"
+            "    char buf[64];\n"
+            "    strcpy(buf, input);\n"
+            "}\n\n"
+        )
+        dangerous_b = (
+            "void handler_b(char *data) {\n"
+            "    long idx;\n"
+            "    char out[32];\n"
+            "    sprintf(out, \"%s\", data);\n"
+            "}\n\n"
+        )
+        content = (
+            "#include <string.h>\n#include <stdio.h>\n\n"
+            + "".join(safe_funcs) + dangerous_a + dangerous_b
+        )
+        f = tmp_path / "multi_danger.c"
+        f.write_text(content)
+        assert len(content.splitlines()) > 500
+
+        agent = CAnalyzerAgent(model="gpt-4o")
+        agent._llm_client = AsyncMock()
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.side_effect = Exception("not found")
+
+        pass1_response = json.dumps({
+            "risky_functions": [
+                {"function_name": "handler_a", "reason": "UNINIT_VAR"},
+                {"function_name": "handler_b", "reason": "UNSAFE_FUNC"},
+            ]
+        })
+        pass2_a = json.dumps({"issues": [
+            _make_issue(issue_id="C-001", title="handler_a 이슈"),
+        ]})
+        pass2_b = json.dumps({"issues": [
+            _make_issue(issue_id="C-001", title="handler_b 이슈"),
+        ]})
+        agent._llm_client.chat.side_effect = [pass1_response, pass2_a, pass2_b]
+
+        result = await agent.run(task_id="task_1", file=str(f), language="c")
+
+        assert result["error"] is None
+        # Pass 1(1회) + Pass 2(2개 함수 × 1회) = 3회
+        assert agent._llm_client.chat.call_count == 3
+        # 2개 함수에서 각 1개 이슈 = 총 2개
+        assert len(result["issues"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_two_pass_issue_id_renumbered(self, tmp_path):
+        """함수별 결과 합산 시 issue_id가 C-001부터 재번호."""
+        safe_funcs = []
+        for i in range(85):
+            safe_funcs.append(
+                f"int safe_{i}(int x) {{\n"
+                f"    int r = 0;\n"
+                f"    r = x + {i};\n"
+                f"    return r;\n"
+                f"}}\n\n"
+            )
+        func_a = (
+            "void func_a(char *p) {\n"
+            "    int x;\n    strcpy(p, \"hello\");\n}\n\n"
+        )
+        func_b = (
+            "void func_b(char *q) {\n"
+            "    long y;\n    sprintf(q, \"%d\", 42);\n}\n\n"
+        )
+        content = (
+            "#include <string.h>\n#include <stdio.h>\n\n"
+            + "".join(safe_funcs) + func_a + func_b
+        )
+        f = tmp_path / "renumber.c"
+        f.write_text(content)
+
+        agent = CAnalyzerAgent(model="gpt-4o")
+        agent._llm_client = AsyncMock()
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.side_effect = Exception("not found")
+
+        pass1 = json.dumps({"risky_functions": [
+            {"function_name": "func_a", "reason": "test"},
+            {"function_name": "func_b", "reason": "test"},
+        ]})
+        # 각 함수가 C-001 반환 (LLM은 자기 함수만 보므로)
+        resp_a = json.dumps({"issues": [
+            _make_issue(issue_id="C-001", title="이슈 A"),
+        ]})
+        resp_b = json.dumps({"issues": [
+            _make_issue(issue_id="C-001", title="이슈 B"),
+            _make_issue(issue_id="C-002", title="이슈 B-2"),
+        ]})
+        agent._llm_client.chat.side_effect = [pass1, resp_a, resp_b]
+
+        result = await agent.run(task_id="task_1", file=str(f), language="c")
+
+        assert len(result["issues"]) == 3
+        # 재번호 확인: C-001, C-002, C-003
+        ids = [i["issue_id"] for i in result["issues"]]
+        assert ids == ["C-001", "C-002", "C-003"]
 
     @pytest.mark.asyncio
     async def test_two_pass_model_switch(self, agent_two_pass, large_c_file):
@@ -287,8 +402,6 @@ class TestTwoPassPath:
             task_id="task_1", file=large_c_file, language="c",
         )
 
-        calls = agent_two_pass._llm_client.chat.call_args_list
-        # Pass 1: model이 gpt-4o-mini로 변경된 상태에서 호출
         # Pass 2 후 model은 원래 gpt-4o로 복원
         assert agent_two_pass.model == "gpt-4o"
 
@@ -314,7 +427,6 @@ class TestTwoPassPath:
     @pytest.mark.asyncio
     async def test_two_pass_scanner_no_findings_fallback(self, tmp_path):
         """Pre-Scanner 패턴 없으면 Heuristic 단일 패스."""
-        # 모든 변수 초기화된 안전한 대형 파일
         safe_funcs = []
         for i in range(90):
             safe_funcs.append(

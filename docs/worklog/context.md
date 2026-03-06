@@ -158,3 +158,9 @@
 | 2026-03-05 | 블록 주석 시작 전 코드도 스캔하도록 수정 | 리뷰 반영 — `int x; /* comment` 줄에서 `int x;` 부분 누락 방지 |
 | 2026-03-05 | 2-Pass 경로 `tokens_estimate` 초기값 0으로 선언 | 리뷰 반영 — UnboundLocalError를 제어흐름으로 사용하는 안티패턴 제거 |
 | 2026-03-05 | Pass 1 model 전환 시 `fallback_model`도 저장/복원 | 리뷰 반영 — gpt-4o-mini에서 의도치 않은 fallback 방지 |
+| 2026-03-06 | Pass 2를 함수별 개별 LLM 호출로 리팩토링 | 대형 함수가 프롬프트를 지배하여 소형 함수 이슈 누락 문제 해결 |
+| 2026-03-06 | `_get_lines_for_functions` → `_map_function_boundaries` 변경 (list→dict) | 함수별 개별 호출에서 함수명→시작라인 매핑 필요 |
+| 2026-03-06 | asyncio.gather + Semaphore(3)로 병렬 호출 | 비용 동일, 시간 단축 — rate limit 보호 |
+| 2026-03-06 | MIDER_EXCLUDE_FUNCTIONS 임시 workaround 제거 | 함수별 개별 호출로 근본 해결되어 불필요 |
+| 2026-03-06 | issue_id 재번호 (C-001부터 순차) | 함수별 LLM이 각각 C-001부터 시작하므로 합산 후 재번호 필수 |
+| 2026-03-06 | 함수 경계 찾기 실패 시 warning 로그 추가 | 리뷰 반영 — silent skip 방지, 디버깅 가시성 확보 |

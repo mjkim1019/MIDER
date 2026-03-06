@@ -8,6 +8,7 @@ clang-tidy 없고 대형 파일(>500줄)이면 2-Pass 전략:
   Pass 2: 선별된 함수 → gpt-4o로 심층 분석
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -143,6 +144,8 @@ class CAnalyzerAgent(BaseAgent):
                 error=str(e),
             ).model_dump()
 
+    _MAX_CONCURRENT_LLM = 3
+
     async def _run_two_pass(
         self,
         *,
@@ -150,15 +153,14 @@ class CAnalyzerAgent(BaseAgent):
         file_content: str,
         file_context: dict[str, Any] | None,
     ) -> list[dict[str, Any]]:
-        """2-Pass 분석: Pre-Scanner → LLM 선별 → 심층 분석.
+        """2-Pass 분석: Pre-Scanner → LLM 선별 → 함수별 개별 심층 분석.
 
         Pass 1: regex 스캔 + gpt-4o-mini로 위험 함수 선별
-        Pass 2: 선별된 함수 전체 코드 + gpt-4o로 심층 분석
+        Pass 2: 선별된 함수를 각각 개별 gpt-4o 호출로 심층 분석
         """
         # Pass 1-a: Heuristic Pre-Scanner (regex, 비용 0)
         scan_result = self._heuristic_scanner.execute(file=file)
         findings = scan_result.data.get("findings", [])
-        functions_at_risk = scan_result.data.get("functions_at_risk", [])
 
         if not findings:
             logger.info(f"Pre-Scanner: 위험 패턴 없음 → 기존 Heuristic 분석: {file}")
@@ -211,23 +213,9 @@ class CAnalyzerAgent(BaseAgent):
         ]
 
         if not risky_functions:
-            # LLM이 위험 함수 없다고 판단 → 기존 Heuristic 경로
             logger.info(f"Pass 1: 위험 함수 없음 (LLM 판단) → Heuristic: {file}")
             return await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
-            )
-
-        # TODO: Pass 2 분석 품질 테스트용 — 대형 함수 제외 로직
-        # c100(636줄)+c200(1115줄)이 프롬프트를 압도하여 c400 등 소형 함수 이슈 누락
-        # 근본 해결: 함수별 개별 LLM 호출 또는 코드 길이 기반 분할 필요
-        import os
-        exclude_csv = os.environ.get("MIDER_EXCLUDE_FUNCTIONS", "")
-        if exclude_csv:
-            exclude_set = {f.strip() for f in exclude_csv.split(",") if f.strip()}
-            before = len(risky_functions)
-            risky_functions = [f for f in risky_functions if f not in exclude_set]
-            logger.info(
-                f"Pass 2 함수 제외: {exclude_set} → {before}개 → {len(risky_functions)}개"
             )
 
         logger.info(
@@ -235,31 +223,83 @@ class CAnalyzerAgent(BaseAgent):
             f"{risky_functions}"
         )
 
-        # Pass 2: 위험 함수 전체 코드 추출 → gpt-4o 심층 분석
-        risky_lines = self._get_lines_for_functions(
-            risky_functions, lines, boundaries,
-        )
-
-        error_blocks = extract_error_functions(file_content, risky_lines, "c")
-        error_functions_str = "\n\n".join(
-            f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
-            for block in error_blocks
-        ) if error_blocks else optimize_file_content(file_content, file_context, "c")
-
+        # Pass 2: 함수별 개별 LLM 호출
         structure_summary = build_structure_summary(file_content, file_context, "c")
-
-        # 스캔 findings를 함수별로 그룹화 (HIGH 우선, 함수당 최대 10개)
-        scan_warnings_str = self._build_grouped_warnings(
-            findings, risky_functions,
-        )
-
         file_context_str = json.dumps(
             file_context, ensure_ascii=False, indent=2,
         ) if file_context else "컨텍스트 정보 없음"
 
+        func_start_lines = self._map_function_boundaries(
+            risky_functions, lines, boundaries,
+        )
+
+        sem = asyncio.Semaphore(self._MAX_CONCURRENT_LLM)
+
+        async def _analyze_with_limit(func_name: str, start_line: int) -> list[dict]:
+            async with sem:
+                return await self._analyze_single_function(
+                    file=file,
+                    file_content=file_content,
+                    func_name=func_name,
+                    start_line=start_line,
+                    findings=findings,
+                    structure_summary=structure_summary,
+                    file_context_str=file_context_str,
+                )
+
+        tasks = []
+        for func_name in risky_functions:
+            start_line = func_start_lines.get(func_name)
+            if start_line is None:
+                logger.warning(f"함수 경계 찾기 실패, 분석 건너뜀: {func_name}")
+                continue
+            tasks.append(_analyze_with_limit(func_name, start_line))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        all_issues: list[dict[str, Any]] = []
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning(f"함수 분석 실패: {result}")
+                continue
+            all_issues.extend(result)
+
+        # issue_id 재번호 (C-001부터 순차)
+        for i, issue in enumerate(all_issues):
+            issue["issue_id"] = f"C-{i + 1:03d}"
+
+        logger.info(
+            f"Pass 2 완료: {len(all_issues)}개 이슈 "
+            f"({len(risky_functions)}개 함수 개별 분석)"
+        )
+        return all_issues
+
+    async def _analyze_single_function(
+        self,
+        *,
+        file: str,
+        file_content: str,
+        func_name: str,
+        start_line: int,
+        findings: list[dict[str, Any]],
+        structure_summary: str,
+        file_context_str: str,
+    ) -> list[dict[str, Any]]:
+        """단일 함수를 LLM으로 심층 분석한다."""
+        error_blocks = extract_error_functions(file_content, [start_line], "c")
+        if not error_blocks:
+            return []
+
+        error_functions_str = "\n\n".join(
+            f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
+            for block in error_blocks
+        )
+
+        func_warnings_str = self._build_grouped_warnings(findings, [func_name])
+
         prompt = load_prompt(
             "c_analyzer_error_focused",
-            clang_tidy_warnings=scan_warnings_str,
+            clang_tidy_warnings=func_warnings_str,
             file_path=file,
             structure_summary=structure_summary,
             error_functions=error_functions_str,
@@ -283,8 +323,9 @@ class CAnalyzerAgent(BaseAgent):
         if not isinstance(llm_result, dict):
             return []
 
-        logger.info(f"Pass 2 완료: {len(llm_result.get('issues', []))}개 이슈")
-        return llm_result.get("issues", [])
+        issues = llm_result.get("issues", [])
+        logger.debug(f"함수 {func_name}: {len(issues)}개 이슈")
+        return issues
 
     async def _run_single_pass_heuristic(
         self,
@@ -379,16 +420,17 @@ class CAnalyzerAgent(BaseAgent):
 
         return "\n".join(parts)
 
-    def _get_lines_for_functions(
+    def _map_function_boundaries(
         self,
         function_names: list[str],
         lines: list[str],
         boundaries: list[tuple[int, int]],
-    ) -> list[int]:
-        """함수명 목록에 해당하는 라인 번호를 반환한다."""
+    ) -> dict[str, int]:
+        """함수명 → 시작 라인 번호 매핑을 반환한다."""
         from mider.tools.static_analysis.c_heuristic_scanner import _FUNC_NAME_PATTERN
 
-        target_lines: list[int] = []
+        name_set = set(function_names)
+        result: dict[str, int] = {}
         for start, end in boundaries:
             idx = start - 1
             func_line = lines[idx]
@@ -396,10 +438,10 @@ class CAnalyzerAgent(BaseAgent):
             if not m and idx + 1 < len(lines):
                 combined = func_line.rstrip() + " " + lines[idx + 1].lstrip()
                 m = _FUNC_NAME_PATTERN.match(combined)
-            if m and m.group(1) in function_names:
-                target_lines.append(start)
+            if m and m.group(1) in name_set:
+                result[m.group(1)] = start
 
-        return target_lines
+        return result
 
     def _run_clang_tidy(self, file: str) -> dict[str, Any] | None:
         """clang-tidy를 실행하여 결과를 반환한다.
