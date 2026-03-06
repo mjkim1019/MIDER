@@ -334,3 +334,8 @@
 - `2026-03-06 17:55:51` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/002-clang-tidy-header-limitation.md`
 - `2026-03-06 17:56:11` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/002-clang-tidy-header-limitation.md`
 - `2026-03-06 18:02:28` [feat/T20-c-heuristic-prescanner] **Write**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/003-pass2-large-function-dominance.md`
+- `2026-03-06 18:06:40` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/TECH_SPEC.md`
+- `2026-03-06 18:06:48` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/TECH_SPEC.md`
+- `2026-03-06 18:06:57` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/TECH_SPEC.md`
+- `2026-03-06 18:07:02` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/TECH_SPEC.md`
+- `2026-03-06 18:07:11` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/TECH_SPEC.md`

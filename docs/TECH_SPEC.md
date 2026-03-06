@@ -456,66 +456,62 @@ LLM 실행 → AnalysisResult 수신
 
 #### 2.5.2 워크플로우
 
-**Step 1: Static Analysis (clang-tidy)**
+**Step 1: Static Analysis (clang-tidy + Heuristic)**
 ```
-clang_tidy_runner(
-  file=file_path,
-  checks="-*,clang-analyzer-*,bugprone-*"
-)
-결과:
-  warnings: [
-    {"check": "strcpy", "severity": "warning", "line": 234, "message": "..."},
-    ...
-  ]
+1. clang-tidy 실행 (바이너리 있을 때)
+   clang_tidy_runner(file=file_path, checks="-*,clang-analyzer-*,bugprone-*")
+   → warnings: [{"check": "strcpy", "severity": "warning", "line": 234, ...}]
+   주의: 헤더 파일 미존재 시 Level 2(데이터 흐름) 분석 불가
+         (docs/issue-log/002-clang-tidy-header-limitation.md 참조)
+
+2. Heuristic Pre-Scanner (항상 실행, 비용 0)
+   c_heuristic_scanner(file=file_path)
+   → 6종 regex 패턴 탐지: UNINIT_VAR, UNSAFE_FUNC, BOUNDED_FUNC,
+     NULL_DEREF, UNCHECKED_RET, BUFFER_ACCESS
+   → 함수 경계 매핑 → functions_at_risk 목록
 ```
 
-**Step 2: LLM Analysis (토큰 최적화: Structure + Function Window)**
+**Step 2: 분석 경로 분기**
 ```
-경로 A (Error-Focused, warnings 있을 때):
-  # 토큰 최적화: 파일 전체 대신 구조 요약 + 에러 포함 함수만 전달
+경로 A: clang-tidy 있음 → Error-Focused (clang-tidy + Heuristic 합산)
+경로 B: clang-tidy 없음 AND >500줄 → 2-Pass (Pre-Scanner + gpt-4o-mini 선별 + gpt-4o 심층)
+경로 C: clang-tidy 없음 AND ≤500줄 → Heuristic (전체 코드 → gpt-4o)
+```
+
+**경로 A: Error-Focused (clang-tidy + Heuristic 합산)**
+```
   structure_summary = _build_structure_summary(file_context)
   error_functions = _extract_error_functions(file_content, warnings)
+  # clang-tidy warnings + heuristic findings 합산 (중복 제거)
+  merged_warnings = _merge_warnings(clang_data, heuristic_findings)
 
-  prompt = """
-  C 메모리 안전성 전문가입니다.
+  prompt = c_analyzer_error_focused.txt
+  변수: {clang_tidy_warnings}, {structure_summary}, {error_functions}, {file_context}
+```
 
-  [clang-tidy 경고]
-  {warnings}
+**경로 B: 2-Pass (대형 파일, clang-tidy 없음)**
+```
+Pass 1: 위험 함수 선별 (gpt-4o-mini, 저비용)
+  1. CHeuristicScanner → 전체 파일 regex 스캔 (비용 0)
+  2. 함수별 패턴 요약 생성 → gpt-4o-mini에게 위험 함수 선별 질문
+  3. risky_functions 목록 획득
 
-  [구조 요약]
-  {structure_summary}
+Pass 2: 함수별 개별 심층 분석 (gpt-4o)
+  For each function in risky_functions:
+    1. 해당 함수 전체 코드 추출
+    2. 해당 함수의 scan_warnings 생성
+    3. c_analyzer_error_focused 프롬프트로 gpt-4o 호출
+    4. issues 수집
+  결과 합산 → AnalysisResult
 
-  [에러 관련 함수 전체 코드]
-  {error_functions}
+  참조: docs/issue-log/003-pass2-large-function-dominance.md
+```
 
-  [파일 컨텍스트]
-  {file_context}
-
-  분석:
-  1. clang-tidy 경고 정밀 분석
-  2. malloc/free 짝 검사
-  3. 포인터 안전성 검사
-  4. 스레드 안전성 (mutex)
-
-  출력: JSON (AnalysisResult 스키마)
-  """
-
-경로 B (Heuristic, warnings 없을 때):
-  # 토큰 최적화: 500줄 이하 전체, 초과 시 head+tail+구조요약
+**경로 C: Heuristic (소형 파일, clang-tidy 없음)**
+```
   file_content_optimized = _optimize_file_content(file_content, file_context)
-
-  prompt = """
-  [파일 코드]
-  {file_content_optimized}
-
-  [휴리스틱 체크]
-  - Use-after-free (복잡한 포인터)
-  - 이중 해제 (double free)
-  - 스레드 안전성 (mutex 누락)
-  - 타이밍 기반 메모리 누수
-
-  발견된 이슈만 반환, 없으면 빈 배열.
-  """
+  prompt = c_analyzer_heuristic.txt
+  변수: {file_content_optimized}
 ```
 
 #### 2.5.3 상태 관리
@@ -527,7 +523,8 @@ clang_tidy_runner(
 | 도구명 | 기능 설명 | 입력 | 출력 |
 |--------|----------|------|------|
 | file_reader | 파일 읽기 | path: str | content: str |
-| clang_tidy_runner | clang-tidy 정적 분석 | file: str, checks: str | warnings: List[Dict] |
+| clang_tidy_runner | clang-tidy 정적 분석 (homebrew 자동 탐색) | file: str, checks: str | warnings: List[Dict] |
+| c_heuristic_scanner | regex 기반 C 위험 패턴 스캔 (6종) | file: str | findings: List[Dict], functions_at_risk: List[str] |
 | grep | malloc/free 패턴 검색 | pattern: str, file: str | matches: List[Dict] |
 | lsp_client | 포인터 타입 확인 | action: str, file: str, line: int | type_info: Dict |
 
@@ -978,14 +975,20 @@ mider/
 │   ├── static_analysis/
 │   │   ├── eslint_runner.py
 │   │   ├── clang_tidy_runner.py
-│   │   └── proc_runner.py
+│   │   ├── proc_runner.py
+│   │   ├── c_heuristic_scanner.py  # regex 기반 C 위험 패턴 스캔
+│   │   ├── sql_syntax_checker.py   # sqlparse 기반 SQL 문법 검증
+│   │   └── xml_parser.py           # WebSquare XML 파싱 (T19 예정)
 │   ├── lsp/
 │   │   └── lsp_client.py
 │   └── utility/
 │       ├── sql_extractor.py
 │       ├── checklist_generator.py
 │       ├── task_planner.py
-│       └── dependency_resolver.py
+│       ├── dependency_resolver.py
+│       ├── token_optimizer.py       # 구조 요약, 함수 추출, 파일 최적화
+│       ├── deployment_checklist.py  # 배포 체크리스트 자동 생성
+│       └── explain_plan_parser.py   # Oracle Explain Plan 파싱
 ├── models/
 │   ├── __init__.py
 │   ├── execution_plan.py        # ExecutionPlan 스키마
@@ -1000,6 +1003,7 @@ mider/
 │       ├── js_analyzer_heuristic.txt
 │       ├── c_analyzer_error_focused.txt
 │       ├── c_analyzer_heuristic.txt
+│       ├── c_prescan_fewshot.txt     # 2-Pass Pass 1 few-shot 선별
 │       ├── proc_analyzer_error_focused.txt
 │       ├── proc_analyzer_heuristic.txt
 │       ├── sql_analyzer_error_focused.txt
@@ -1034,10 +1038,14 @@ mider/
 
 ### 1차 PoC (현재)
 - 정적 분석 (ESLint, clang-tidy, proc) + LLM 하이브리드
-- 7개 Agent (Orchestrator + 6 Sub-agents)
+- 7개 Agent (Orchestrator + 6 Sub-agents) + XMLAnalyzerAgent 예정
 - CLI 기반 실행
 - 폐쇄망 실행파일 패키징
 - 토큰 최적화 (Structure + Function Window)
+- C Heuristic Pre-Scanner (2-Pass: regex + gpt-4o-mini 선별 + gpt-4o 심층)
+- clang-tidy + Heuristic 하이브리드 (헤더 미존재 보완)
+- SQL 성능개선 (문법 검증 + Explain Plan 해석)
+- 배포 체크리스트 자동 생성
 
 ### 2차 PoC (예정)
 - Session Resume (세션 저장/복구, Checkpoint)
