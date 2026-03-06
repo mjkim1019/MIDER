@@ -339,3 +339,9 @@
 - `2026-03-06 18:06:57` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/TECH_SPEC.md`
 - `2026-03-06 18:07:02` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/TECH_SPEC.md`
 - `2026-03-06 18:07:11` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/TECH_SPEC.md`
+- `2026-03-06 18:15:13` [feat/T21-per-function-llm-call] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
+- `2026-03-06 18:16:04` [feat/T21-per-function-llm-call] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
+- `2026-03-06 18:16:14` [feat/T21-per-function-llm-call] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
+- `2026-03-06 18:18:13` [feat/T21-per-function-llm-call] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_c_analyzer.py`
+- `2026-03-06 18:18:32` [feat/T21-per-function-llm-call] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_c_analyzer.py`
+- `2026-03-06 18:18:47` [feat/T21-per-function-llm-call] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_c_analyzer.py`
