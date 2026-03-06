@@ -217,6 +217,19 @@ class CAnalyzerAgent(BaseAgent):
                 file=file, file_content=file_content, file_context=file_context,
             )
 
+        # TODO: Pass 2 분석 품질 테스트용 — 대형 함수 제외 로직
+        # c100(636줄)+c200(1115줄)이 프롬프트를 압도하여 c400 등 소형 함수 이슈 누락
+        # 근본 해결: 함수별 개별 LLM 호출 또는 코드 길이 기반 분할 필요
+        import os
+        exclude_csv = os.environ.get("MIDER_EXCLUDE_FUNCTIONS", "")
+        if exclude_csv:
+            exclude_set = {f.strip() for f in exclude_csv.split(",") if f.strip()}
+            before = len(risky_functions)
+            risky_functions = [f for f in risky_functions if f not in exclude_set]
+            logger.info(
+                f"Pass 2 함수 제외: {exclude_set} → {before}개 → {len(risky_functions)}개"
+            )
+
         logger.info(
             f"Pass 1 완료: {len(risky_functions)}개 위험 함수 선별 → "
             f"{risky_functions}"

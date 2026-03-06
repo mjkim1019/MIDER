@@ -64,15 +64,13 @@ class ClangTidyRunner(BaseTool):
             )
 
         if not self._binary.exists():
-            # 시스템 PATH에서 clang-tidy 탐색
-            import shutil
-            system_binary = shutil.which("clang-tidy")
-            if system_binary:
-                self._binary = Path(system_binary)
+            resolved = self._find_binary()
+            if resolved:
+                self._binary = resolved
             else:
                 logger.info(
                     "clang-tidy 바이너리 없음 — Heuristic 모드로 분석합니다. "
-                    "(resources/binaries/ 또는 시스템 PATH에 clang-tidy가 없음)"
+                    "(resources/binaries/, 시스템 PATH, homebrew 모두 없음)"
                 )
                 return ToolResult(
                     success=True,
@@ -107,6 +105,34 @@ class ClangTidyRunner(BaseTool):
             )
 
         return self._parse_output(proc.stdout, proc.stderr)
+
+    @staticmethod
+    def _find_binary() -> Path | None:
+        """시스템 PATH 및 homebrew에서 clang-tidy를 탐색한다."""
+        import shutil
+
+        # 1) 시스템 PATH
+        system = shutil.which("clang-tidy")
+        if system:
+            return Path(system)
+
+        # 2) homebrew llvm (macOS — PATH에 자동 등록 안 됨)
+        brew_paths = [
+            Path("/opt/homebrew/opt/llvm/bin/clang-tidy"),
+            Path("/usr/local/opt/llvm/bin/clang-tidy"),
+        ]
+        # llvm@{version} 설치 탐색
+        for base in (Path("/opt/homebrew/Cellar"), Path("/usr/local/Cellar")):
+            if base.exists():
+                for d in base.glob("llvm*/*/bin/clang-tidy"):
+                    brew_paths.append(d)
+
+        for p in brew_paths:
+            if p.exists():
+                logger.info(f"clang-tidy 발견 (homebrew): {p}")
+                return p
+
+        return None
 
     def _parse_output(self, stdout: str, stderr: str) -> ToolResult:
         """clang-tidy 출력을 파싱한다.
