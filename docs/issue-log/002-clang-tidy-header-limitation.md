@@ -3,9 +3,9 @@
 |             |                                      |                                                                                           |
 | ----------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
 | **이슈 구분**   | **문제 상황 및 원인**                       | **리서치 및 해결 과정 (Reference & Solution)**                                                    |
-| **Problem** | clang-tidy가 설치되어 있어도 프로젝트 헤더(`pfmcom.h` 등)가 없으면 **AST(구문 트리)를 완성하지 못함**. `clang-analyzer-*` 체크(데이터 흐름 분석)가 전혀 동작하지 않아 `svc_cnt` 미초기화 등 핵심 버그를 탐지할 수 없음 | - **원인:** clang-tidy는 LLVM/Clang 컴파일러 프론트엔드 기반. 헤더 없이는 타입 정보, 구조체 정의, 함수 시그니처를 알 수 없어 AST 생성 실패. AST 없으면 `clang-analyzer-core.uninitialized.Assign` 같은 정밀 체크 불가 |
-| **증상** | 2932줄 C 파일에서 45개 warning이 나왔지만, 전부 **텍스트 수준 패턴**(bugprone-branch-clone 37개, bugprone-narrowing-conversions 7개)만 탐지. 메모리 안전성 관련 warning은 0개 | - **확인:** `clang-tidy -- 2>&1 | grep "2391"` → 결과 없음. svc_cnt가 있는 line 2391에 대한 warning이 전무 |
-| **근본 원인** | 폐쇄망 환경에서는 프로젝트 전체 소스/헤더를 분석 대상으로 넘기기 어려움. 개별 파일 단위 분석이 기본 전제인데, 개별 파일만으로는 clang-tidy의 정밀 분석 불가 | - **배경:** Mider는 `-f file.c` 단위로 파일을 받아 분석. 프로젝트 빌드 환경(Makefile, compile_commands.json)이 없는 상태 |
+| **Problem** | C 소스 파일에 `#include <pfmcom.h>` 등 헤더 import가 존재하는데, clang-tidy 실행 환경에 해당 헤더 파일이 없으면 **첫 번째 `#include`에서 fatal error가 발생하여 파싱을 즉시 중단**함. 이후 코드(typedef, 함수 본문 등)를 전혀 읽지 못해 `svc_cnt` 미초기화 등 핵심 버그를 탐지할 수 없음 | - **원인:** clang-tidy는 Clang 컴파일러 프론트엔드 기반으로, `#include`를 실제 컴파일처럼 처리함. 헤더 파일이 디스크에 없으면 `error: file not found`를 발생시키고 AST(구문 트리) 생성을 포기함. 파일 내에 `typedef struct ... ctx_t;` (143번줄)가 있어도, 그 전인 43번줄 `#include <pfmcom.h>`에서 이미 중단되어 143번줄까지 도달하지 못함 |
+| **증상** | 2932줄 C 파일에서 44개 warning이 나왔지만, 전부 **텍스트 수준 패턴**(bugprone-branch-clone 37개, bugprone-narrowing-conversions 7개)만 탐지. 메모리 안전성 관련 warning(`clang-analyzer-*`)은 0개 | - **확인:** `clang-tidy -- 2>&1 \| grep "2391"` → 결과 없음. svc_cnt가 있는 line 2391에 대한 warning이 전무. 44개 warning은 Clang의 error recovery 모드에서 부분적으로 텍스트 패턴만 체크한 결과 |
+| **근본 원인** | 폐쇄망 환경에서는 프로젝트 헤더 파일을 분석 환경에 함께 제공하기 어려움. Mider는 `-f file.c` 단위로 개별 파일을 받아 분석하므로, 프로젝트 빌드 환경(Makefile, compile_commands.json, 헤더 경로)이 없는 상태에서 실행됨 | - **배경:** `#include`가 50개 이상인 C 파일에서 **첫 번째 헤더**부터 없으면 clang-tidy는 사실상 무용지물. 이 파일의 경우 43~97번줄에 50개 include가 있으며, 43번줄 `pfmcom.h`에서 즉시 중단 |
 
 ---
 
@@ -44,27 +44,26 @@ AST의 부분적 정보만으로도 탐지 가능한 패턴. 헤더가 없어도
 
 ### 왜 헤더가 없으면 Level 2가 안 되는가
 
+clang-tidy는 `#include`를 실제 컴파일과 동일하게 처리한다. 헤더 파일이 디스크에 없으면 **fatal error**로 파싱을 즉시 중단한다.
+
 ```c
-#include <pfmcom.h>   // ← 43번줄에서 error: file not found
-                      //   여기서 파싱 중단
+// ordsb0100010t01.c
 
-// pfmcom.h 안에 정의된 것들:
-//   - ordsb0100010t01_ctx_t 구조체
-//   - currsvclist_t 타입
-//   - RC_NRM, RC_ERR 상수
-//   - 각종 매크로, 함수 선언
+#include <pfmcom.h>   // ← 43번줄: error: 'pfmcom.h' file not found
+#include <pfmutil.h>  // ← 44번줄: 여기부터 읽히지 않음
+...                   // ← 50개 include 전부 무시
+                      //
+                      // ↓↓↓ 아래 코드도 전부 파싱되지 않음 ↓↓↓
 
-// 아래 코드에서 clang-tidy가 모르는 것들:
-void c400_get_rcv_chgreq_possible(ordsb0100010t01_ctx_t *ctx) {
-//                                ^^^^^^^^^^^^^^^^^^^^^^^^ 타입 모름
-    long svc_cnt;               // 선언은 보임
-    currsvclist_s[svc_cnt] = ...  // currsvclist_s 타입 모름
-//                                  → svc_cnt가 인덱스로 쓰이는지 추적 불가
-//                                  → "미초기화 변수 사용" 판정 불가
+typedef struct ordsb0100010t01_ctx_s ordsb0100010t01_ctx_t;  // 143번줄: 도달 못함
+
+void c400_get_rcv_chgreq_possible(ordsb0100010t01_ctx_t *ctx) {  // 2382번줄
+    long svc_cnt;               // 2391번줄: 파싱 포기 상태라 추적 불가
+    currsvclist_s[svc_cnt] = ...  // svc_cnt 미초기화 사용 → 탐지 불가
 }
 ```
 
-clang-tidy는 `ordsb0100010t01_ctx_t`가 뭔지, `currsvclist_s`가 배열인지 포인터인지 모르기 때문에 데이터 흐름 분석 자체를 포기한다.
+핵심: **typedef가 파일 안에 있어도 소용없다.** 43번줄 `#include <pfmcom.h>`에서 이미 중단되었으므로 143번줄의 typedef까지 도달하지 못한다. 44개 warning은 Clang의 error recovery 모드에서 AST 없이 텍스트 패턴만 부분 체크한 결과이다.
 
 ---
 
