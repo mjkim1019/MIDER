@@ -235,18 +235,9 @@ class CAnalyzerAgent(BaseAgent):
 
         structure_summary = build_structure_summary(file_content, file_context, "c")
 
-        # 스캔 findings를 clang-tidy warnings 형식으로 변환
-        scan_warnings_str = json.dumps(
-            [
-                {
-                    "line": f["line"],
-                    "message": f"{f['pattern_id']}: {f['description']}",
-                    "content": f["content"],
-                }
-                for f in findings
-                if f.get("function") in risky_functions
-            ],
-            ensure_ascii=False, indent=2,
+        # 스캔 findings를 함수별로 그룹화 (HIGH 우선, 함수당 최대 10개)
+        scan_warnings_str = self._build_grouped_warnings(
+            findings, risky_functions,
         )
 
         file_context_str = json.dumps(
@@ -332,6 +323,46 @@ class CAnalyzerAgent(BaseAgent):
                 )
             if len(items) > 10:
                 parts.append(f"  ... 외 {len(items) - 10}개")
+
+        return "\n".join(parts)
+
+    _HIGH_PRIORITY_PATTERNS = {"UNINIT_VAR", "UNSAFE_FUNC", "MALLOC_NO_CHECK", "FORMAT_STRING"}
+
+    def _build_grouped_warnings(
+        self,
+        findings: list[dict[str, Any]],
+        risky_functions: list[str],
+    ) -> str:
+        """함수별로 그룹화된 warnings 문자열을 생성한다.
+
+        HIGH 우선순위 패턴을 먼저 배치하고, 함수당 최대 15개로 제한하여
+        LLM이 모든 함수의 warnings를 균등하게 처리하도록 한다.
+        """
+        func_warnings: dict[str, list[dict[str, Any]]] = {}
+        for f in findings:
+            func = f.get("function")
+            if func in risky_functions:
+                func_warnings.setdefault(func, []).append(f)
+
+        parts: list[str] = []
+        for func in risky_functions:
+            items = func_warnings.get(func, [])
+            if not items:
+                continue
+
+            # HIGH 우선순위 패턴을 먼저, 나머지를 뒤에
+            high = [i for i in items if i["pattern_id"] in self._HIGH_PRIORITY_PATTERNS]
+            rest = [i for i in items if i["pattern_id"] not in self._HIGH_PRIORITY_PATTERNS]
+            sorted_items = high + rest
+
+            parts.append(f"\n### 함수: {func} (총 {len(items)}개 경고, HIGH 우선 {len(high)}개)")
+            for item in sorted_items[:15]:
+                parts.append(
+                    f"- L{item['line']} [{item['pattern_id']}] {item['description']}: "
+                    f"{item['content'][:80]}"
+                )
+            if len(sorted_items) > 15:
+                parts.append(f"  ... 외 {len(sorted_items) - 15}개")
 
         return "\n".join(parts)
 
