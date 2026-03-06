@@ -321,3 +321,16 @@
 - `2026-03-05 17:44:58` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
 - `2026-03-05 17:45:02` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/c_heuristic_scanner.py`
 - `2026-03-05 17:45:10` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/c_heuristic_scanner.py`
+- `2026-03-06 09:37:51` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/c_analyzer_error_focused.txt`
+- `2026-03-06 09:37:57` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/c_analyzer_error_focused.txt`
+- `2026-03-06 09:42:59` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
+- `2026-03-06 09:43:14` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
+- `2026-03-06 09:43:30` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/c_analyzer_error_focused.txt`
+- `2026-03-06 09:49:00` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
+- `2026-03-06 16:01:05` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/clang_tidy_runner.py`
+- `2026-03-06 16:01:14` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/clang_tidy_runner.py`
+- `2026-03-06 16:01:34` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_clang_tidy_runner.py`
+- `2026-03-06 17:51:48` [feat/T20-c-heuristic-prescanner] **Write**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/002-clang-tidy-header-limitation.md`
+- `2026-03-06 17:55:51` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/002-clang-tidy-header-limitation.md`
+- `2026-03-06 17:56:11` [feat/T20-c-heuristic-prescanner] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/002-clang-tidy-header-limitation.md`
+- `2026-03-06 18:02:28` [feat/T20-c-heuristic-prescanner] **Write**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/003-pass2-large-function-dominance.md`

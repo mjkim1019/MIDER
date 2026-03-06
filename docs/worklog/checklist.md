@@ -88,32 +88,6 @@
   - [x] T14.4: Before/After 출력
   - [x] T14.5: 종료 코드
   - [x] T14.6: 단위 테스트
-- [ ] T18: SQL 성능개선 강화
-  - [x] T18.1: SQL 문법 검증 도구 (sqlparse)
-  - [x] T18.2: Explain Plan 파서
-  - [x] T18.3: ExplainPlan Pydantic 스키마 (별도 모델 생략 — ToolResult.data dict 패턴)
-  - [x] T18.4: SQLAnalyzerAgent 강화
-  - [x] T18.5: 프롬프트 템플릿 수정
-  - [x] T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
-  - [x] T18.7: 단위 테스트
-- [x] T20: C Heuristic Pre-Scanner (2-Pass 분석)
-  - [x] T20.1: C Heuristic Scanner Tool (regex 6종 패턴)
-  - [x] T20.2: Pass 1 프롬프트 (few-shot 선별)
-  - [x] T20.3: CAnalyzerAgent 2-Pass 흐름 구현
-  - [x] T20.4: c_analyzer_heuristic 프롬프트에 few-shot 예시 추가
-  - [x] T20.5: 단위 테스트
-- [ ] T19: Proframe XML 지원
-  - [ ] T19.1: XML 파서/분석 도구
-  - [ ] T19.2: XMLAnalyzerAgent 구현
-  - [ ] T19.3: XML 프롬프트 템플릿
-  - [ ] T19.4: 파이프라인 연동 (TaskClassifier, ContextCollector, Orchestrator)
-  - [ ] T19.5: CLI/배포 체크리스트 XML 지원
-  - [ ] T19.6: 단위 테스트
-- [ ] T15: Integration Test
-  - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
-  - [ ] T15.2: E2E 테스트
-  - [ ] T15.3: Exit code 검증
-  - [ ] T15.4: 출력 파일 검증 (4개 JSON)
 - [x] T16: 토큰 최적화 (Structure + Function Window)
   - [x] T16.1: _extract_error_functions() 구현
   - [x] T16.2: _build_structure_summary() 구현
@@ -127,3 +101,38 @@
   - [x] T17.4: ReporterAgent 연동
   - [x] T17.5: CLI 출력 + JSON 파일
   - [x] T17.6: 단위 테스트
+- [x] T18: SQL 성능개선 강화
+  - [x] T18.1: SQL 문법 검증 도구 (sqlparse)
+  - [x] T18.2: Explain Plan 파서
+  - [x] T18.3: ExplainPlan Pydantic 스키마 (별도 모델 생략 — ToolResult.data dict 패턴)
+  - [x] T18.4: SQLAnalyzerAgent 강화
+  - [x] T18.5: 프롬프트 템플릿 수정
+  - [x] T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
+  - [x] T18.7: 단위 테스트
+- [x] T20: C Heuristic Pre-Scanner (2-Pass 분석)
+  - [x] T20.1: C Heuristic Scanner Tool (regex 6종 패턴)
+  - [x] T20.2: Pass 1 프롬프트 (few-shot 선별)
+  - [x] T20.3: CAnalyzerAgent 2-Pass 흐름 구현
+  - [x] T20.4: c_analyzer_heuristic 프롬프트에 few-shot 예시 추가
+  - [x] T20.5: 단위 테스트
+- [ ] T21: Pass 2 함수별 개별 LLM 호출
+  - [ ] T21.1: `_run_two_pass()` 함수별 개별 호출 리팩토링
+  - [ ] T21.2: 함수별 프롬프트 최적화
+  - [ ] T21.3: asyncio.gather 병렬 호출
+  - [ ] T21.4: 단위 테스트
+- [ ] T22: clang-tidy + Heuristic 하이브리드 분석
+  - [ ] T22.1: Error-Focused 경로에 Heuristic Scanner 추가
+  - [ ] T22.2: 합산 로직 구현 (`_merge_warnings`)
+  - [ ] T22.3: 단위 테스트
+- [ ] T19: Proframe XML 지원
+  - [ ] T19.1: XML 파서/분석 도구
+  - [ ] T19.2: XMLAnalyzerAgent 구현
+  - [ ] T19.3: XML 프롬프트 템플릿
+  - [ ] T19.4: 파이프라인 연동 (TaskClassifier, ContextCollector, Orchestrator)
+  - [ ] T19.5: CLI/배포 체크리스트 XML 지원
+  - [ ] T19.6: 단위 테스트
+- [ ] T15: Integration Test
+  - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
+  - [ ] T15.2: E2E 테스트
+  - [ ] T15.3: Exit code 검증
+  - [ ] T15.4: 출력 파일 검증 (4개 JSON)

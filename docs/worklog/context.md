@@ -31,6 +31,19 @@
 - **함수 매핑**: 기존 `_find_function_boundaries()` 재사용 → 위험 패턴이 어떤 함수에 있는지 매핑
 - **Error-Focused 경로 재활용**: Pass 2는 기존 `c_analyzer_error_focused` 프롬프트 사용 → 새 프롬프트 불필요
 
+## T21 설계 결정 (Pass 2 함수별 개별 LLM 호출)
+- **문제**: 4개 함수(2042줄)를 한 번에 LLM에 전달하면 대형 함수(c100+c200)만 분석하고 소형 함수(c400, c700) 누락
+- **해결**: 함수별 개별 LLM 호출 — 각 함수를 독립적으로 분석하여 attention 분산 방지
+- **비용**: 입력 토큰 총량 동일 (2042줄 → 636+1115+127+164 = 동일), output은 함수별 별도
+- **병렬화**: asyncio.gather()로 동시 호출, semaphore로 rate limit 보호
+- **MIDER_EXCLUDE_FUNCTIONS 제거**: 임시 workaround 삭제, 근본 해결로 대체
+
+## T22 설계 결정 (clang-tidy + Heuristic 하이브리드)
+- **문제**: clang-tidy는 헤더 없으면 Level 2(데이터 흐름) 분석 불가, Heuristic은 regex로 UNINIT_VAR 등 탐지 가능
+- **해결**: clang-tidy 있어도 Heuristic Scanner를 항상 함께 실행, 결과 합산
+- **중복 제거**: 같은 라인(±2) + 같은 카테고리 → clang-tidy 우선
+- **변경 범위**: `c_analyzer.py`의 Error-Focused 경로만 수정 — Heuristic/2-Pass 경로는 영향 없음
+
 ## T19 설계 결정 (Proframe XML 지원)
 - **XML 유형**: Proframe WebSquare(Inswave) 화면 정의 XML — w2:dataList, w2:column, ev:on* 이벤트
 - **JS 교차 검증**: XML의 ev:on* 이벤트 핸들러가 대응하는 JS 파일에 존재하는지 확인
