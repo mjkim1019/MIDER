@@ -388,7 +388,7 @@ class ContextCollectorAgent(BaseAgent):
             logger.warning("모든 파일 읽기 실패, LLM 보정 건너뜀")
             return tool_result
 
-        plan_str = json.dumps(execution_plan, ensure_ascii=False, indent=2)
+        plan_str = json.dumps(execution_plan, ensure_ascii=False, indent=2, default=str)
         contents_str = "\n\n".join(
             f"### {path}\n```\n{content}\n```"
             for path, content in file_contents.items()

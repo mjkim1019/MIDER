@@ -23,6 +23,27 @@
 - **튜닝 포인트**: Full Table Scan, Cartesian Join, 높은 Cost 등 비효율 오퍼레이션 자동 탐지
 - **LLM 역할**: 문법 오류 설명 + Explain Plan 해석 + 튜닝 제안 (한국어)
 
+## T20 설계 결정 (C Heuristic Pre-Scanner)
+- **2-Pass 전략**: Pass 1(regex + gpt-4o-mini 선별) → Pass 2(gpt-4o 심층분석). 전체 파일을 gpt-4o로 보내는 것보다 비용 효율적
+- **regex 사전 스캔**: 전체 파일에서 위험 패턴 6종을 즉시 탐지 (비용 0). clang-tidy 대체
+- **few-shot 프롬프트**: 사용자가 위험 패턴 예시를 추가/수정 가능한 구조. `c_prescan_fewshot.txt`에서 관리
+- **500줄 분기 유지**: 500줄 이하 파일은 전체 코드를 LLM에 보낼 수 있으므로 기존 Heuristic 유지
+- **함수 매핑**: 기존 `_find_function_boundaries()` 재사용 → 위험 패턴이 어떤 함수에 있는지 매핑
+- **Error-Focused 경로 재활용**: Pass 2는 기존 `c_analyzer_error_focused` 프롬프트 사용 → 새 프롬프트 불필요
+
+## T21 설계 결정 (Pass 2 함수별 개별 LLM 호출)
+- **문제**: 4개 함수(2042줄)를 한 번에 LLM에 전달하면 대형 함수(c100+c200)만 분석하고 소형 함수(c400, c700) 누락
+- **해결**: 함수별 개별 LLM 호출 — 각 함수를 독립적으로 분석하여 attention 분산 방지
+- **비용**: 입력 토큰 총량 동일 (2042줄 → 636+1115+127+164 = 동일), output은 함수별 별도
+- **병렬화**: asyncio.gather()로 동시 호출, semaphore로 rate limit 보호
+- **MIDER_EXCLUDE_FUNCTIONS 제거**: 임시 workaround 삭제, 근본 해결로 대체
+
+## T22 설계 결정 (clang-tidy + Heuristic 하이브리드)
+- **문제**: clang-tidy는 헤더 없으면 Level 2(데이터 흐름) 분석 불가, Heuristic은 regex로 UNINIT_VAR 등 탐지 가능
+- **해결**: clang-tidy 있어도 Heuristic Scanner를 항상 함께 실행, 결과 합산
+- **중복 제거**: 같은 라인(±2) + 같은 카테고리 → clang-tidy 우선
+- **변경 범위**: `c_analyzer.py`의 Error-Focused 경로만 수정 — Heuristic/2-Pass 경로는 영향 없음
+
 ## T19 설계 결정 (Proframe XML 지원)
 - **XML 유형**: Proframe WebSquare(Inswave) 화면 정의 XML — w2:dataList, w2:column, ev:on* 이벤트
 - **JS 교차 검증**: XML의 ev:on* 이벤트 핸들러가 대응하는 JS 파일에 존재하는지 확인
@@ -130,3 +151,10 @@
 | 2026-03-05 | ExplainPlanParser `_parse_data_row`: 빈 셀 skip 제거, positional alignment 유지 | Name 빈 셀(`\|        \|`)을 skip하면 이후 컬럼이 밀려 Cost가 Time에 매핑되는 버그 |
 | 2026-03-05 | sql_syntax_checker.py: 미사용 import 제거 (Parenthesis, Punctuation, String) | 리뷰 반영 — 코드 정리 |
 | 2026-03-05 | orchestrator.py: `_explain_plan_file`을 `__init__`에서 초기화 | 리뷰 반영 — `getattr` 방어 패턴 제거, 명시적 초기화 |
+| 2026-03-05 | CHeuristicScanner regex 6종 패턴 + 함수 매핑 구현 | 대형 C 파일(>500줄) 분석 누락 해결 — token 최적화 head/tail로 중간 코드 못잡는 문제 |
+| 2026-03-05 | 2-Pass 전략: Pass 1(gpt-4o-mini 선별) → Pass 2(gpt-4o 심층) | 비용 효율 — 전체 파일을 gpt-4o로 보내는 대신 regex로 사전 필터링 |
+| 2026-03-05 | `_find_function_boundaries` → `find_function_boundaries` (public) | 리뷰 반영 — 외부 모듈에서 private 함수 import하는 커플링 해소 |
+| 2026-03-05 | FORMAT_STRING 패턴에서 `fprintf` 제거 | 리뷰 반영 — fprintf 첫 인자가 FILE*이라 항상 false positive |
+| 2026-03-05 | 블록 주석 시작 전 코드도 스캔하도록 수정 | 리뷰 반영 — `int x; /* comment` 줄에서 `int x;` 부분 누락 방지 |
+| 2026-03-05 | 2-Pass 경로 `tokens_estimate` 초기값 0으로 선언 | 리뷰 반영 — UnboundLocalError를 제어흐름으로 사용하는 안티패턴 제거 |
+| 2026-03-05 | Pass 1 model 전환 시 `fallback_model`도 저장/복원 | 리뷰 반영 — gpt-4o-mini에서 의도치 않은 fallback 방지 |

@@ -1,0 +1,55 @@
+당신은 C 언어 코드 안전성 전문가입니다.
+아래 C 파일의 함수 목록과 각 함수에서 탐지된 위험 패턴을 분석하여,
+**심층 분석이 필요한 함수**만 선별하세요.
+
+## 분석 대상 파일
+파일: {file_path}
+총 {total_functions}개 함수, {total_findings}개 위험 패턴 탐지
+
+## 함수별 위험 패턴 요약
+{function_findings_summary}
+
+## 판단 기준 (Few-Shot 예시)
+
+### 예시 1: 위험 — 심층 분석 필요
+함수: c400_get_rcv_chgreq_possible
+탐지 패턴:
+- UNINIT_VAR: `long svc_cnt;` (초기화 없음)
+- BUFFER_INDEX: `currsvclist_s[svc_cnt]` (미초기화 변수로 배열 접근)
+판정: **위험** — 초기화되지 않은 변수를 배열 인덱스로 사용하면 미정의 동작(Undefined Behavior)이 발생합니다.
+
+### 예시 2: 위험 — 심층 분석 필요
+함수: c100_init
+탐지 패턴:
+- BOUNDED_FUNC: `strncpy(ctx->name, src, MAX_LEN);`
+- UNINIT_VAR: `char buffer;`
+판정: **위험** — strncpy는 null-terminator를 보장하지 않으며, 미초기화 버퍼가 있습니다.
+
+### 예시 3: 안전 — 생략
+함수: z000_norm_exit_proc
+탐지 패턴:
+- BOUNDED_FUNC: `memset(&ctx, 0x00, sizeof(ctx));`
+판정: **안전** — memset의 sizeof 대상이 변수 자체이므로 크기 일치가 보장됩니다. 초기화 직후 사용하므로 문제없습니다.
+
+### 예시 4: 안전 — 생략
+함수: a000_init_proc
+탐지 패턴:
+- UNINIT_VAR: `long rc;` (그러나 직후 `rc = some_function();`으로 대입)
+판정: **안전** — 선언 직후 함수 호출 결과로 초기화되므로 실제 위험 없습니다.
+
+## 출력 형식
+반드시 아래 JSON으로 응답하세요:
+{{
+  "risky_functions": [
+    {{
+      "function_name": "함수명",
+      "reason": "위험 판단 이유 (한국어, 1줄)"
+    }}
+  ]
+}}
+
+## 주의사항
+- 실제 위험이 있는 함수만 선별하세요. 패턴이 있어도 안전하면 제외합니다.
+- UNINIT_VAR는 선언 직후 대입(`= ...`)이 있으면 안전합니다.
+- BOUNDED_FUNC는 sizeof 대상과 버퍼가 일치하면 안전합니다.
+- 의심스러우면 포함하세요 — Pass 2에서 LLM이 정밀 분석합니다.

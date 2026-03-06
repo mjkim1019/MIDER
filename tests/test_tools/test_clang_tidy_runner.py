@@ -38,12 +38,16 @@ class TestClangTidyRunner:
         with pytest.raises(ToolExecutionError, match="file not found"):
             runner.execute(file="/nonexistent.c")
 
-    def test_binary_not_found(self, tmp_path):
+    @patch.object(ClangTidyRunner, "_find_binary", return_value=None)
+    def test_binary_not_found_skips_gracefully(self, _mock_find, tmp_path):
+        """바이너리 없으면 skipped=True로 빈 결과 반환."""
         runner = ClangTidyRunner(binary_path="/nonexistent/clang-tidy")
         f = tmp_path / "test.c"
         f.write_text("int main() {}")
-        with pytest.raises(ToolExecutionError, match="binary not found"):
-            runner.execute(file=str(f))
+        result = runner.execute(file=str(f))
+        assert result.success is True
+        assert result.data["skipped"] is True
+        assert result.data["warnings"] == []
 
     @patch("mider.tools.static_analysis.clang_tidy_runner.subprocess.run")
     def test_parse_warnings(self, mock_run, runner, tmp_path):

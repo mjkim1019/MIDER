@@ -2,6 +2,10 @@
 
 clang-tidy 정적분석 + LLM 심층분석을 결합하여
 C 파일의 메모리 안전성 및 장애 유발 패턴을 탐지한다.
+
+clang-tidy 없고 대형 파일(>500줄)이면 2-Pass 전략:
+  Pass 1: Heuristic Pre-Scanner → gpt-4o-mini로 위험 함수 선별
+  Pass 2: 선별된 함수 → gpt-4o로 심층 분석
 """
 
 import json
@@ -13,11 +17,13 @@ from mider.agents.base_agent import BaseAgent
 from mider.config.prompt_loader import load_prompt
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
+from mider.tools.static_analysis.c_heuristic_scanner import CHeuristicScanner
 from mider.tools.static_analysis.clang_tidy_runner import ClangTidyRunner
 from mider.tools.utility.token_optimizer import (
     build_structure_summary,
     extract_error_functions,
     optimize_file_content,
+    find_function_boundaries,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +49,7 @@ class CAnalyzerAgent(BaseAgent):
         )
         self._file_reader = FileReader()
         self._clang_tidy_runner = ClangTidyRunner()
+        self._heuristic_scanner = CHeuristicScanner()
 
     async def run(
         self,
@@ -70,29 +77,40 @@ class CAnalyzerAgent(BaseAgent):
             # Step 1: 파일 읽기
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
+            line_count = len(file_content.splitlines())
 
             # Step 2: clang-tidy 정적분석
             clang_data = self._run_clang_tidy(file)
 
-            # Step 3: LLM 분석
-            prompt, messages = self._build_messages(
-                file=file,
-                file_content=file_content,
-                clang_data=clang_data,
-                file_context=file_context,
-            )
+            # Step 3: 분석 경로 선택
+            tokens_estimate = 0
+            if not clang_data and line_count > 500:
+                # 2-Pass 전략: clang-tidy 없고 대형 파일
+                issues = await self._run_two_pass(
+                    file=file,
+                    file_content=file_content,
+                    file_context=file_context,
+                )
+            else:
+                # 기존 경로: clang-tidy 있음 or 500줄 이하
+                prompt, messages = self._build_messages(
+                    file=file,
+                    file_content=file_content,
+                    clang_data=clang_data,
+                    file_context=file_context,
+                )
 
-            response = await self.call_llm(messages, json_mode=True)
-            llm_result = json.loads(response)
+                response = await self.call_llm(messages, json_mode=True)
+                llm_result = json.loads(response)
 
-            if not isinstance(llm_result, dict):
-                raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
+                if not isinstance(llm_result, dict):
+                    raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
 
-            issues = llm_result.get("issues", [])
+                issues = llm_result.get("issues", [])
+                tokens_estimate = (len(prompt) + len(response)) // 4
 
             # Step 4: AnalysisResult 생성
             elapsed = time.time() - start_time
-            tokens_estimate = (len(prompt) + len(response)) // 4
 
             result = AnalysisResult.model_validate({
                 "task_id": task_id,
@@ -124,6 +142,264 @@ class CAnalyzerAgent(BaseAgent):
                 llm_tokens_used=0,
                 error=str(e),
             ).model_dump()
+
+    async def _run_two_pass(
+        self,
+        *,
+        file: str,
+        file_content: str,
+        file_context: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        """2-Pass 분석: Pre-Scanner → LLM 선별 → 심층 분석.
+
+        Pass 1: regex 스캔 + gpt-4o-mini로 위험 함수 선별
+        Pass 2: 선별된 함수 전체 코드 + gpt-4o로 심층 분석
+        """
+        # Pass 1-a: Heuristic Pre-Scanner (regex, 비용 0)
+        scan_result = self._heuristic_scanner.execute(file=file)
+        findings = scan_result.data.get("findings", [])
+        functions_at_risk = scan_result.data.get("functions_at_risk", [])
+
+        if not findings:
+            logger.info(f"Pre-Scanner: 위험 패턴 없음 → 기존 Heuristic 분석: {file}")
+            return await self._run_single_pass_heuristic(
+                file=file, file_content=file_content, file_context=file_context,
+            )
+
+        # Pass 1-b: 함수별 패턴 요약 생성
+        func_summary = self._build_function_findings_summary(findings)
+
+        lines = file_content.splitlines()
+        boundaries = find_function_boundaries(lines, "c")
+
+        # Pass 1-c: gpt-4o-mini로 위험 함수 선별
+        prescan_prompt = load_prompt(
+            "c_prescan_fewshot",
+            file_path=file,
+            total_functions=str(len(boundaries)),
+            total_findings=str(len(findings)),
+            function_findings_summary=func_summary,
+        )
+
+        prescan_messages = [
+            {
+                "role": "system",
+                "content": "당신은 C 코드 안전성 전문가입니다. 반드시 JSON 형식으로 응답하세요.",
+            },
+            {"role": "user", "content": prescan_prompt},
+        ]
+
+        # gpt-4o-mini로 빠르게 선별 (호출 후 원래 모델 복원)
+        original_model = self.model
+        original_fallback = self.fallback_model
+        self.model = "gpt-4o-mini"
+        self.fallback_model = None
+        try:
+            prescan_response = await self.call_llm(prescan_messages, json_mode=True)
+        finally:
+            self.model = original_model
+            self.fallback_model = original_fallback
+
+        prescan_result = json.loads(prescan_response)
+        if not isinstance(prescan_result, dict):
+            prescan_result = {"risky_functions": []}
+
+        risky_functions = [
+            f["function_name"]
+            for f in prescan_result.get("risky_functions", [])
+            if isinstance(f, dict) and "function_name" in f
+        ]
+
+        if not risky_functions:
+            # LLM이 위험 함수 없다고 판단 → 기존 Heuristic 경로
+            logger.info(f"Pass 1: 위험 함수 없음 (LLM 판단) → Heuristic: {file}")
+            return await self._run_single_pass_heuristic(
+                file=file, file_content=file_content, file_context=file_context,
+            )
+
+        # TODO: Pass 2 분석 품질 테스트용 — 대형 함수 제외 로직
+        # c100(636줄)+c200(1115줄)이 프롬프트를 압도하여 c400 등 소형 함수 이슈 누락
+        # 근본 해결: 함수별 개별 LLM 호출 또는 코드 길이 기반 분할 필요
+        import os
+        exclude_csv = os.environ.get("MIDER_EXCLUDE_FUNCTIONS", "")
+        if exclude_csv:
+            exclude_set = {f.strip() for f in exclude_csv.split(",") if f.strip()}
+            before = len(risky_functions)
+            risky_functions = [f for f in risky_functions if f not in exclude_set]
+            logger.info(
+                f"Pass 2 함수 제외: {exclude_set} → {before}개 → {len(risky_functions)}개"
+            )
+
+        logger.info(
+            f"Pass 1 완료: {len(risky_functions)}개 위험 함수 선별 → "
+            f"{risky_functions}"
+        )
+
+        # Pass 2: 위험 함수 전체 코드 추출 → gpt-4o 심층 분석
+        risky_lines = self._get_lines_for_functions(
+            risky_functions, lines, boundaries,
+        )
+
+        error_blocks = extract_error_functions(file_content, risky_lines, "c")
+        error_functions_str = "\n\n".join(
+            f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
+            for block in error_blocks
+        ) if error_blocks else optimize_file_content(file_content, file_context, "c")
+
+        structure_summary = build_structure_summary(file_content, file_context, "c")
+
+        # 스캔 findings를 함수별로 그룹화 (HIGH 우선, 함수당 최대 10개)
+        scan_warnings_str = self._build_grouped_warnings(
+            findings, risky_functions,
+        )
+
+        file_context_str = json.dumps(
+            file_context, ensure_ascii=False, indent=2,
+        ) if file_context else "컨텍스트 정보 없음"
+
+        prompt = load_prompt(
+            "c_analyzer_error_focused",
+            clang_tidy_warnings=scan_warnings_str,
+            file_path=file,
+            structure_summary=structure_summary,
+            error_functions=error_functions_str,
+            file_context=file_context_str,
+        )
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "당신은 C 언어 메모리 안전성 및 보안 분석 전문가입니다. "
+                    "반드시 JSON 형식으로 응답하세요."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        response = await self.call_llm(messages, json_mode=True)
+        llm_result = json.loads(response)
+
+        if not isinstance(llm_result, dict):
+            return []
+
+        logger.info(f"Pass 2 완료: {len(llm_result.get('issues', []))}개 이슈")
+        return llm_result.get("issues", [])
+
+    async def _run_single_pass_heuristic(
+        self,
+        *,
+        file: str,
+        file_content: str,
+        file_context: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        """기존 Heuristic 단일 패스 분석."""
+        file_content_optimized = optimize_file_content(
+            file_content, file_context, "c",
+        )
+        prompt = load_prompt(
+            "c_analyzer_heuristic",
+            file_path=file,
+            file_content_optimized=file_content_optimized,
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "당신은 C 언어 메모리 안전성 및 보안 분석 전문가입니다. "
+                    "반드시 JSON 형식으로 응답하세요."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
+        response = await self.call_llm(messages, json_mode=True)
+        llm_result = json.loads(response)
+        if not isinstance(llm_result, dict):
+            return []
+        return llm_result.get("issues", [])
+
+    def _build_function_findings_summary(
+        self, findings: list[dict[str, Any]],
+    ) -> str:
+        """함수별 위험 패턴 요약을 생성한다."""
+        func_findings: dict[str, list[dict[str, Any]]] = {}
+        for f in findings:
+            func = f.get("function") or "(global)"
+            func_findings.setdefault(func, []).append(f)
+
+        parts: list[str] = []
+        for func, items in func_findings.items():
+            parts.append(f"\n### 함수: {func} ({len(items)}개 패턴)")
+            for item in items[:10]:  # 함수당 최대 10개
+                parts.append(
+                    f"- {item['pattern_id']} L{item['line']}: {item['content'][:80]}"
+                )
+            if len(items) > 10:
+                parts.append(f"  ... 외 {len(items) - 10}개")
+
+        return "\n".join(parts)
+
+    _HIGH_PRIORITY_PATTERNS = {"UNINIT_VAR", "UNSAFE_FUNC", "MALLOC_NO_CHECK", "FORMAT_STRING"}
+
+    def _build_grouped_warnings(
+        self,
+        findings: list[dict[str, Any]],
+        risky_functions: list[str],
+    ) -> str:
+        """함수별로 그룹화된 warnings 문자열을 생성한다.
+
+        HIGH 우선순위 패턴을 먼저 배치하고, 함수당 최대 15개로 제한하여
+        LLM이 모든 함수의 warnings를 균등하게 처리하도록 한다.
+        """
+        func_warnings: dict[str, list[dict[str, Any]]] = {}
+        for f in findings:
+            func = f.get("function")
+            if func in risky_functions:
+                func_warnings.setdefault(func, []).append(f)
+
+        parts: list[str] = []
+        for func in risky_functions:
+            items = func_warnings.get(func, [])
+            if not items:
+                continue
+
+            # HIGH 우선순위 패턴을 먼저, 나머지를 뒤에
+            high = [i for i in items if i["pattern_id"] in self._HIGH_PRIORITY_PATTERNS]
+            rest = [i for i in items if i["pattern_id"] not in self._HIGH_PRIORITY_PATTERNS]
+            sorted_items = high + rest
+
+            parts.append(f"\n### 함수: {func} (총 {len(items)}개 경고, HIGH 우선 {len(high)}개)")
+            for item in sorted_items[:15]:
+                parts.append(
+                    f"- L{item['line']} [{item['pattern_id']}] {item['description']}: "
+                    f"{item['content'][:80]}"
+                )
+            if len(sorted_items) > 15:
+                parts.append(f"  ... 외 {len(sorted_items) - 15}개")
+
+        return "\n".join(parts)
+
+    def _get_lines_for_functions(
+        self,
+        function_names: list[str],
+        lines: list[str],
+        boundaries: list[tuple[int, int]],
+    ) -> list[int]:
+        """함수명 목록에 해당하는 라인 번호를 반환한다."""
+        from mider.tools.static_analysis.c_heuristic_scanner import _FUNC_NAME_PATTERN
+
+        target_lines: list[int] = []
+        for start, end in boundaries:
+            idx = start - 1
+            func_line = lines[idx]
+            m = _FUNC_NAME_PATTERN.match(func_line)
+            if not m and idx + 1 < len(lines):
+                combined = func_line.rstrip() + " " + lines[idx + 1].lstrip()
+                m = _FUNC_NAME_PATTERN.match(combined)
+            if m and m.group(1) in function_names:
+                target_lines.append(start)
+
+        return target_lines
 
     def _run_clang_tidy(self, file: str) -> dict[str, Any] | None:
         """clang-tidy를 실행하여 결과를 반환한다.

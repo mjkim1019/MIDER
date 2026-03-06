@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from dotenv import load_dotenv
 from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError
 from rich.console import Console
 from rich.panel import Panel
@@ -89,24 +90,43 @@ def resolve_model(args_model: str | None) -> str:
     return os.environ.get("MIDER_MODEL", "gpt-4o")
 
 
-def validate_api_key() -> str:
-    """MIDER_API_KEY 환경변수를 검증한다.
+def validate_api_key() -> str | None:
+    """LLM API 키를 검증한다.
+
+    우선순위:
+    1. AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT (Azure)
+    2. MIDER_API_KEY → OPENAI_API_KEY 브리징
+    3. OPENAI_API_KEY (직접 설정)
 
     Returns:
-        API 키 문자열
+        MIDER_API_KEY 값 (Azure 경로면 None)
 
     Raises:
-        SystemExit: API 키가 없으면 exit code 3으로 종료
+        SystemExit: 어떤 API 키도 없으면 exit code 3으로 종료
     """
-    api_key = os.environ.get("MIDER_API_KEY", "")
-    if not api_key:
-        console = Console(stderr=True)
-        console.print(
-            "[red bold]오류:[/] MIDER_API_KEY 환경변수가 설정되지 않았습니다.",
-        )
-        console.print("  export MIDER_API_KEY='your-api-key'")
-        sys.exit(EXIT_LLM_ERROR)
-    return api_key
+    # Azure 경로: AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT
+    azure_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
+    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    if azure_key and azure_endpoint:
+        return None  # LLMClient가 Azure 변수를 직접 읽음
+
+    # OpenAI 경로: MIDER_API_KEY → OPENAI_API_KEY 브리징
+    mider_key = os.environ.get("MIDER_API_KEY", "")
+    if mider_key:
+        return mider_key
+
+    # OPENAI_API_KEY 직접 설정
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if openai_key:
+        return None  # 이미 설정됨
+
+    console = Console(stderr=True)
+    console.print(
+        "[red bold]오류:[/] LLM API 키가 설정되지 않았습니다.",
+    )
+    console.print("  Azure: AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT")
+    console.print("  OpenAI: MIDER_API_KEY 또는 OPENAI_API_KEY")
+    sys.exit(EXIT_LLM_ERROR)
 
 
 def _create_progress_callback(
@@ -171,29 +191,27 @@ def print_file_list(console: Console, files: list[str]) -> None:
 
 
 def print_issues(console: Console, issue_list: dict[str, Any]) -> None:
-    """Critical/High 이슈를 Before/After 형식으로 출력한다."""
+    """모든 이슈를 심각도별로 출력한다."""
     issues = issue_list.get("issues", [])
     if not issues:
         return
 
-    # Critical/High만 Before/After 표시
-    important_issues = [
-        issue for issue in issues
-        if issue.get("severity") in ("critical", "high")
-    ]
-
-    if not important_issues:
-        return
+    # 심각도 순서로 정렬
+    severity_rank = {s: i for i, s in enumerate(_SEVERITY_ORDER)}
+    sorted_issues = sorted(
+        issues,
+        key=lambda x: severity_rank.get(x.get("severity", "low"), 99),
+    )
 
     console.print()
 
-    for issue in important_issues:
+    for issue in sorted_issues:
         severity = issue.get("severity", "low").upper()
         issue_id = issue.get("issue_id", "")
         title = issue.get("title", "")
         file_path = issue.get("file", "")
         location = issue.get("location", {})
-        line = location.get("start_line", 0)
+        line = location.get("line_start", 0)
         fix = issue.get("fix", {})
         before = fix.get("before", "")
         after = fix.get("after", "")
@@ -209,25 +227,22 @@ def print_issues(console: Console, issue_list: dict[str, Any]) -> None:
         content.append(title)
         content.append(f"\n  {file_path}:{line}\n")
 
-        if before:
-            content.append("\n  - Before:\n", style="red")
-            for bline in before.strip().splitlines():
-                content.append(f"    {bline}\n", style="red")
+        # Critical/High는 Before/After 코드 표시
+        if issue.get("severity") in ("critical", "high"):
+            if before:
+                content.append("\n  - Before:\n", style="red")
+                for bline in before.strip().splitlines():
+                    content.append(f"    {bline}\n", style="red")
 
-        if after:
-            content.append("  + After:\n", style="green")
-            for aline in after.strip().splitlines():
-                content.append(f"    {aline}\n", style="green")
+            if after:
+                content.append("  + After:\n", style="green")
+                for aline in after.strip().splitlines():
+                    content.append(f"    {aline}\n", style="green")
 
         if description:
             content.append(f"\n  {description}\n")
 
         console.print(Panel(content, border_style="dim"))
-
-    total_shown = len(important_issues)
-    total_all = len(issues)
-    if total_all > total_shown:
-        console.print(f"... (총 {total_all}건)")
 
 
 def print_summary(
@@ -363,6 +378,9 @@ async def run_analysis(
 
 def main() -> None:
     """CLI 메인 함수."""
+    # .env 파일 로드 (있으면)
+    load_dotenv()
+
     parser = build_parser()
     args = parser.parse_args()
 
@@ -373,9 +391,10 @@ def main() -> None:
     console = Console()
     console.print(f"Mider v{__version__}")
 
-    # API 키 검증 및 OPENAI_API_KEY 설정
+    # API 키 검증
     api_key = validate_api_key()
-    os.environ["OPENAI_API_KEY"] = api_key
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
 
     # 모델 결정
     model = resolve_model(args.model)

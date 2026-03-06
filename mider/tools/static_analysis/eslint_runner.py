@@ -66,13 +66,21 @@ class ESLintRunner(BaseTool):
                 "eslint_runner", f"config not found: {config_path}"
             )
 
-        # 바이너리 존재 확인
+        # 바이너리 존재 확인 (resources → 시스템 PATH → skip)
         if not self._binary.exists():
-            raise ToolExecutionError(
-                "eslint_runner",
-                f"binary not found: {self._binary}. "
-                "eslint 실행에 필요한 node 바이너리를 resources/binaries/에 배치하세요.",
-            )
+            import shutil
+            system_node = shutil.which("node")
+            if system_node:
+                self._binary = Path(system_node)
+            else:
+                logger.info(
+                    "node 바이너리 없음 — Heuristic 모드로 분석합니다. "
+                    "(resources/binaries/ 또는 시스템 PATH에 node가 없음)"
+                )
+                return ToolResult(
+                    success=True,
+                    data={"errors": [], "warnings": [], "skipped": True},
+                )
 
         # ESLint 실행 (JSON 출력 형식)
         cmd = [

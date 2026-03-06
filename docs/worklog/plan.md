@@ -5,48 +5,64 @@
 
 ## 완료된 Task
 - T1~T14, T16, T17: Project Scaffold → Data Models → Base Infrastructure → Tools → Prompts → Agents → CLI → 토큰 최적화 → 배포 체크리스트
+- T18: SQL 성능개선 강화
+- T20: C Heuristic Pre-Scanner (2-Pass 분석)
 
 ## 진행 예정 Task
 
-### T18: SQL 성능개선 강화 (depends: T11, T14)
+### T21: Pass 2 함수별 개별 LLM 호출 (depends: T20)
 
-#### T18.1: SQL 문법 검증 도구 → 대상: `mider/tools/static_analysis/sql_syntax_checker.py`
-- sqlparse 라이브러리로 Oracle SQL 문법 파싱
-- 문법 오류 위치(라인), 에러 메시지 반환
-- BaseTool 상속, execute(file=...) 인터페이스
-- requirements.txt에 sqlparse 추가
+2-Pass 분석의 Pass 2에서 선별된 함수를 한 번에 LLM에 보내는 대신,
+**함수별로 개별 LLM 호출**하여 대형 함수가 소형 함수 분석을 지배하는 문제를 해결한다.
 
-#### T18.2: Explain Plan 파서 → 대상: `mider/tools/utility/explain_plan_parser.py`
-- Oracle Explain Plan 텍스트 파일 파싱
-- Operation, Options, Cost, Rows, Bytes, Time 추출
-- Full Table Scan, Cartesian Join, Sort Merge Join 등 비효율 오퍼레이션 탐지
-- BaseTool 상속, execute(file=...) 인터페이스
+참조: `docs/issue-log/003-pass2-large-function-dominance.md`
 
-#### T18.3: ExplainPlan Pydantic 스키마 → 대상: `mider/models/analysis_result.py` 또는 신규
-- ExplainPlanStep: operation, options, object_name, cost, rows, bytes
-- ExplainPlanResult: steps[], warnings[], tuning_points[]
-- SQLAnalyzerAgent run()에 explain_plan 파라미터 추가
+#### T21.1: `_run_two_pass()` 함수별 개별 호출 리팩토링 → 대상: `mider/agents/c_analyzer.py`
+- 기존: risky_functions 전체를 한 프롬프트에 묶어 gpt-4o 1회 호출
+- 변경: risky_functions를 for-loop으로 순회, 함수별로 코드 추출 + warnings + LLM 호출
+- 각 함수별 결과를 합산하여 issues 리스트 반환
+- `MIDER_EXCLUDE_FUNCTIONS` 임시 workaround 제거
+- issue_id 충돌 방지: 합산 시 C-001부터 재번호 부여
 
-#### T18.4: SQLAnalyzerAgent 강화 → 대상: `mider/agents/sql_analyzer.py`
-- sql_syntax_checker 연동 (문법 오류 → Error-Focused 경로)
-- explain_plan_parser 결과를 LLM 프롬프트에 추가
-- Error-Focused: 문법 오류 + 정적 패턴 + Explain Plan → 종합 분석
-- Heuristic: Explain Plan 있으면 함께 분석
+#### T21.2: 함수별 프롬프트 최적화 → 대상: `mider/config/prompts/c_analyzer_error_focused.txt`
+- 단일 함수 분석에 맞게 프롬프트 조정 (복수 함수 섹션 순회 지시 제거)
+- 구조 요약은 파일 전체 유지 (함수 간 참조 관계 파악용)
+- 해당 함수의 warnings만 전달
 
-#### T18.5: 프롬프트 템플릿 수정 → 대상: `mider/config/prompts/sql_analyzer_*.txt`
-- Error-Focused: `{syntax_errors}`, `{explain_plan}` 변수 추가
-- Heuristic: `{explain_plan}` 변수 추가
+#### T21.3: asyncio.gather 병렬 호출 (선택) → 대상: `mider/agents/c_analyzer.py`
+- 함수별 LLM 호출을 asyncio.gather()로 병렬 실행
+- 비용 동일, 시간 단축 (4개 함수 → 직렬 4배 → 병렬 1배)
+- rate limit 고려하여 semaphore로 동시 호출 수 제한 (기본 3)
 
-#### T18.6: CLI --explain-plan 옵션 + 파이프라인 연동
-- `mider/main.py`: `--explain-plan` 옵션 추가 (파일 경로, SQL 파일과 1:1 또는 공용)
-- `mider/agents/orchestrator.py`: explain_plan 파일 경로를 SQLAnalyzerAgent에 전달
-- OrchestratorAgent.run()에 explain_plan 파라미터 추가
+#### T21.4: 단위 테스트 → 대상: `tests/test_agents/test_c_analyzer.py`
+- 함수별 개별 호출 검증: mock LLM이 함수 수만큼 호출되는지
+- 결과 합산 검증: 여러 함수의 issues가 올바르게 병합되는지
+- MIDER_EXCLUDE_FUNCTIONS 제거 확인
+- 기존 테스트 호환성 유지
 
-#### T18.7: 단위 테스트 → 대상: `tests/`
-- sql_syntax_checker 테스트 (정상/오류 SQL)
-- explain_plan_parser 테스트 (다양한 Explain Plan 형식)
-- SQLAnalyzerAgent 강화 분기 테스트
-- CLI --explain-plan 옵션 테스트
+---
+
+### T22: clang-tidy + Heuristic 하이브리드 분석 (depends: T20)
+
+clang-tidy가 있어도 Heuristic Scanner를 **항상 함께 실행**하여
+두 결과를 합쳐 분석 커버리지를 극대화한다.
+
+참조: `docs/issue-log/002-clang-tidy-header-limitation.md`
+
+#### T22.1: Error-Focused 경로에 Heuristic Scanner 추가 → 대상: `mider/agents/c_analyzer.py`
+- 기존: clang-tidy 있음 → clang-tidy warnings만 사용
+- 변경: clang-tidy 있음 → clang-tidy warnings + Heuristic findings 합산
+- 중복 제거: 동일 라인 + 유사 패턴은 clang-tidy 우선
+
+#### T22.2: 합산 로직 구현 → 대상: `mider/agents/c_analyzer.py`
+- `_merge_warnings()` 메서드: clang-tidy warnings + heuristic findings → 통합 리스트
+- 중복 판정: 같은 라인 ±2줄 AND 같은 카테고리 → clang-tidy 결과 우선
+- 합산 결과를 Error-Focused 프롬프트의 `{clang_tidy_warnings}` 변수에 전달
+
+#### T22.3: 단위 테스트 → 대상: `tests/test_agents/test_c_analyzer.py`
+- clang-tidy + heuristic 합산 검증
+- 중복 제거 검증 (같은 라인 경고가 2번 나오지 않음)
+- clang-tidy 없을 때 기존 동작 유지 확인
 
 ---
 
@@ -88,7 +104,7 @@
 
 ---
 
-### T15: Integration Test (depends: T18, T19)
+### T15: Integration Test (depends: T19, T21, T22)
 
 #### T15.1: 샘플 파일 5개 → 대상: `tests/fixtures/`
 - JS, C, ProC, SQL, XML 각 1개씩 (기존 + XML 추가)
@@ -110,6 +126,9 @@
 | Task | 의존성 | 상태 |
 |------|--------|------|
 | T1~T14, T16, T17 | - | ✅ 완료 |
-| T18 | T11, T14 | 대기 |
-| T19 | T3, T8 | 대기 (T18과 병렬 가능) |
-| T15 | T18, T19 | 대기 (마지막) |
+| T18 | T11, T14 | ✅ 완료 |
+| T20 | T16 | ✅ 완료 |
+| T21 | T20 | 대기 (다음) |
+| T22 | T20 | 대기 |
+| T19 | T3, T8 | 대기 |
+| T15 | T19, T21, T22 | 대기 (마지막) |
