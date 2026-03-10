@@ -180,6 +180,7 @@ def print_file_list(console: Console, files: list[str]) -> None:
         ".h": "C",
         ".pc": "Pro*C",
         ".sql": "SQL",
+        ".xml": "XML",
     }
 
     console.print(f"\n\\[파일] {len(files)}개")
