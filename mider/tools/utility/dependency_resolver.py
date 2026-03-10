@@ -32,6 +32,7 @@ _EXT_TO_LANGUAGE: dict[str, str] = {
     ".h": "c",
     ".pc": "proc",
     ".sql": "sql",
+    ".xml": "xml",
 }
 
 

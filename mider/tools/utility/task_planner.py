@@ -22,6 +22,7 @@ _EXT_TO_LANGUAGE: dict[str, str] = {
     ".h": "c",
     ".pc": "proc",
     ".sql": "sql",
+    ".xml": "xml",
 }
 
 # 언어별 기본 분석 시간 추정 (초/파일)
@@ -30,6 +31,7 @@ _ESTIMATED_TIME_PER_FILE: dict[str, int] = {
     "c": 20,
     "proc": 25,
     "sql": 10,
+    "xml": 10,
 }
 
 
