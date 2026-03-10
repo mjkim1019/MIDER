@@ -7,6 +7,7 @@ ExecutionPlan을 입력받아 각 파일의 import/include 관계,
 import json
 import logging
 import re
+import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -77,6 +78,7 @@ _PATTERN_REGEXES: dict[str, list[tuple[str, re.Pattern[str]]]] = {
             r"\b(?:COMMIT|ROLLBACK|BEGIN\s+TRANSACTION)\b", re.IGNORECASE
         )),
     ],
+    "xml": [],  # XML은 _detect_patterns_xml에서 별도 처리
 }
 
 
@@ -186,8 +188,12 @@ class ContextCollectorAgent(BaseAgent):
             }
 
         imports = self._extract_imports(content, file_path, language, all_files)
-        calls = self._extract_calls(content, language)
-        patterns = self._detect_patterns(content, language)
+        if language == "xml":
+            calls = self._extract_xml_event_calls(content)
+            patterns = self._detect_xml_patterns(content)
+        else:
+            calls = self._extract_calls(content, language)
+            patterns = self._detect_patterns(content, language)
 
         return {
             "file": file_path,
@@ -209,7 +215,7 @@ class ContextCollectorAgent(BaseAgent):
         all_files: set[str],
     ) -> list[dict[str, Any]]:
         """파일 내용에서 import/include 구문을 추출한다."""
-        if language == "sql":
+        if language in ("sql", "xml"):
             return []
 
         imports: list[dict[str, Any]] = []
@@ -523,6 +529,59 @@ class ContextCollectorAgent(BaseAgent):
                     merged.append(p)
 
         return merged
+
+    # ──────────────────────────────────────────────
+    # XML 전용 추출
+    # ──────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_xml_event_calls(content: str) -> list[dict[str, Any]]:
+        """XML에서 이벤트 핸들러 함수 호출을 추출한다."""
+        calls: list[dict[str, Any]] = []
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError:
+            return calls
+
+        event_re = re.compile(r"\{.*\}on\w+$|^ev:on\w+$|^on\w+$")
+        func_re = re.compile(r"scwin\.(\w+)")
+
+        for elem in root.iter():
+            for attr_name, attr_value in elem.attrib.items():
+                if event_re.match(attr_name):
+                    for m in func_re.finditer(attr_value):
+                        calls.append({
+                            "function_name": m.group(1),
+                            "line": 0,
+                            "target_file": None,
+                        })
+        return calls
+
+    @staticmethod
+    def _detect_xml_patterns(content: str) -> list[dict[str, Any]]:
+        """XML에서 구조 패턴을 탐지한다."""
+        patterns: list[dict[str, Any]] = []
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError:
+            return patterns
+
+        # 이벤트 바인딩 패턴
+        event_re = re.compile(r"\{.*\}on\w+$|^ev:on\w+$|^on\w+$")
+        event_count = 0
+        for elem in root.iter():
+            for attr_name in elem.attrib:
+                if event_re.match(attr_name):
+                    event_count += 1
+
+        if event_count > 0:
+            patterns.append({
+                "pattern_type": "event_binding",
+                "description": f"이벤트 바인딩 {event_count}개 (핸들러 검증 필요)",
+                "line": 0,
+            })
+
+        return patterns
 
     # ──────────────────────────────────────────────
     # 파일 읽기 유틸

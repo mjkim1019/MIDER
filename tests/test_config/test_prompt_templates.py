@@ -1,6 +1,6 @@
 """프롬프트 템플릿 검증 테스트.
 
-13개 프롬프트 파일의 존재 여부, 로드, 변수 치환을 검증한다.
+15개 프롬프트 파일의 존재 여부, 로드, 변수 치환을 검증한다.
 """
 
 import pytest
@@ -23,6 +23,8 @@ ALL_PROMPTS = [
     "sql_analyzer_heuristic",
     "reporter",
     "c_prescan_fewshot",
+    "xml_analyzer_error_focused",
+    "xml_analyzer_heuristic",
 ]
 
 # 각 프롬프트의 필수 변수 매핑
@@ -99,6 +101,22 @@ PROMPT_VARIABLES = {
         "total_findings": "5",
         "function_findings_summary": "### 함수: foo (2개 패턴)",
     },
+    "xml_analyzer_error_focused": {
+        "file_path": "/app/screen.xml",
+        "parse_errors": "[]",
+        "duplicate_ids": "[]",
+        "missing_handlers": "[]",
+        "data_lists": "[]",
+        "events": "[]",
+        "js_file": "없음",
+    },
+    "xml_analyzer_heuristic": {
+        "file_path": "/app/screen.xml",
+        "data_lists": "[]",
+        "events": "[]",
+        "component_ids": "[]",
+        "js_file": "없음",
+    },
 }
 
 
@@ -112,7 +130,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 13, f"프롬프트 파일 수: {len(txt_files)} (기대: 13)"
+        assert len(txt_files) == 15, f"프롬프트 파일 수: {len(txt_files)} (기대: 15)"
 
 
 class TestPromptLoad:

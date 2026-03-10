@@ -19,6 +19,7 @@ from mider.agents.proc_analyzer import ProCAnalyzerAgent
 from mider.agents.reporter import ReporterAgent
 from mider.agents.sql_analyzer import SQLAnalyzerAgent
 from mider.agents.task_classifier import TaskClassifierAgent
+from mider.agents.xml_analyzer import XMLAnalyzerAgent
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.search.glob_tool import GlobTool
 
@@ -31,6 +32,7 @@ _LANGUAGE_AGENT_MAP: dict[str, type[BaseAgent]] = {
     "c": CAnalyzerAgent,
     "proc": ProCAnalyzerAgent,
     "sql": SQLAnalyzerAgent,
+    "xml": XMLAnalyzerAgent,
 }
 
 
@@ -505,7 +507,7 @@ class OrchestratorAgent(BaseAgent):
 
             # 지원하는 확장자 확인
             ext = path.suffix.lower()
-            supported = {".js", ".c", ".h", ".pc", ".sql"}
+            supported = {".js", ".c", ".h", ".pc", ".sql", ".xml"}
             if ext not in supported:
                 errors.append(f"지원하지 않는 확장자: {file_path} ({ext})")
                 continue

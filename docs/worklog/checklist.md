@@ -124,13 +124,13 @@
   - [ ] T22.1: Error-Focused 경로에 Heuristic Scanner 추가
   - [ ] T22.2: 합산 로직 구현 (`_merge_warnings`)
   - [ ] T22.3: 단위 테스트
-- [ ] T19: Proframe XML 지원
-  - [ ] T19.1: XML 파서/분석 도구
-  - [ ] T19.2: XMLAnalyzerAgent 구현
-  - [ ] T19.3: XML 프롬프트 템플릿
-  - [ ] T19.4: 파이프라인 연동 (TaskClassifier, ContextCollector, Orchestrator)
-  - [ ] T19.5: CLI/배포 체크리스트 XML 지원
-  - [ ] T19.6: 단위 테스트
+- [x] T19: Proframe XML 지원
+  - [x] T19.1: XML 파서/분석 도구
+  - [x] T19.2: XMLAnalyzerAgent 구현
+  - [x] T19.3: XML 프롬프트 템플릿
+  - [x] T19.4: 파이프라인 연동 (TaskClassifier, ContextCollector, Orchestrator)
+  - [x] T19.5: CLI/배포 체크리스트 XML 지원
+  - [x] T19.6: 단위 테스트
 - [x] T23: SQL 분석 파이프라인 검증 및 테스트 (T18 확장)
   - [x] T23.1: 텍스트 덤프 파싱 단위 테스트
   - [x] T23.2: SQL 대형 파일 안전장치 + 로깅

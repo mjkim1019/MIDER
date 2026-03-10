@@ -38,6 +38,7 @@ class PatternInfo(BaseModel):
         "logging",
         "transaction",
         "memory_management",
+        "event_binding",
     ] = Field(description="패턴 유형")
     description: str = Field(description="패턴 설명")
     line: int = Field(description="패턴 위치 (라인 번호)")
@@ -47,7 +48,7 @@ class SingleFileContext(BaseModel):
     """단일 파일의 컨텍스트 정보."""
 
     file: str = Field(description="파일 경로")
-    language: Literal["javascript", "c", "proc", "sql"] = Field(
+    language: Literal["javascript", "c", "proc", "sql", "xml"] = Field(
         description="파일 언어"
     )
     imports: List[ImportInfo] = Field(default_factory=list)

@@ -22,7 +22,7 @@ class SubTask(BaseModel):
 
     task_id: str = Field(description="task_1, task_2, ...")
     file: str = Field(description="파일 경로 (절대경로)")
-    language: Literal["javascript", "c", "proc", "sql"] = Field(
+    language: Literal["javascript", "c", "proc", "sql", "xml"] = Field(
         description="파일 언어"
     )
     priority: int = Field(description="우선순위 1(높음) ~ N(낮음)")

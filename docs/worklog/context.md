@@ -187,3 +187,11 @@
 | 2026-03-10 | `high_cost_ids` dead code 제거 | 리뷰 H1: 미사용 변수 정리 |
 | 2026-03-10 | `fallback_model=None` (기본 모델과 동일하면 불필요) | 리뷰 H3: gpt-4o → gpt-4o fallback은 실질적 효과 없음 |
 | 2026-03-10 | `__main__.py`에 `if __name__ == "__main__":` 가드 추가 | 리뷰 M3: import 시 의도치 않은 CLI 실행 방지 |
+| 2026-03-10 | XMLParser: `dl.iter()` 재귀 탐색으로 변경 | 실제 WebSquare XML에서 columnInfo 래퍼가 있어 직접 자식만 탐색하면 column 0개 반환 |
+| 2026-03-10 | `_extract_handler_functions()`: `scwin\.(\w+)` 패턴으로 변경 | 실제 XML에서 `ev:onclick="scwin.func_name"` 형태로 괄호 없이 사용 |
+| 2026-03-10 | column에 `name` 속성 추출 추가 | 한국어 컬럼명이 분석에 유용 — 사용자 요청 |
+| 2026-03-10 | XXE/Billion Laughs 방어: DOCTYPE/ENTITY 선언 포함 XML 거부 | 리뷰 반영 — defusedxml 미사용(폐쇄망 의존성 최소화), Python 3.13 readonly entity 속성 |
+| 2026-03-10 | 핸들러 검증: substring → `re.search(rf"\b{re.escape(func_name)}\b")` | 리뷰 반영 — 부분 문자열 매칭 false negative 방지 |
+| 2026-03-10 | PatternInfo Literal에 `event_binding` 추가 | 리뷰 반영 — XML 이벤트 바인딩을 error_handling으로 잘못 분류하던 문제 |
+| 2026-03-10 | 미사용 `_NS` 딕셔너리 제거, 불필요한 `js_content` 반환 제거 | 리뷰 반영 — dead code 정리 |
+| 2026-03-10 | 이슈 #005 기록: XML `<script>` 미추출 및 토큰 비효율 | 실제 XML 테스트에서 발견 — 별도 Task로 분리 |
