@@ -333,9 +333,9 @@ class TestAgentInit:
     """Agent 초기화 테스트."""
 
     def test_default_model(self):
-        """기본 모델은 gpt-4o-mini, fallback gpt-4o."""
+        """기본 모델은 gpt-4o, fallback gpt-4o."""
         agent = SQLAnalyzerAgent()
-        assert agent.model == "gpt-4o-mini"
+        assert agent.model == "gpt-4o"
         assert agent.fallback_model == "gpt-4o"
 
     def test_has_syntax_checker(self):
@@ -347,3 +347,367 @@ class TestAgentInit:
         """ExplainPlanParser가 초기화된다."""
         agent = SQLAnalyzerAgent()
         assert agent._explain_plan_parser is not None
+
+
+# --- T24: 정적 이슈 자동 생성 + 병합 테스트 ---
+
+
+def _make_tuning_point(
+    step_id: int = 1,
+    operation: str = "TABLE ACCESS FULL",
+    obj: str = "ORDERS",
+    cost: int = 1500,
+    rows: int = 50000,
+    severity: str = "high",
+    suggestion: str = "Full Table Scan — 인덱스 생성 권장",
+) -> dict:
+    """테스트용 튜닝 포인트 생성."""
+    return {
+        "step_id": step_id,
+        "operation": operation,
+        "object": obj,
+        "cost": cost,
+        "rows": rows,
+        "severity": severity,
+        "suggestion": suggestion,
+    }
+
+
+class TestGenerateStaticIssues:
+    """_generate_static_issues() 테스트."""
+
+    def test_none_explain_plan_returns_empty(self):
+        """explain_plan_data가 None이면 빈 리스트."""
+        result = SQLAnalyzerAgent._generate_static_issues(None, "/app/q.sql")
+        assert result == []
+
+    def test_no_tuning_points_returns_empty(self):
+        """튜닝 포인트가 없으면 빈 리스트."""
+        data = {"steps": [], "tuning_points": []}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/q.sql")
+        assert result == []
+
+    def test_medium_severity_ignored(self):
+        """medium severity 튜닝 포인트는 무시된다."""
+        tp = _make_tuning_point(severity="medium")
+        data = {"steps": [], "tuning_points": [tp]}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/q.sql")
+        assert result == []
+
+    def test_low_severity_ignored(self):
+        """low severity 튜닝 포인트는 무시된다."""
+        tp = _make_tuning_point(severity="low")
+        data = {"steps": [], "tuning_points": [tp]}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/q.sql")
+        assert result == []
+
+    def test_cartesian_generates_critical_issue(self):
+        """MERGE JOIN CARTESIAN → critical 이슈 생성."""
+        tp = _make_tuning_point(
+            operation="MERGE JOIN CARTESIAN",
+            obj="",
+            severity="critical",
+            suggestion="Cartesian Join",
+        )
+        data = {"steps": [], "tuning_points": [tp]}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/q.sql")
+
+        assert len(result) == 1
+        assert result[0]["severity"] == "critical"
+        assert result[0]["source"] == "static_analysis"
+        assert "CARTESIAN" in result[0]["title"]
+
+    def test_pk_index_high_cost_generates_high_issue(self):
+        """PK 인덱스 고비용 RANGE SCAN → high 이슈 생성."""
+        tp = _make_tuning_point(
+            operation="INDEX RANGE SCAN",
+            obj="ZORD_WIRE_SVC_DC_PK",
+            cost=148,
+            severity="high",
+            suggestion=(
+                "PK 인덱스 사용이지만 Cost=148으로 높음 "
+                "— 조인 컬럼 (svc_mgmt_num) 기반 인덱스 힌트 검토: "
+                "/*+ INDEX(alias (svc_mgmt_num)) */"
+            ),
+        )
+        data = {"steps": [], "tuning_points": [tp]}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/q.sql")
+
+        assert len(result) == 1
+        assert result[0]["severity"] == "high"
+        assert "ZORD_WIRE_SVC_DC_PK" in result[0]["title"]
+        assert "/*+ INDEX(alias (svc_mgmt_num)) */" in result[0]["fix"]["after"]
+
+    def test_table_access_full_generates_high_issue(self):
+        """TABLE ACCESS FULL → high 이슈 생성."""
+        tp = _make_tuning_point(
+            operation="TABLE ACCESS FULL",
+            obj="ORDERS",
+            cost=1500,
+            severity="high",
+        )
+        data = {"steps": [], "tuning_points": [tp]}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/q.sql")
+
+        assert len(result) == 1
+        assert result[0]["severity"] == "high"
+        assert "ORDERS" in result[0]["title"]
+        assert result[0]["source"] == "static_analysis"
+
+    def test_multiple_tuning_points(self):
+        """여러 튜닝 포인트가 이슈로 변환된다."""
+        tp1 = _make_tuning_point(
+            operation="MERGE JOIN CARTESIAN", obj="", severity="critical",
+            suggestion="Cartesian Join",
+        )
+        tp2 = _make_tuning_point(
+            step_id=2,
+            operation="INDEX RANGE SCAN", obj="TABLE_PK", cost=200,
+            severity="high",
+            suggestion="PK 인덱스 Cost=200 /*+ INDEX(alias (col)) */",
+        )
+        tp3 = _make_tuning_point(
+            step_id=3, severity="medium",
+        )
+        data = {"steps": [], "tuning_points": [tp1, tp2, tp3]}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/q.sql")
+
+        assert len(result) == 2  # medium은 제외
+        assert result[0]["severity"] == "critical"
+        assert result[1]["severity"] == "high"
+
+    def test_duplicate_object_dedup(self):
+        """같은 object의 중복 이슈는 첫 번째만 유지한다."""
+        tp1 = _make_tuning_point(
+            step_id=1, operation="MERGE JOIN CARTESIAN", obj="",
+            severity="critical", suggestion="Cartesian Join",
+        )
+        tp2 = _make_tuning_point(
+            step_id=2, operation="MERGE JOIN CARTESIAN", obj="",
+            severity="critical", suggestion="Cartesian Join",
+        )
+        data = {"steps": [], "tuning_points": [tp1, tp2]}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/q.sql")
+
+        assert len(result) == 1  # 중복 제거
+
+    def test_issue_has_correct_file_path(self):
+        """생성된 이슈의 location.file이 올바르다."""
+        tp = _make_tuning_point(
+            operation="MERGE JOIN CARTESIAN", severity="critical",
+            suggestion="Cartesian Join",
+        )
+        data = {"steps": [], "tuning_points": [tp]}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/query.sql")
+
+        assert result[0]["location"]["file"] == "/app/query.sql"
+
+    def test_pk_index_without_hint_in_suggestion(self):
+        """suggestion에 /*+ 힌트가 없으면 기본 텍스트를 사용한다."""
+        tp = _make_tuning_point(
+            operation="INDEX RANGE SCAN",
+            obj="MY_TABLE_PK",
+            cost=150,
+            severity="high",
+            suggestion="PK 인덱스 사용이지만 Cost=150으로 높음",
+        )
+        data = {"steps": [], "tuning_points": [tp]}
+        result = SQLAnalyzerAgent._generate_static_issues(data, "/app/q.sql")
+
+        assert len(result) == 1
+        assert "조인 컬럼 기반 인덱스 힌트" in result[0]["fix"]["after"]
+
+
+class TestMergeIssues:
+    """_merge_issues() 테스트."""
+
+    def test_empty_static_returns_llm_only(self):
+        """정적 이슈가 없으면 LLM 이슈만 반환."""
+        llm = [_make_issue(issue_id="SQL-001")]
+        result = SQLAnalyzerAgent._merge_issues(llm, [])
+        assert len(result) == 1
+        assert result[0]["issue_id"] == "SQL-001"
+
+    def test_empty_llm_returns_static_only(self):
+        """LLM 이슈가 없으면 정적 이슈만 반환."""
+        static = [{
+            "issue_id": "SQL-S001",
+            "category": "performance",
+            "severity": "critical",
+            "title": "CARTESIAN",
+            "description": "...",
+            "location": {"file": "/app/q.sql", "line_start": 0, "line_end": 0},
+            "fix": {"before": "MERGE JOIN CARTESIAN", "after": "JOIN 추가", "description": "..."},
+            "source": "static_analysis",
+        }]
+        result = SQLAnalyzerAgent._merge_issues([], static)
+
+        assert len(result) == 1
+        assert result[0]["issue_id"] == "SQL-001"  # 재번호
+        assert result[0]["source"] == "static_analysis"
+
+    def test_duplicate_object_llm_wins(self):
+        """같은 object가 LLM과 정적에 모두 있으면 LLM 이슈만 유지."""
+        llm = [_make_issue(
+            issue_id="SQL-001",
+            title="ZORD_WIRE_SVC_DC 인덱스 문제",
+        )]
+        static = [{
+            "issue_id": "SQL-S001",
+            "category": "performance",
+            "severity": "high",
+            "title": "PK 인덱스 비효율",
+            "description": "...",
+            "location": {"file": "/app/q.sql", "line_start": 0, "line_end": 0},
+            "fix": {
+                "before": "INDEX RANGE SCAN (ZORD_WIRE_SVC_DC_PK)",
+                "after": "/*+ INDEX(c (svc_mgmt_num)) */",
+                "description": "...",
+            },
+            "source": "static_analysis",
+        }]
+
+        # LLM 이슈에 ZORD_WIRE_SVC_DC가 포함되므로 정적 이슈는 중복으로 제거
+        result = SQLAnalyzerAgent._merge_issues(llm, static)
+        assert len(result) == 1
+        assert result[0]["source"] == "hybrid"  # LLM 이슈
+
+    def test_non_duplicate_static_added(self):
+        """LLM이 놓친 정적 이슈는 추가된다."""
+        llm = [_make_issue(issue_id="SQL-001", title="NVL 함수 인덱스 억제")]
+        static = [{
+            "issue_id": "SQL-S001",
+            "category": "performance",
+            "severity": "critical",
+            "title": "MERGE JOIN CARTESIAN",
+            "description": "...",
+            "location": {"file": "/app/q.sql", "line_start": 0, "line_end": 0},
+            "fix": {
+                "before": "MERGE JOIN CARTESIAN",
+                "after": "JOIN 조건 추가",
+                "description": "...",
+            },
+            "source": "static_analysis",
+        }]
+
+        result = SQLAnalyzerAgent._merge_issues(llm, static)
+        assert len(result) == 2
+        # LLM 이슈가 먼저
+        assert result[0]["title"] == "NVL 함수 인덱스 억제"
+        # 정적 이슈가 추가됨
+        assert result[1]["source"] == "static_analysis"
+
+    def test_issue_id_renumbered(self):
+        """병합 후 issue_id가 SQL-001부터 순차 재번호된다."""
+        llm = [
+            _make_issue(issue_id="SQL-001"),
+            _make_issue(issue_id="SQL-002", title="서브쿼리 문제"),
+        ]
+        static = [{
+            "issue_id": "SQL-S001",
+            "category": "performance",
+            "severity": "critical",
+            "title": "CARTESIAN",
+            "description": "...",
+            "location": {"file": "/app/q.sql", "line_start": 0, "line_end": 0},
+            "fix": {"before": "MERGE JOIN CARTESIAN", "after": "...", "description": "..."},
+            "source": "static_analysis",
+        }]
+
+        result = SQLAnalyzerAgent._merge_issues(llm, static)
+        ids = [r["issue_id"] for r in result]
+        assert ids == ["SQL-001", "SQL-002", "SQL-003"]
+
+    def test_both_empty(self):
+        """양쪽 모두 비어있으면 빈 리스트."""
+        result = SQLAnalyzerAgent._merge_issues([], [])
+        assert result == []
+
+    def test_pk_index_not_in_llm_gets_added(self):
+        """LLM이 PK 인덱스 이슈를 놓치면 정적 이슈가 추가된다.
+
+        이슈 #004의 핵심 시나리오: CLI 실행 시 LLM이 인덱스 힌트를 누락해도
+        정적 이슈가 보충하여 항상 포함되도록 보장한다.
+        """
+        # LLM이 NVL, LIKE 이슈만 잡고 PK 인덱스 이슈는 놓침
+        llm = [
+            _make_issue(issue_id="SQL-001", title="NVL 함수 인덱스 억제"),
+            _make_issue(issue_id="SQL-002", title="LIKE 선행 와일드카드"),
+        ]
+        # 정적 분석에서 PK 인덱스 이슈 탐지
+        static = [{
+            "issue_id": "SQL-S001",
+            "category": "performance",
+            "severity": "high",
+            "title": "PK 인덱스 비효율 — ZORD_WIRE_SVC_DC_PK",
+            "description": "Cost=148으로 높음",
+            "location": {"file": "/app/q.sql", "line_start": 0, "line_end": 0},
+            "fix": {
+                "before": "INDEX RANGE SCAN (ZORD_WIRE_SVC_DC_PK)",
+                "after": "/*+ INDEX(alias (svc_mgmt_num)) */",
+                "description": "조인 컬럼 기반 인덱스 힌트",
+            },
+            "source": "static_analysis",
+        }]
+
+        result = SQLAnalyzerAgent._merge_issues(llm, static)
+
+        # PK 인덱스 이슈가 추가됨 (LLM 이슈에 ZORD_WIRE_SVC_DC 언급 없으므로)
+        assert len(result) == 3
+        pk_issues = [r for r in result if "ZORD_WIRE_SVC_DC_PK" in r.get("fix", {}).get("before", "")]
+        assert len(pk_issues) == 1
+        assert pk_issues[0]["source"] == "static_analysis"
+
+
+class TestRunWithStaticIssues:
+    """run() 메서드에서 정적 이슈가 올바르게 병합되는지 테스트."""
+
+    @pytest.fixture
+    def explain_plan_with_cartesian(self, tmp_path):
+        """CARTESIAN이 포함된 Explain Plan 파일."""
+        f = tmp_path / "explain.txt"
+        f.write_text(
+            "---------------------------------------------------------------------------\n"
+            "| Id  | Operation                | Name   | Rows  | Bytes | Cost (%CPU)| Time     |\n"
+            "---------------------------------------------------------------------------\n"
+            "|   0 | SELECT STATEMENT         |        |     1 |    50 |    10  (1) | 00:00:01 |\n"
+            "|   1 |  MERGE JOIN CARTESIAN    |        |     1 |    50 |    10  (1) | 00:00:01 |\n"
+            "---------------------------------------------------------------------------\n"
+        )
+        return str(f)
+
+    @pytest.mark.asyncio
+    async def test_static_issues_merged_when_llm_misses(
+        self, agent, sql_file, explain_plan_with_cartesian,
+    ):
+        """LLM이 이슈를 놓쳐도 정적 이슈가 보충된다."""
+        # LLM은 빈 이슈 반환 (놓침)
+        agent._llm_client.chat.return_value = _make_llm_response([])
+
+        result = await agent.run(
+            task_id="task_1",
+            file=sql_file,
+            language="sql",
+            explain_plan_file=explain_plan_with_cartesian,
+        )
+
+        # 정적 이슈가 추가됨
+        assert len(result["issues"]) >= 1
+        has_cartesian = any(
+            "CARTESIAN" in (i.get("title", "") + i.get("description", ""))
+            for i in result["issues"]
+        )
+        assert has_cartesian
+
+    @pytest.mark.asyncio
+    async def test_no_explain_plan_no_static_issues(self, agent, sql_file):
+        """Explain Plan이 없으면 정적 이슈 없이 LLM 이슈만."""
+        llm_issue = _make_issue(file=sql_file)
+        agent._llm_client.chat.return_value = _make_llm_response([llm_issue])
+
+        result = await agent.run(
+            task_id="task_1", file=sql_file, language="sql",
+        )
+
+        assert len(result["issues"]) == 1
+        assert result["issues"][0]["source"] == "hybrid"

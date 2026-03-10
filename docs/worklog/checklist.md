@@ -139,7 +139,7 @@
 - [ ] T24: Explain Plan 튜닝 포인트 → 정적 이슈 자동 생성 (이슈 #004)
   - [x] T24.1: 튜닝 포인트 → 정적 이슈 변환 메서드 (_generate_static_issues)
   - [x] T24.2: LLM + 정적 이슈 병합 로직 (_merge_issues)
-  - [ ] T24.3: 단위 테스트
+  - [x] T24.3: 단위 테스트
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [ ] T15.2: E2E 테스트
