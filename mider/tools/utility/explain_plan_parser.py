@@ -33,6 +33,9 @@ _INEFFICIENT_OPERATIONS: dict[str, str] = {
 _HIGH_COST_THRESHOLD = 1000
 _HIGH_ROWS_THRESHOLD = 100000
 
+# PK 인덱스 고비용 Range Scan 임계값
+_PK_INDEX_HIGH_COST = 100
+
 # 텍스트 덤프 형식의 Operation 키워드 프리픽스
 _OPERATION_PREFIXES = (
     "SELECT STATEMENT",
@@ -469,6 +472,40 @@ class ExplainPlanParser(BaseTool):
                         "suggestion": f"Cost가 {cost}으로 높음 — 쿼리 최적화 필요",
                     })
 
+            # PK 인덱스 고비용 Range Scan 탐지
+            # PK 인덱스를 사용하지만 Cost가 높으면 더 적절한 인덱스가 필요할 수 있음
+            if (
+                "INDEX" in upper_op
+                and "RANGE SCAN" in upper_op
+                and isinstance(cost, int)
+                and cost >= _PK_INDEX_HIGH_COST
+                and isinstance(object_name, str)
+                and "_PK" in object_name.upper()
+            ):
+                already_reported = any(
+                    tp.get("step_id") == step.get("id")
+                    for tp in tuning_points
+                )
+                if not already_reported:
+                    # predicate에서 조인 컬럼 추출
+                    predicates = step.get("predicates", [])
+                    join_cols = _extract_join_columns(predicates)
+                    col_hint = f" ({', '.join(join_cols)})" if join_cols else ""
+
+                    tuning_points.append({
+                        "step_id": step.get("id"),
+                        "operation": operation.strip(),
+                        "object": object_name,
+                        "cost": cost,
+                        "rows": rows,
+                        "severity": "high",
+                        "suggestion": (
+                            f"PK 인덱스 사용이지만 Cost={cost}으로 높음 "
+                            f"— 조인 컬럼{col_hint} 기반 인덱스 힌트 검토: "
+                            f"/*+ INDEX(alias{col_hint}) */"
+                        ),
+                    })
+
             # 대량 Rows 탐지
             if isinstance(rows, int) and rows >= _HIGH_ROWS_THRESHOLD:
                 already_reported = any(
@@ -487,6 +524,24 @@ class ExplainPlanParser(BaseTool):
                     })
 
         return tuning_points
+
+
+def _extract_join_columns(predicates: list[str]) -> list[str]:
+    """Predicate 텍스트에서 조인 컬럼명을 추출한다.
+
+    "B"."SVC_MGMT_NUM"="C"."SVC_MGMT_NUM" 형태에서
+    SVC_MGMT_NUM을 추출한다.
+    """
+    columns: list[str] = []
+    for pred in predicates:
+        # "ALIAS"."COLUMN"= 패턴에서 컬럼명 추출
+        matches = re.findall(r'"(\w+)"\."(\w+)"', pred)
+        for _alias, col in matches:
+            col_lower = col.lower()
+            # PK 컬럼이 아닌 조인 컬럼만 (일반적인 PK 접미사 제외)
+            if col_lower not in columns:
+                columns.append(col_lower)
+    return columns
 
 
 def _classify_severity(operation: str, cost: int, rows: int) -> str:

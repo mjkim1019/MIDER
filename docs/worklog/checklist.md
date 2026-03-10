@@ -131,6 +131,11 @@
   - [ ] T19.4: 파이프라인 연동 (TaskClassifier, ContextCollector, Orchestrator)
   - [ ] T19.5: CLI/배포 체크리스트 XML 지원
   - [ ] T19.6: 단위 테스트
+- [ ] T23: SQL 분석 파이프라인 검증 및 테스트 (T18 확장)
+  - [x] T23.1: 텍스트 덤프 파싱 단위 테스트
+  - [x] T23.2: SQL 대형 파일 안전장치 + 로깅
+  - [x] T23.3: 프롬프트 개선 (인덱스 힌트 유도)
+  - [x] T23.4: 전체 파이프라인 E2E 테스트
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [ ] T15.2: E2E 테스트

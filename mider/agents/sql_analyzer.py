@@ -31,6 +31,9 @@ _SQL_PATTERNS = [
     "or_condition",
 ]
 
+# LLM context window 안전 임계값 (추정 토큰 수)
+_TOKEN_WARNING_THRESHOLD = 100_000
+
 
 class SQLAnalyzerAgent(BaseAgent):
     """Phase 2: SQL 파일을 분석하는 Agent.
@@ -41,7 +44,7 @@ class SQLAnalyzerAgent(BaseAgent):
 
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-4o",
         fallback_model: str | None = "gpt-4o",
         temperature: float = 0.0,
     ) -> None:
@@ -83,6 +86,19 @@ class SQLAnalyzerAgent(BaseAgent):
             # Step 1: 파일 읽기
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
+            line_count = read_result.data.get("line_count", 0)
+            file_size = read_result.data.get("file_size", 0)
+            token_estimate = len(file_content) // 4
+
+            logger.info(
+                f"SQL 파일 크기: {file} → {line_count}줄, "
+                f"{file_size:,}bytes, ~{token_estimate:,}토큰"
+            )
+            if token_estimate > _TOKEN_WARNING_THRESHOLD:
+                logger.warning(
+                    f"SQL 파일이 매우 큼: ~{token_estimate:,}토큰 "
+                    f"(LLM context 초과 가능성)"
+                )
 
             # Step 2: SQL 문법 검증
             syntax_result = self._check_syntax(file)
@@ -266,29 +282,84 @@ class SQLAnalyzerAgent(BaseAgent):
     def _format_explain_plan(
         explain_plan_data: dict[str, Any] | None,
     ) -> str:
-        """Explain Plan 데이터를 LLM 프롬프트용 텍스트로 변환한다."""
+        """Explain Plan 데이터를 LLM 프롬프트용 텍스트로 변환한다.
+
+        대형 Explain Plan(step 100개 이상)은 고비용 step만 필터링하여
+        LLM이 핵심 튜닝 포인트에 집중할 수 있도록 한다.
+        """
         if not explain_plan_data:
             return ""
 
         parts: list[str] = []
+        steps = explain_plan_data.get("steps", [])
 
-        # Compact 테이블 형식 (우선 사용)
-        formatted_table = explain_plan_data.get("formatted_table", "")
-        if formatted_table:
-            parts.append(f"[Explain Plan]\n{formatted_table}")
+        # 대형 Explain Plan: 고비용 step만 필터링 (Cost≥50 또는 TABLE ACCESS)
+        if len(steps) > 100:
+            high_cost_steps = [
+                s for s in steps
+                if (isinstance(s.get("cost"), int) and s["cost"] >= 50)
+                or "TABLE ACCESS" in s.get("operation", "").upper()
+                or "MERGE JOIN" in s.get("operation", "").upper()
+                or "CARTESIAN" in s.get("operation", "").upper()
+            ]
+            parts.append(
+                f"[Explain Plan — 전체 {len(steps)}개 step 중 "
+                f"고비용/핵심 {len(high_cost_steps)}개]"
+            )
+            parts.append("Id | Operation | Object | Cost | Rows")
+            parts.append("---|-----------|--------|------|-----")
+            for s in high_cost_steps:
+                sid = s.get("id", "")
+                op = s.get("operation", "")
+                name = s.get("name", "")
+                cost = s.get("cost", "")
+                rows = s.get("rows", "")
+                parts.append(f"{sid} | {op} | {name} | {cost} | {rows}")
+
+            # Predicate 정보 (고비용 step만)
+            high_cost_ids = {s.get("id") for s in high_cost_steps}
+            pred_lines: list[str] = []
+            for s in high_cost_steps:
+                preds = s.get("predicates", [])
+                if preds:
+                    for pred in preds:
+                        p = pred[:200] + "..." if len(pred) > 200 else pred
+                        pred_lines.append(f"  {s.get('id', '?')} - {p}")
+            if pred_lines:
+                parts.append("")
+                parts.append("Predicate Information (고비용 step):")
+                parts.extend(pred_lines)
         else:
-            # Fallback: 원본 텍스트 (대형 파일은 truncate)
-            raw_text = explain_plan_data.get("raw_text", "")
-            if raw_text:
-                if len(raw_text) > 8000:
-                    raw_text = raw_text[:8000] + "\n... (truncated)"
-                parts.append(f"[원본 Explain Plan]\n{raw_text}")
+            # 소형 Explain Plan: 전체 테이블 사용
+            formatted_table = explain_plan_data.get("formatted_table", "")
+            if formatted_table:
+                parts.append(f"[Explain Plan]\n{formatted_table}")
+            else:
+                raw_text = explain_plan_data.get("raw_text", "")
+                if raw_text:
+                    if len(raw_text) > 8000:
+                        raw_text = raw_text[:8000] + "\n... (truncated)"
+                    parts.append(f"[원본 Explain Plan]\n{raw_text}")
 
-        # 튜닝 포인트 요약
+        # 튜닝 포인트 요약 (severity 순 정렬, 상위 20개)
         tuning_points = explain_plan_data.get("tuning_points", [])
         if tuning_points:
-            parts.append("\n[자동 탐지된 튜닝 포인트]")
-            for tp in tuning_points:
+            severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+            sorted_tp = sorted(
+                tuning_points,
+                key=lambda x: (
+                    severity_rank.get(x.get("severity", "low"), 4),
+                    -(x.get("cost", 0) if isinstance(x.get("cost"), int) else 0),
+                ),
+            )
+            max_tp = 20
+            shown_tp = sorted_tp[:max_tp]
+
+            parts.append(
+                f"\n[자동 탐지된 튜닝 포인트 — "
+                f"심각도 순 상위 {len(shown_tp)}/{len(tuning_points)}개]"
+            )
+            for tp in shown_tp:
                 op = tp.get("operation", "")
                 obj = tp.get("object", "")
                 cost = tp.get("cost", "")

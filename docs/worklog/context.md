@@ -164,3 +164,8 @@
 | 2026-03-06 | MIDER_EXCLUDE_FUNCTIONS 임시 workaround 제거 | 함수별 개별 호출로 근본 해결되어 불필요 |
 | 2026-03-06 | issue_id 재번호 (C-001부터 순차) | 함수별 LLM이 각각 C-001부터 시작하므로 합산 후 재번호 필수 |
 | 2026-03-06 | 함수 경계 찾기 실패 시 warning 로그 추가 | 리뷰 반영 — silent skip 방지, 디버깅 가시성 확보 |
+| 2026-03-10 | T23 계획 수립 (T18 확장) | ExplainPlan 텍스트 덤프 파싱 검증, SQL 크기 안전장치, 프롬프트 개선, E2E 테스트 |
+| 2026-03-10 | ExplainPlanParser 텍스트 덤프 파싱 단위 테스트 55개 추가 | 기존 구현(62a0ae8)의 검증 — `_is_text_dump`, `_parse_text_dump`, `_parse_operation_detail`, `_format_as_xplan_table`, `_is_operation_line` |
+| 2026-03-10 | SQL 대형 파일 안전장치: 토큰 추정 로깅 + 100K 초과 warning | FileReader는 잘림 없으나, 향후 LLM context 초과 방어 |
+| 2026-03-10 | 프롬프트 개선: Explain Plan → 인덱스 힌트 유도 지시 추가 | LLM이 TABLE ACCESS FULL 탐지 시 `/*+ INDEX(alias (column)) */` 같은 구체적 힌트 제안하도록 |
+| 2026-03-10 | E2E 테스트 성공: gpt-4o-mini가 4개 이슈 탐지, `/*+ INDEX(b (svc_prod_grp_id)) */` 구체적 힌트 제안 | 프롬프트 개선 효과 확인 — 이전에는 인덱스 힌트 미생성 |
