@@ -179,3 +179,11 @@
 - **이슈 생성 위치**: SQLAnalyzerAgent (Tool이 아닌 Agent에서 이슈 형식 생성)
 - **병합 규칙**: 같은 object 이름이 LLM 이슈에도 있으면 LLM 우선 (더 상세), 없으면 정적 이슈 추가
 - **대상 튜닝 포인트**: CRITICAL (CARTESIAN), HIGH (PK 인덱스 고비용, TABLE ACCESS FULL 고비용)
+- **인덱스 접미사 매칭**: `_PK`, `_N1`, `_U1` 등 접미사를 제거하여 베이스 테이블명으로도 중복 판정 (리뷰 중 발견)
+
+| 2026-03-10 | `_generate_static_issues()` + `_merge_issues()` 구현 | LLM 비결정성 근본 해결 — 정적 이슈가 LLM 누락을 보충 |
+| 2026-03-10 | 인덱스 접미사 제거 매칭: `ZORD_WIRE_SVC_DC_PK` → `ZORD_WIRE_SVC_DC` | `_PK` 접미사가 있으면 LLM 텍스트의 테이블명과 매칭 실패 — 테스트 실패로 발견 |
+| 2026-03-10 | `/*+` 힌트 추출 시 `*/` 존재 여부 확인 추가 | 리뷰 H2: `*/` 없는 비정상 suggestion 시 ValueError crash 방지 |
+| 2026-03-10 | `high_cost_ids` dead code 제거 | 리뷰 H1: 미사용 변수 정리 |
+| 2026-03-10 | `fallback_model=None` (기본 모델과 동일하면 불필요) | 리뷰 H3: gpt-4o → gpt-4o fallback은 실질적 효과 없음 |
+| 2026-03-10 | `__main__.py`에 `if __name__ == "__main__":` 가드 추가 | 리뷰 M3: import 시 의도치 않은 CLI 실행 방지 |

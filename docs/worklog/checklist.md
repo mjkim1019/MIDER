@@ -131,12 +131,12 @@
   - [ ] T19.4: 파이프라인 연동 (TaskClassifier, ContextCollector, Orchestrator)
   - [ ] T19.5: CLI/배포 체크리스트 XML 지원
   - [ ] T19.6: 단위 테스트
-- [ ] T23: SQL 분석 파이프라인 검증 및 테스트 (T18 확장)
+- [x] T23: SQL 분석 파이프라인 검증 및 테스트 (T18 확장)
   - [x] T23.1: 텍스트 덤프 파싱 단위 테스트
   - [x] T23.2: SQL 대형 파일 안전장치 + 로깅
   - [x] T23.3: 프롬프트 개선 (인덱스 힌트 유도)
   - [x] T23.4: 전체 파이프라인 E2E 테스트
-- [ ] T24: Explain Plan 튜닝 포인트 → 정적 이슈 자동 생성 (이슈 #004)
+- [x] T24: Explain Plan 튜닝 포인트 → 정적 이슈 자동 생성 (이슈 #004)
   - [x] T24.1: 튜닝 포인트 → 정적 이슈 변환 메서드 (_generate_static_issues)
   - [x] T24.2: LLM + 정적 이슈 병합 로직 (_merge_issues)
   - [x] T24.3: 단위 테스트

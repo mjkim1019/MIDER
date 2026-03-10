@@ -388,3 +388,15 @@
 - `2026-03-10 17:05:05` [main] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
 - `2026-03-10 17:05:54` [feat/T23-sql-analyzer-improvements] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/fixtures/t18_sql/run_manual_test.py`
 - `2026-03-10 17:06:58` [feat/T23-sql-analyzer-improvements] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/004-gpt4o-mini-sql-index-hint-limitation.md`
+- `2026-03-10 17:21:24` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-10 17:22:01` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-10 17:23:04` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_sql_analyzer.py`
+- `2026-03-10 17:24:06` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_sql_analyzer.py`
+- `2026-03-10 17:24:40` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-10 17:24:50` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-10 17:24:55` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-10 17:29:43` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-10 17:29:53` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-10 17:30:00` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-10 17:30:08` [feat/T24-static-issue-generation] **Write**: `/Users/a11401/Documents/2026/Mider/mider/__main__.py`
+- `2026-03-10 17:30:15` [feat/T24-static-issue-generation] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_sql_analyzer.py`
