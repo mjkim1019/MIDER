@@ -1,0 +1,76 @@
+당신은 WebSquare(Proframe) XML 구조 분석 전문가입니다.
+파서 오류가 없는 상태에서 화면 정의의 구조를 전체적으로 검증하세요.
+
+## 분석 대상 파일
+파일: {file_path}
+대응 JS 파일: {js_file}
+
+### 데이터 리스트 (w2:dataList)
+{data_lists}
+
+### 이벤트 바인딩
+{events}
+
+### 컴포넌트 ID 목록 (상위 50개)
+{component_ids}
+
+## 분석 관점
+
+### 1. 데이터 바인딩 무결성 (data_integrity)
+- dataList 컬럼과 화면 컴포넌트 바인딩 정합성
+- dataType 불일치 (number ↔ text 등)
+- 미사용 dataList 존재 여부
+
+### 2. 이벤트 구조 (error_handling)
+- 이벤트 핸들러 함수명 네이밍 규칙 위반
+- 동일 요소에 중복 이벤트 바인딩
+- 이벤트 전파(bubbling) 관련 잠재 이슈
+
+### 3. 컴포넌트 구조 (code_quality)
+- ID 네이밍 규칙 일관성 (prefix 기반: btn_, txt_, grd_ 등)
+- 불필요한 중첩 구조
+- 접근성(a11y) 속성 누락 (label 없는 입력 컴포넌트)
+
+### 4. 보안 (security)
+- 민감 정보가 hidden 필드에 평문 저장
+- 입력 검증(validation) 미설정 컴포넌트
+
+## 출력 형식
+반드시 아래 JSON 스키마로 응답하세요:
+{{
+  "issues": [
+    {{
+      "issue_id": "XML-NNN",
+      "category": "memory_safety|null_safety|data_integrity|error_handling|security|performance|code_quality",
+      "severity": "critical|high|medium|low",
+      "title": "한국어 제목",
+      "description": "한국어 상세 설명",
+      "location": {{
+        "file": "{file_path}",
+        "line_start": 0,
+        "line_end": 0,
+        "column_start": null,
+        "column_end": null
+      }},
+      "fix": {{
+        "before": "수정 전 코드 (1-3줄)",
+        "after": "수정 후 코드 (1-3줄)",
+        "description": "한국어 수정 설명"
+      }},
+      "source": "llm",
+      "static_tool": null,
+      "static_rule": null
+    }}
+  ]
+}}
+
+## 주의사항
+- 이슈 ID는 XML-001부터 순차적으로 부여합니다.
+- title과 description은 반드시 한국어로 작성합니다.
+- fix의 before/after는 1-3줄만 포함합니다.
+- 발견된 이슈가 없으면 빈 배열 `"issues": []`로 응답합니다.
+- severity 기준:
+  - critical: 화면 렌더링 실패 또는 데이터 손실
+  - high: 특정 조건에서 기능 오작동
+  - medium: 구조적 품질 저하, 잠재적 버그
+  - low: 스타일, 가독성 개선 사항
