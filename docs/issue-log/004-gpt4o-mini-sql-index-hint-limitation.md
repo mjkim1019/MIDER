@@ -53,14 +53,22 @@ gpt-4o-mini로는 이 수준의 추론이 불가.
 
 ### 모델 변경
 - **SQL Analyzer 기본 모델**: `gpt-4o-mini` → `gpt-4o`
-- gpt-4o는 5개 이슈 탐지, `svc_mgmt_num` 인덱스 힌트 제안 성공
+- gpt-4o는 6개 이슈 탐지, `(chld_svc_mgmt_num, svc_mgmt_num)` 인덱스 힌트 제안 성공
 
 ## 검증 결과
 
-| 모델 | 이슈 수 | WIRE_SVC_DC 인덱스 힌트 | CARTESIAN 탐지 | 시간 |
-|------|---------|------------------------|---------------|------|
-| gpt-4o-mini | 4개 | ❌ | ❌ | ~14초 |
-| gpt-4o | 5개 | ✅ `(svc_mgmt_num)` | ✅ CRITICAL | ~22초 |
+| 모델 | 이슈 수 | WIRE_SVC_DC 인덱스 힌트 | CARTESIAN 탐지 | NVL 인덱스 억제 | 시간 |
+|------|---------|------------------------|---------------|----------------|------|
+| gpt-4o-mini | 4개 | ❌ | ❌ | ❌ | ~14초 |
+| gpt-4o | 6개 | ✅ `(chld_svc_mgmt_num, svc_mgmt_num)` | ✅ CRITICAL | ✅ HIGH | ~26초 |
+
+### gpt-4o 탐지 이슈 목록
+1. **[CRITICAL] SQL-001**: MERGE JOIN CARTESIAN으로 인한 성능 저하
+2. **[HIGH] SQL-002**: INDEX RANGE SCAN의 높은 Cost → `/*+ INDEX(alias (chld_svc_mgmt_num, svc_mgmt_num)) */`
+3. **[HIGH] SQL-003**: WHERE 절에서 NVL 함수 사용으로 인덱스 억제
+4. **[MEDIUM] SQL-004**: LIKE 절에서 선행 와일드카드 사용으로 인덱스 억제
+5. **[MEDIUM] SQL-005**: 서브쿼리로 인한 성능 저하
+6. **[MEDIUM] SQL-006**: OR 조건으로 인한 인덱스 미사용
 
 ## 관련 파일
 - `mider/tools/utility/explain_plan_parser.py`: PK 인덱스 고비용 탐지, `_extract_join_columns()`
