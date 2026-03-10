@@ -126,12 +126,18 @@ class SQLAnalyzerAgent(BaseAgent):
             if not isinstance(llm_result, dict):
                 raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
 
-            issues = llm_result.get("issues", [])
+            llm_issues = llm_result.get("issues", [])
 
             # LLM 응답의 source 필드 정규화
-            for issue in issues:
+            for issue in llm_issues:
                 if issue.get("source") not in _VALID_SOURCES:
                     issue["source"] = "llm"
+
+            # Step 5.5: Explain Plan 정적 이슈 생성 + LLM 이슈 병합
+            static_issues = self._generate_static_issues(
+                explain_plan_data, file,
+            )
+            issues = self._merge_issues(llm_issues, static_issues)
 
             # Step 6: AnalysisResult 생성
             elapsed = time.time() - start_time
@@ -277,6 +283,186 @@ class SQLAnalyzerAgent(BaseAgent):
         ]
 
         return prompt, messages
+
+    @staticmethod
+    def _generate_static_issues(
+        explain_plan_data: dict[str, Any] | None,
+        file: str,
+    ) -> list[dict[str, Any]]:
+        """HIGH/CRITICAL 튜닝 포인트를 정적 이슈로 변환한다.
+
+        LLM 비결정성과 무관하게 핵심 튜닝 포인트가 항상 이슈로 보고되도록 한다.
+        """
+        if not explain_plan_data:
+            return []
+
+        tuning_points = explain_plan_data.get("tuning_points", [])
+        if not tuning_points:
+            return []
+
+        issues: list[dict[str, Any]] = []
+        idx = 1
+
+        for tp in tuning_points:
+            severity = tp.get("severity", "")
+            if severity not in ("critical", "high"):
+                continue
+
+            operation = tp.get("operation", "")
+            obj = tp.get("object", "")
+            cost = tp.get("cost", "")
+            suggestion = tp.get("suggestion", "")
+            upper_op = operation.upper()
+
+            # CARTESIAN JOIN → critical
+            if "CARTESIAN" in upper_op:
+                issues.append({
+                    "issue_id": f"SQL-S{idx:03d}",
+                    "category": "performance",
+                    "severity": "critical",
+                    "title": "MERGE JOIN CARTESIAN 발생 — JOIN 조건 누락 가능",
+                    "description": (
+                        f"Explain Plan에서 {operation}"
+                        f"{f' ({obj})' if obj else ''}"
+                        f"{f' Cost={cost}' if cost else ''}이 탐지되었습니다. "
+                        f"JOIN 조건이 누락되었거나 불필요한 Cartesian Product가 "
+                        f"발생하여 대량 데이터에서 심각한 성능 저하를 유발합니다."
+                    ),
+                    "location": {
+                        "file": file,
+                        "line_start": 0,
+                        "line_end": 0,
+                    },
+                    "fix": {
+                        "before": operation,
+                        "after": "JOIN 조건을 추가하여 Cartesian Product를 방지",
+                        "description": "JOIN 조건을 명확히 추가하여 Cartesian Product를 방지합니다.",
+                    },
+                    "source": "static_analysis",
+                })
+                idx += 1
+
+            # PK 인덱스 고비용 RANGE SCAN → high
+            elif "INDEX" in upper_op and "RANGE SCAN" in upper_op and "_PK" in (obj or "").upper():
+                # suggestion에서 컬럼 힌트 추출
+                hint = ""
+                if "/*+" in suggestion:
+                    hint_start = suggestion.index("/*+")
+                    hint_end = suggestion.index("*/", hint_start) + 2
+                    hint = suggestion[hint_start:hint_end]
+
+                issues.append({
+                    "issue_id": f"SQL-S{idx:03d}",
+                    "category": "performance",
+                    "severity": "high",
+                    "title": f"PK 인덱스 비효율 — {obj} Cost={cost}",
+                    "description": (
+                        f"Explain Plan에서 {obj} PK 인덱스가 INDEX RANGE SCAN에 "
+                        f"사용되지만 Cost={cost}으로 높습니다. "
+                        f"조인 컬럼이 PK 선두 컬럼이 아니라 비효율적입니다. "
+                        f"{suggestion}"
+                    ),
+                    "location": {
+                        "file": file,
+                        "line_start": 0,
+                        "line_end": 0,
+                    },
+                    "fix": {
+                        "before": f"INDEX RANGE SCAN ({obj})",
+                        "after": hint or f"조인 컬럼 기반 인덱스 힌트 추가 필요",
+                        "description": suggestion,
+                    },
+                    "source": "static_analysis",
+                })
+                idx += 1
+
+            # TABLE ACCESS FULL + 높은 Cost → high
+            elif "TABLE ACCESS FULL" in upper_op:
+                issues.append({
+                    "issue_id": f"SQL-S{idx:03d}",
+                    "category": "performance",
+                    "severity": "high",
+                    "title": f"Full Table Scan — {obj}"
+                            f"{f' Cost={cost}' if cost else ''}",
+                    "description": (
+                        f"Explain Plan에서 {obj} 테이블에 대해 TABLE ACCESS FULL이 "
+                        f"발생합니다. WHERE 조건 컬럼에 인덱스가 없거나 "
+                        f"인덱스 억제 패턴이 사용되고 있습니다. {suggestion}"
+                    ),
+                    "location": {
+                        "file": file,
+                        "line_start": 0,
+                        "line_end": 0,
+                    },
+                    "fix": {
+                        "before": f"TABLE ACCESS FULL ({obj})",
+                        "after": f"/*+ INDEX({obj.lower()} (조건_컬럼)) */",
+                        "description": "WHERE 조건 컬럼 기반 인덱스 힌트를 추가합니다.",
+                    },
+                    "source": "static_analysis",
+                })
+                idx += 1
+
+        # 같은 object에 대한 중복 제거 (첫 번째만 유지)
+        seen_objects: set[str] = set()
+        unique_issues: list[dict[str, Any]] = []
+        for issue in issues:
+            obj_key = issue.get("fix", {}).get("before", "")
+            if obj_key in seen_objects:
+                continue
+            seen_objects.add(obj_key)
+            unique_issues.append(issue)
+
+        return unique_issues
+
+    @staticmethod
+    def _merge_issues(
+        llm_issues: list[dict[str, Any]],
+        static_issues: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """LLM 이슈와 정적 이슈를 병합한다.
+
+        같은 object에 대한 이슈가 양쪽에 있으면 LLM 이슈를 우선한다.
+        LLM이 놓친 정적 이슈만 추가하여 탐지 누락을 방지한다.
+        """
+        if not static_issues:
+            return llm_issues
+
+        if not llm_issues:
+            merged = static_issues
+        else:
+            # LLM 이슈의 텍스트에서 object 이름 추출
+            llm_text = " ".join(
+                json.dumps(issue, ensure_ascii=False).lower()
+                for issue in llm_issues
+            )
+
+            merged = list(llm_issues)
+            for static_issue in static_issues:
+                # 정적 이슈의 object 이름이 LLM 이슈에 포함되는지 확인
+                obj = static_issue.get("fix", {}).get("before", "")
+                # object 이름에서 핵심 키워드 추출 (테이블명, 인덱스명)
+                obj_keywords = [
+                    w for w in obj.replace("(", " ").replace(")", " ").split()
+                    if len(w) > 3 and w.upper() not in (
+                        "INDEX", "RANGE", "SCAN", "TABLE", "ACCESS", "FULL",
+                        "MERGE", "JOIN", "CARTESIAN",
+                    )
+                ]
+
+                # 키워드 중 하나라도 LLM 이슈에 있으면 중복으로 판단
+                is_duplicate = any(
+                    kw.lower() in llm_text for kw in obj_keywords
+                )
+
+                if not is_duplicate:
+                    merged.append(static_issue)
+
+        # issue_id 재번호 (SQL-001부터 순차)
+        for i, issue in enumerate(merged, 1):
+            issue["issue_id"] = f"SQL-{i:03d}"
+
+        return merged
 
     @staticmethod
     def _format_explain_plan(
