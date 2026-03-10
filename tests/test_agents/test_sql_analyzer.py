@@ -333,10 +333,10 @@ class TestAgentInit:
     """Agent 초기화 테스트."""
 
     def test_default_model(self):
-        """기본 모델은 gpt-4o, fallback gpt-4o."""
+        """기본 모델은 gpt-4o, fallback 없음."""
         agent = SQLAnalyzerAgent()
         assert agent.model == "gpt-4o"
-        assert agent.fallback_model == "gpt-4o"
+        assert agent.fallback_model is None
 
     def test_has_syntax_checker(self):
         """SQLSyntaxChecker가 초기화된다."""

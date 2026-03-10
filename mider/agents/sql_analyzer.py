@@ -46,7 +46,7 @@ class SQLAnalyzerAgent(BaseAgent):
     def __init__(
         self,
         model: str = "gpt-4o",
-        fallback_model: str | None = "gpt-4o",
+        fallback_model: str | None = None,
         temperature: float = 0.0,
     ) -> None:
         super().__init__(
@@ -347,7 +347,7 @@ class SQLAnalyzerAgent(BaseAgent):
             elif "INDEX" in upper_op and "RANGE SCAN" in upper_op and "_PK" in (obj or "").upper():
                 # suggestion에서 컬럼 힌트 추출
                 hint = ""
-                if "/*+" in suggestion:
+                if "/*+" in suggestion and "*/" in suggestion:
                     hint_start = suggestion.index("/*+")
                     hint_end = suggestion.index("*/", hint_start) + 2
                     hint = suggestion[hint_start:hint_end]
@@ -512,7 +512,6 @@ class SQLAnalyzerAgent(BaseAgent):
                 parts.append(f"{sid} | {op} | {name} | {cost} | {rows}")
 
             # Predicate 정보 (고비용 step만)
-            high_cost_ids = {s.get("id") for s in high_cost_steps}
             pred_lines: list[str] = []
             for s in high_cost_steps:
                 preds = s.get("predicates", [])
