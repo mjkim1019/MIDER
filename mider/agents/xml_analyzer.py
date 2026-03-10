@@ -6,6 +6,7 @@ WebSquare XML 파일의 구조 이슈를 탐지한다.
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -139,7 +140,7 @@ class XMLAnalyzerAgent(BaseAgent):
         """
         events = parse_data.get("events", [])
         if not events:
-            return {"js_file": None, "js_content": None, "missing_handlers": []}
+            return {"js_file": None, "missing_handlers": []}
 
         # 대응 JS 파일 탐색
         xml_path = Path(xml_file)
@@ -162,13 +163,13 @@ class XMLAnalyzerAgent(BaseAgent):
 
         if js_content is None:
             logger.debug(f"대응 JS 파일 없음: {xml_file}")
-            return {"js_file": None, "js_content": None, "missing_handlers": []}
+            return {"js_file": None, "missing_handlers": []}
 
-        # 핸들러 함수 존재 여부 검증
+        # 핸들러 함수 존재 여부 검증 (단어 경계 매칭)
         missing_handlers: list[dict[str, str]] = []
         for event in events:
             for func_name in event.get("handler_functions", []):
-                if func_name not in js_content:
+                if not re.search(rf"\b{re.escape(func_name)}\b", js_content):
                     missing_handlers.append({
                         "function_name": func_name,
                         "element_id": event.get("element_id", ""),
@@ -177,7 +178,6 @@ class XMLAnalyzerAgent(BaseAgent):
 
         return {
             "js_file": js_file,
-            "js_content": js_content,
             "missing_handlers": missing_handlers,
         }
 

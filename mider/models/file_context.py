@@ -38,6 +38,7 @@ class PatternInfo(BaseModel):
         "logging",
         "transaction",
         "memory_management",
+        "event_binding",
     ] = Field(description="패턴 유형")
     description: str = Field(description="패턴 설명")
     line: int = Field(description="패턴 위치 (라인 번호)")

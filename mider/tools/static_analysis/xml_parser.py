@@ -14,13 +14,6 @@ from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 
 logger = logging.getLogger(__name__)
 
-# WebSquare 네임스페이스 약어
-_NS = {
-    "w2": "http://www.inswave.com/websquare",
-    "ev": "http://www.w3.org/2001/xml-events",
-    "xf": "http://www.w3.org/2002/xforms",
-}
-
 # 이벤트 속성 패턴 (ev:onclick, ev:onchange 등)
 _EVENT_ATTR_RE = re.compile(r"\{.*\}on\w+$|^ev:on\w+$|^on\w+$")
 
@@ -58,6 +51,20 @@ class XMLParser(BaseTool):
         parse_errors: list[str] = []
 
         try:
+            # XXE/Billion Laughs 방어: DOCTYPE 선언이 있으면 거부
+            if "<!DOCTYPE" in content or "<!ENTITY" in content:
+                parse_errors.append("보안: DOCTYPE/ENTITY 선언이 포함된 XML은 파싱 거부")
+                return ToolResult(
+                    success=False,
+                    data={
+                        "data_lists": [],
+                        "events": [],
+                        "component_ids": [],
+                        "duplicate_ids": [],
+                        "parse_errors": parse_errors,
+                    },
+                    error="보안: DOCTYPE/ENTITY 선언 포함",
+                )
             root = ET.fromstring(content)
         except ET.ParseError as e:
             parse_errors.append(f"XML 파싱 오류: {e}")

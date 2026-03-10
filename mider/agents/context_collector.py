@@ -576,7 +576,7 @@ class ContextCollectorAgent(BaseAgent):
 
         if event_count > 0:
             patterns.append({
-                "pattern_type": "error_handling",
+                "pattern_type": "event_binding",
                 "description": f"이벤트 바인딩 {event_count}개 (핸들러 검증 필요)",
                 "line": 0,
             })
