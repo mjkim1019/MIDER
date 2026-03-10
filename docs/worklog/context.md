@@ -169,3 +169,13 @@
 | 2026-03-10 | SQL 대형 파일 안전장치: 토큰 추정 로깅 + 100K 초과 warning | FileReader는 잘림 없으나, 향후 LLM context 초과 방어 |
 | 2026-03-10 | 프롬프트 개선: Explain Plan → 인덱스 힌트 유도 지시 추가 | LLM이 TABLE ACCESS FULL 탐지 시 `/*+ INDEX(alias (column)) */` 같은 구체적 힌트 제안하도록 |
 | 2026-03-10 | E2E 테스트 성공: gpt-4o-mini가 4개 이슈 탐지, `/*+ INDEX(b (svc_prod_grp_id)) */` 구체적 힌트 제안 | 프롬프트 개선 효과 확인 — 이전에는 인덱스 힌트 미생성 |
+| 2026-03-10 | SQL Analyzer 기본 모델 gpt-4o-mini → gpt-4o 변경 | gpt-4o-mini는 PK 인덱스 비효율 패턴을 DBA 수준으로 추론 불가 (이슈 #004) |
+| 2026-03-10 | gpt-4o E2E 테스트: 6개 이슈, 인덱스 힌트 포함 확인 | gpt-4o가 `(chld_svc_mgmt_num, svc_mgmt_num)` 힌트 제안 성공 |
+| 2026-03-10 | CLI 테스트에서 인덱스 힌트 누락 확인 → LLM 비결정성 문제 | 수동 테스트에서 나왔지만 CLI에서 안 나옴 — 근본 해결 필요 (T24 계획) |
+
+## T24 설계 결정 (Explain Plan 정적 이슈 자동 생성)
+- **문제**: LLM이 튜닝 포인트를 이슈로 변환하는 것이 비결정적 — 같은 입력이라도 결과가 달라짐
+- **해결**: HIGH/CRITICAL 튜닝 포인트를 LLM 없이 직접 이슈로 생성, LLM 이슈와 병합
+- **이슈 생성 위치**: SQLAnalyzerAgent (Tool이 아닌 Agent에서 이슈 형식 생성)
+- **병합 규칙**: 같은 object 이름이 LLM 이슈에도 있으면 LLM 우선 (더 상세), 없으면 정적 이슈 추가
+- **대상 튜닝 포인트**: CRITICAL (CARTESIAN), HIGH (PK 인덱스 고비용, TABLE ACCESS FULL 고비용)

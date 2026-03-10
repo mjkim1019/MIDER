@@ -386,3 +386,5 @@
 - `2026-03-10 16:56:58` [main] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
 - `2026-03-10 17:03:28` [main] **Write**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/004-gpt4o-mini-sql-index-hint-limitation.md`
 - `2026-03-10 17:05:05` [main] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-10 17:05:54` [feat/T23-sql-analyzer-improvements] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/fixtures/t18_sql/run_manual_test.py`
+- `2026-03-10 17:06:58` [feat/T23-sql-analyzer-improvements] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/004-gpt4o-mini-sql-index-hint-limitation.md`
