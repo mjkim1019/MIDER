@@ -19,6 +19,9 @@ from mider.tools.utility.explain_plan_parser import ExplainPlanParser
 
 logger = logging.getLogger(__name__)
 
+# LLM 응답에서 허용되는 source 값
+_VALID_SOURCES = frozenset({"static_analysis", "llm", "hybrid"})
+
 # SQL 정적 패턴 검색 대상
 _SQL_PATTERNS = [
     "select_star",
@@ -108,6 +111,11 @@ class SQLAnalyzerAgent(BaseAgent):
                 raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
 
             issues = llm_result.get("issues", [])
+
+            # LLM 응답의 source 필드 정규화
+            for issue in issues:
+                if issue.get("source") not in _VALID_SOURCES:
+                    issue["source"] = "llm"
 
             # Step 6: AnalysisResult 생성
             elapsed = time.time() - start_time
@@ -264,10 +272,17 @@ class SQLAnalyzerAgent(BaseAgent):
 
         parts: list[str] = []
 
-        # 원본 텍스트 포함
-        raw_text = explain_plan_data.get("raw_text", "")
-        if raw_text:
-            parts.append(f"[원본 Explain Plan]\n{raw_text}")
+        # Compact 테이블 형식 (우선 사용)
+        formatted_table = explain_plan_data.get("formatted_table", "")
+        if formatted_table:
+            parts.append(f"[Explain Plan]\n{formatted_table}")
+        else:
+            # Fallback: 원본 텍스트 (대형 파일은 truncate)
+            raw_text = explain_plan_data.get("raw_text", "")
+            if raw_text:
+                if len(raw_text) > 8000:
+                    raw_text = raw_text[:8000] + "\n... (truncated)"
+                parts.append(f"[원본 Explain Plan]\n{raw_text}")
 
         # 튜닝 포인트 요약
         tuning_points = explain_plan_data.get("tuning_points", [])

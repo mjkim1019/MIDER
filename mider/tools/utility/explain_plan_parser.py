@@ -33,6 +33,44 @@ _INEFFICIENT_OPERATIONS: dict[str, str] = {
 _HIGH_COST_THRESHOLD = 1000
 _HIGH_ROWS_THRESHOLD = 100000
 
+# 텍스트 덤프 형식의 Operation 키워드 프리픽스
+_OPERATION_PREFIXES = (
+    "SELECT STATEMENT",
+    "UPDATE STATEMENT",
+    "DELETE STATEMENT",
+    "INSERT STATEMENT",
+    "TABLE ACCESS",
+    "INDEX",
+    "SORT",
+    "FILTER",
+    "COUNT",
+    "VIEW",
+    "NESTED LOOP",
+    "MERGE JOIN",
+    "HASH JOIN",
+    "HASH GROUP",
+    "HASH UNIQUE",
+    "UNION",
+    "PARTITION",
+    "BUFFER",
+    "SEQUENCE",
+    "MINUS",
+    "INTERSECT",
+    "CONNECT BY",
+    "INLIST",
+    "CARTESIAN",
+    "MAT_VIEW",
+    "WINDOW",
+    "COLLECTION",
+    "PX",
+    "CONCATENATION",
+    "BITMAP",
+    "REMOTE",
+    "LOAD",
+    "TEMP TABLE",
+    "RECURSIVE",
+)
+
 
 class ExplainPlanParser(BaseTool):
     """Oracle Explain Plan 결과를 파싱하는 도구.
@@ -67,12 +105,18 @@ class ExplainPlanParser(BaseTool):
         if not stripped:
             return ToolResult(
                 success=True,
-                data={"steps": [], "tuning_points": [], "raw_text": ""},
+                data={
+                    "steps": [],
+                    "tuning_points": [],
+                    "raw_text": "",
+                    "formatted_table": "",
+                },
             )
 
         # Explain Plan 파싱
         steps = self._parse_plan_table(stripped)
         tuning_points = self._detect_tuning_points(steps)
+        formatted_table = self._format_as_xplan_table(steps)
 
         logger.info(
             f"Explain Plan 파싱 완료: {file_path} → "
@@ -85,6 +129,7 @@ class ExplainPlanParser(BaseTool):
                 "steps": steps,
                 "tuning_points": tuning_points,
                 "raw_text": stripped,
+                "formatted_table": formatted_table,
             },
         )
 
@@ -131,9 +176,12 @@ class ExplainPlanParser(BaseTool):
                 if step is not None:
                     steps.append(step)
 
-        # 표 형식을 찾지 못한 경우 줄 단위 파싱 시도
+        # 표 형식을 찾지 못한 경우 텍스트 덤프 또는 줄 단위 파싱 시도
         if not steps:
-            steps = self._parse_plain_format(content)
+            if self._is_text_dump(content):
+                steps = self._parse_text_dump(content)
+            else:
+                steps = self._parse_plain_format(content)
 
         return steps
 
@@ -199,13 +247,10 @@ class ExplainPlanParser(BaseTool):
     def _parse_plain_format(content: str) -> list[dict[str, Any]]:
         """표 형식이 아닌 일반 텍스트에서 Explain Plan 정보를 추출한다."""
         steps: list[dict[str, Any]] = []
-        # Operation 패턴 매칭 (들여쓰기 기반)
+        # Operation 패턴 매칭 (들여쓰기 기반, _OPERATION_PREFIXES에서 파생)
+        _op_alts = "|".join(re.escape(p) for p in _OPERATION_PREFIXES)
         op_pattern = re.compile(
-            r"(\d+)\s+[-]?\s*((?:TABLE ACCESS|INDEX|SORT|HASH|"
-            r"NESTED|MERGE|FILTER|SELECT|VIEW|UNION|"
-            r"PARTITION|BUFFER|SEQUENCE|COUNT|MINUS|"
-            r"INTERSECT|CONNECT|INLIST|UPDATE|DELETE|INSERT|"
-            r"CARTESIAN|MAT_VIEW)[A-Z\s]*)"
+            rf"(\d+)\s+[-]?\s*((?:{_op_alts})[A-Z\s]*)"
             r"(?:\s+(\S+))?"  # object name
             r"(?:.*?cost[=:]\s*(\d+))?"  # cost
             r"(?:.*?rows[=:]\s*(\d+))?"  # rows
@@ -229,6 +274,151 @@ class ExplainPlanParser(BaseTool):
             steps.append(step)
 
         return steps
+
+    @staticmethod
+    def _is_text_dump(content: str) -> bool:
+        """텍스트 덤프 형식(각 컬럼이 줄 단위로 나열)인지 감지한다.
+
+        헤더에 "Operation"과 "Access Pred"/"Filter Pred"가 있으면
+        텍스트 덤프 형식으로 판단한다.
+        """
+        first_block = content[:500].lower()
+        return "operation" in first_block and (
+            "access pred" in first_block or "filter pred" in first_block
+        )
+
+    @staticmethod
+    def _is_operation_line(line: str) -> bool:
+        """텍스트 라인이 Operation 라인인지 판단한다."""
+        upper = line.upper().strip()
+        # DBMS_XPLAN 헤더 필드 "Filter Pred"가 FILTER prefix와 혼동됨
+        # (ACCESS PRED는 _OPERATION_PREFIXES에 없어 자연 제외)
+        if upper.startswith("FILTER PRED"):
+            return False
+        return upper.startswith(_OPERATION_PREFIXES)
+
+    def _parse_text_dump(self, content: str) -> list[dict[str, Any]]:
+        """텍스트 덤프 형식의 Explain Plan을 파싱한다.
+
+        각 컬럼(Operation, Object Instance, Access Pred, Filter Pred 등)이
+        줄 단위로 나열된 형식을 파싱하여 구조화된 실행 계획 목록을 반환한다.
+        """
+        steps: list[dict[str, Any]] = []
+        lines = content.split("\n")
+
+        # 헤더 섹션을 건너뛰고 첫 Operation 라인 찾기
+        data_start = 0
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped and self._is_operation_line(stripped):
+                data_start = i
+                break
+
+        current_step: dict[str, Any] | None = None
+        step_id = 0
+
+        for i in range(data_start, len(lines)):
+            line = lines[i].strip()
+            if not line:
+                continue
+
+            if self._is_operation_line(line):
+                # 이전 step 저장
+                if current_step is not None:
+                    steps.append(current_step)
+                # 새 operation 파싱
+                current_step = self._parse_operation_detail(line, step_id)
+                step_id += 1
+            elif current_step is not None:
+                # 현재 step에 메타데이터 연결
+                if re.match(r"^\d+$", line):
+                    pass  # Object Instance — 튜닝 분석에 불필요
+                elif line == "KEY":
+                    pass  # 파티션 키 정보
+                else:
+                    # Predicate 라인
+                    if "predicates" not in current_step:
+                        current_step["predicates"] = []
+                    current_step["predicates"].append(line)
+
+        # 마지막 step 저장
+        if current_step is not None:
+            steps.append(current_step)
+
+        return steps
+
+    @staticmethod
+    def _parse_operation_detail(line: str, step_id: int) -> dict[str, Any]:
+        """Operation 라인에서 오퍼레이션명, 객체명, Cost/Card/Bytes를 추출한다."""
+        step: dict[str, Any] = {"id": step_id}
+
+        # OF 'SCHEMA.TABLE' 에서 객체명 추출
+        of_match = re.search(r"OF\s+'([^']+)'", line)
+        if of_match:
+            full_name = of_match.group(1)
+            step["name"] = full_name.split(".")[-1] if "." in full_name else full_name
+            op_part = line[:of_match.start()].strip()
+        else:
+            # Cost= 이전까지가 Operation
+            op_part = re.sub(r"\s*\(Cost=.*$", "", line).strip()
+
+        # 괄호 제거하여 DBMS_XPLAN 표준 형식으로 정규화
+        # "TABLE ACCESS (FULL)" → "TABLE ACCESS FULL"
+        # "INDEX (RANGE SCAN)" → "INDEX RANGE SCAN"
+        op_clean = op_part.replace("(", " ").replace(")", " ")
+        op_clean = re.sub(r"\s+", " ", op_clean).strip()
+        step["operation"] = op_clean
+
+        # Cost, Card(=Rows), Bytes 추출
+        for field, db_field in [
+            ("cost", "Cost"),
+            ("rows", "Card"),
+            ("bytes", "Bytes"),
+        ]:
+            m = re.search(rf"{db_field}=(\d+)", line)
+            if m:
+                step[field] = int(m.group(1))
+
+        return step
+
+    @staticmethod
+    def _format_as_xplan_table(steps: list[dict[str, Any]]) -> str:
+        """파싱된 실행 계획을 DBMS_XPLAN 테이블 형식 문자열로 변환한다."""
+        if not steps:
+            return ""
+
+        lines: list[str] = []
+
+        # 헤더
+        lines.append("Id | Operation | Object | Cost | Rows")
+        lines.append("---|-----------|--------|------|-----")
+
+        for step in steps:
+            sid = step.get("id", "")
+            op = step.get("operation", "")
+            name = step.get("name", "")
+            cost = step.get("cost", "")
+            rows = step.get("rows", "")
+            lines.append(f"{sid} | {op} | {name} | {cost} | {rows}")
+
+        # Predicate 섹션
+        pred_lines: list[str] = []
+        for step in steps:
+            preds = step.get("predicates", [])
+            if preds:
+                sid = step.get("id", "?")
+                for pred in preds:
+                    # 200자 초과 시 truncate
+                    if len(pred) > 200:
+                        pred = pred[:200] + "..."
+                    pred_lines.append(f"  {sid} - {pred}")
+
+        if pred_lines:
+            lines.append("")
+            lines.append("Predicate Information:")
+            lines.extend(pred_lines)
+
+        return "\n".join(lines)
 
     @staticmethod
     def _detect_tuning_points(
