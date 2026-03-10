@@ -544,7 +544,7 @@ class ContextCollectorAgent(BaseAgent):
             return calls
 
         event_re = re.compile(r"\{.*\}on\w+$|^ev:on\w+$|^on\w+$")
-        func_re = re.compile(r"scwin\.(\w+)\s*\(")
+        func_re = re.compile(r"scwin\.(\w+)")
 
         for elem in root.iter():
             for attr_name, attr_value in elem.attrib.items():

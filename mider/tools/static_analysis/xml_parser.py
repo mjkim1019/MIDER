@@ -115,12 +115,13 @@ class XMLParser(BaseTool):
             dl_id = dl.get("id", "")
             columns: list[dict[str, str]] = []
 
-            # 하위 w2:column 추출
-            for col in dl:
+            # 하위 w2:column 추출 (columnInfo 래퍼 포함 재귀 탐색)
+            for col in dl.iter():
                 col_local = col.tag.rsplit("}", 1)[-1] if "}" in col.tag else col.tag
                 if col_local == "column":
                     columns.append({
                         "id": col.get("id", ""),
+                        "name": col.get("name", ""),
                         "dataType": col.get("dataType", col.get("type", "")),
                     })
 
@@ -206,8 +207,8 @@ def _extract_handler_functions(handler_str: str) -> list[str]:
     예: "scwin.fn_init(); scwin.fn_load();" → ["fn_init", "fn_load"]
     """
     functions: list[str] = []
-    # scwin.funcName( 패턴
-    for m in re.finditer(r"scwin\.(\w+)\s*\(", handler_str):
+    # scwin.funcName 패턴 (괄호 유무 모두 매칭)
+    for m in re.finditer(r"scwin\.(\w+)", handler_str):
         functions.append(m.group(1))
 
     # scwin 없이 직접 함수 호출 패턴 (fn_xxx() 등)
