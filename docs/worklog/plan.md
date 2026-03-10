@@ -8,41 +8,15 @@
 - T18: SQL 성능개선 강화
 - T20: C Heuristic Pre-Scanner (2-Pass 분석)
 
-## 진행 예정 Task
+## 완료된 Task (상세)
 
-### T21: Pass 2 함수별 개별 LLM 호출 (depends: T20)
+### T21: Pass 2 함수별 개별 LLM 호출 ✅ (merged)
 
-2-Pass 분석의 Pass 2에서 선별된 함수를 한 번에 LLM에 보내는 대신,
-**함수별로 개별 LLM 호출**하여 대형 함수가 소형 함수 분석을 지배하는 문제를 해결한다.
+- 함수별 개별 LLM 호출로 대형 함수가 소형 함수 분석을 지배하는 문제 해결
+- asyncio.gather + Semaphore(3)로 병렬화
+- MIDER_EXCLUDE_FUNCTIONS 임시 workaround 제거
 
-참조: `docs/issue-log/003-pass2-large-function-dominance.md`
-
-#### T21.1: `_run_two_pass()` 함수별 개별 호출 리팩토링 → 대상: `mider/agents/c_analyzer.py`
-- 기존: risky_functions 전체를 한 프롬프트에 묶어 gpt-4o 1회 호출
-- 변경: risky_functions를 for-loop으로 순회, 함수별로 코드 추출 + warnings + LLM 호출
-- 각 함수별 결과를 합산하여 issues 리스트 반환
-- `MIDER_EXCLUDE_FUNCTIONS` 임시 workaround 제거
-- issue_id 충돌 방지: 합산 시 C-001부터 재번호 부여
-
-#### T21.2: 함수별 프롬프트 최적화 → 대상: `mider/config/prompts/c_analyzer_error_focused.txt`
-- 단일 함수 분석에 맞게 프롬프트 조정 (복수 함수 섹션 순회 지시 제거)
-- 구조 요약은 파일 전체 유지 (함수 간 참조 관계 파악용)
-- 해당 함수의 warnings만 전달
-
-#### T21.3: asyncio.gather 병렬 호출 (선택) → 대상: `mider/agents/c_analyzer.py`
-- 함수별 LLM 호출을 asyncio.gather()로 병렬 실행
-- 비용 동일, 시간 단축 (4개 함수 → 직렬 4배 → 병렬 1배)
-- rate limit 고려하여 semaphore로 동시 호출 수 제한 (기본 3)
-
-#### T21.4: 단위 테스트 → 대상: `tests/test_agents/test_c_analyzer.py`
-- 함수별 개별 호출 검증: mock LLM이 함수 수만큼 호출되는지
-- 결과 합산 검증: 여러 함수의 issues가 올바르게 병합되는지
-- MIDER_EXCLUDE_FUNCTIONS 제거 확인
-- 기존 테스트 호환성 유지
-
----
-
-### T22: clang-tidy + Heuristic 하이브리드 분석 (depends: T20)
+### T22: clang-tidy + Heuristic 하이브리드 분석 ✅ (branch: feat/T22-hybrid-analysis, **미머지**)
 
 clang-tidy가 있어도 Heuristic Scanner를 **항상 함께 실행**하여
 두 결과를 합쳐 분석 커버리지를 극대화한다.
@@ -64,7 +38,70 @@ clang-tidy가 있어도 Heuristic Scanner를 **항상 함께 실행**하여
 - 중복 제거 검증 (같은 라인 경고가 2번 나오지 않음)
 - clang-tidy 없을 때 기존 동작 유지 확인
 
+> ⚠️ **TODO**: `feat/T22-hybrid-analysis` 브랜치를 main에 머지 필요 (PR 생성 또는 수동 머지)
+
 ---
+
+### T23: SQL 분석 파이프라인 검증 및 테스트 ✅ (T18 확장)
+
+T18의 확장판. ExplainPlan 텍스트 덤프 파싱 검증, SQL 길이 안전장치, 프롬프트 개선, 전체 파이프라인 E2E 테스트.
+
+**main 커밋 현황 (사전 완료)**
+- `62a0ae8`: ExplainPlanParser 텍스트 덤프 파싱 + DBMS_XPLAN 테이블 변환
+- sql_analyzer.py: `_VALID_SOURCES` 정규화, `formatted_table` 우선 사용
+- sql_syntax_checker.py: 대형 SQL crash fix (빈 줄 압축 + regex fallback)
+- FileReader: 전체 파일 읽기 (잘림 없음 — 48KB/27K토큰, 128K 한도 내)
+
+#### T23.1: 텍스트 덤프 파싱 단위 테스트 ✅ → 대상: `tests/test_tools/test_explain_plan_parser.py`
+- `_is_text_dump()`, `_parse_text_dump()`, `_parse_operation_detail()`, `_format_as_xplan_table()`, `_is_operation_line()` 테스트 55개
+- 실제 sample_explain_plan.txt 파싱 통합 테스트 포함
+
+#### T23.2: SQL 대형 파일 안전장치 + 로깅 ✅ → 대상: `mider/agents/sql_analyzer.py`
+- SQL 파일 크기 로깅 (줄 수, 토큰 추정치), 100K 토큰 초과 시 warning
+
+#### T23.3: 프롬프트 개선 (인덱스 힌트 유도) ✅ → 대상: `mider/config/prompts/sql_analyzer_*.txt`
+- TABLE ACCESS FULL → `/*+ INDEX(alias (column)) */` 힌트 유도 지시 + 예시 추가
+
+#### T23.4: 전체 파이프라인 E2E 테스트 ✅ → 대상: `tests/fixtures/t18_sql/run_manual_test.py`
+- gpt-4o-mini → 14.74초, 4개 이슈, `/*+ INDEX(b (svc_prod_grp_id)) */` 구체적 힌트 제안 확인
+
+---
+
+### T24: Explain Plan 튜닝 포인트 → 정적 이슈 자동 생성 (이슈 #004 근본 해결)
+
+**문제**: ExplainPlanParser가 PK 인덱스 고비용 패턴을 HIGH 튜닝 포인트로 정확히 탐지하지만,
+LLM이 이를 이슈로 변환하는 것은 비결정적. CLI 실행 시 인덱스 힌트 이슈가 누락되는 경우 발생.
+
+**해결**: HIGH/CRITICAL 튜닝 포인트를 LLM 없이 직접 AnalysisResult 이슈로 생성 → LLM 이슈와 병합 (중복 제거)
+
+참조: `docs/issue-log/004-gpt4o-mini-sql-index-hint-limitation.md`
+
+#### T24.1: 튜닝 포인트 → 정적 이슈 변환 메서드 → 대상: `mider/agents/sql_analyzer.py`
+- `_generate_static_issues()` 메서드 추가
+- HIGH/CRITICAL 튜닝 포인트를 AnalysisResult issues 형식의 dict로 변환
+- CRITICAL (MERGE JOIN CARTESIAN) → severity: critical, source: "static_analysis"
+- HIGH (PK 인덱스 고비용 RANGE SCAN) → severity: high, source: "static_analysis"
+  - `/*+ INDEX(alias (column)) */` 형태의 fix.after 자동 생성
+  - 튜닝 포인트의 join_columns 정보 활용
+- HIGH (TABLE ACCESS FULL + Cost≥1000) → severity: high, source: "static_analysis"
+- 파일 경로, object 이름으로 location 자동 구성
+
+#### T24.2: LLM + 정적 이슈 병합 로직 → 대상: `mider/agents/sql_analyzer.py`
+- `_merge_issues()` 메서드 추가
+- LLM 이슈와 정적 이슈를 비교하여 중복 제거
+- 중복 판정: 같은 object 이름이 fix 또는 description에 포함되면 중복
+- 중복 시 LLM 이슈 우선 (더 상세한 설명/fix 제공)
+- 비중복 정적 이슈는 그대로 추가
+- issue_id 재번호 (SQL-001부터 순차)
+
+#### T24.3: 단위 테스트 → 대상: `tests/test_agents/test_sql_analyzer.py`
+- `_generate_static_issues()` 테스트: CRITICAL/HIGH 튜닝 포인트 → 이슈 변환
+- `_merge_issues()` 테스트: 중복 제거, LLM 우선, 비중복 추가
+- 통합 테스트: CLI 실행 시 PK 인덱스 힌트 이슈가 항상 포함되는지 확인
+
+---
+
+## 진행 예정 Task
 
 ### T19: Proframe XML 지원 (depends: T3, T8)
 
@@ -126,9 +163,11 @@ clang-tidy가 있어도 Heuristic Scanner를 **항상 함께 실행**하여
 | Task | 의존성 | 상태 |
 |------|--------|------|
 | T1~T14, T16, T17 | - | ✅ 완료 |
-| T18 | T11, T14 | ✅ 완료 |
-| T20 | T16 | ✅ 완료 |
-| T21 | T20 | 대기 (다음) |
-| T22 | T20 | 대기 |
+| T18 | T11, T14 | ✅ 완료 (+ ExplainPlan 텍스트 덤프 파싱 강화) |
+| T20 | T16 | ✅ 완료 (merged) |
+| T21 | T20 | ✅ 완료 (merged) |
+| T22 | T20 | ✅ 완료 (브랜치 미머지 — PR 필요) |
+| T23 | T18 | ✅ 완료 (T18 확장 — 파싱 검증 + 프롬프트 개선 + E2E) |
+| T24 | T23 | **다음** — 이슈 #004 근본 해결 |
 | T19 | T3, T8 | 대기 |
 | T15 | T19, T21, T22 | 대기 (마지막) |

@@ -5,6 +5,16 @@
 ## Explain Plan 분석
 {explain_plan}
 
+### Explain Plan 활용 지침
+Explain Plan이 제공된 경우, 반드시 아래를 수행하세요:
+1. TABLE ACCESS FULL이 있으면 해당 테이블의 WHERE 조건 컬럼을 SQL에서 찾아 `/*+ INDEX(alias (column)) */` 힌트를 제안합니다
+2. **INDEX RANGE SCAN이지만 Cost가 100 이상인 단계**를 식별합니다:
+   - PK 인덱스를 사용하지만 조인 컬럼이 PK 선두 컬럼이 아닌 경우, 조인 컬럼 기반 인덱스 힌트를 제안합니다
+   - 예: PK 인덱스 사용 (Cost=148) + 조인 조건이 `svc_mgmt_num` → `/*+ INDEX(c (svc_mgmt_num)) */`
+3. SORT ORDER BY, HASH JOIN 등 비효율 오퍼레이션의 원인을 SQL에서 추적합니다
+4. Predicate 조건에서 인덱스 미활용 컬럼을 식별합니다
+5. Cost가 높은 단계(≥100)에 대해 구체적 개선안을 제시합니다
+
 ## 분석 대상 파일
 파일: {file_path}
 ```sql

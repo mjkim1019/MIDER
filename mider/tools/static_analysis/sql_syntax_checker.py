@@ -9,6 +9,7 @@ sqlparse를 활용하여 Oracle SQL 파일의 문법 오류를 탐지한다.
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -69,16 +70,22 @@ class SQLSyntaxChecker(BaseTool):
         quote_errors = self._check_unclosed_quotes(content)
         syntax_errors.extend(quote_errors)
 
-        # 3. SQL 문 단위 검사
-        statements = sqlparse.parse(content)
-        for stmt in statements:
-            stmt_text = str(stmt).strip()
-            if not stmt_text:
-                continue
-
-            stmt_errors, stmt_warnings = self._check_statement(stmt, content)
-            syntax_errors.extend(stmt_errors)
-            warnings.extend(stmt_warnings)
+        # 3. SQL 문 단위 검사 (연속 빈 줄 제거하여 토큰 수 절감)
+        compact = re.sub(r"\n{3,}", "\n\n", content)
+        try:
+            statements = sqlparse.parse(compact)
+            for stmt in statements:
+                stmt_text = str(stmt).strip()
+                if not stmt_text:
+                    continue
+                stmt_errors, stmt_warnings = self._check_statement(stmt, content)
+                syntax_errors.extend(stmt_errors)
+                warnings.extend(stmt_warnings)
+        except Exception as exc:
+            logger.warning(f"sqlparse 파싱 실패, 정규식 fallback 사용: {exc}")
+            fallback_errors, fallback_warnings = self._check_regex_fallback(content)
+            syntax_errors.extend(fallback_errors)
+            warnings.extend(fallback_warnings)
 
         logger.info(
             f"SQL 문법 검증 완료: {file_path} → "
@@ -294,6 +301,53 @@ class SQLSyntaxChecker(BaseTool):
         # SELECT expression FROM DUAL 패턴은 FROM이 있으므로 여기 안 옴
         # 함수 호출만 있는 경우: SELECT func() → FROM 없어도 가능 (Oracle DUAL 생략)
         return False
+
+    @staticmethod
+    def _check_regex_fallback(
+        content: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """sqlparse 실패 시 정규식으로 기본 검사를 수행한다."""
+        errors: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
+
+        # 주석 제거 (블록 + 라인)
+        no_comments = re.sub(r"/\*.*?\*/", " ", content, flags=re.DOTALL)
+        no_comments = re.sub(r"--[^\n]*", "", no_comments)
+        # 문자열 리터럴 제거
+        no_strings = re.sub(r"'[^']*'", "''", no_comments)
+
+        # ; 기준으로 문 분할
+        stmts = re.split(r";", no_strings)
+        lines = content.split("\n")
+
+        for stmt_text in stmts:
+            upper = stmt_text.upper().strip()
+            if not upper:
+                continue
+
+            # 문 시작 라인 찾기
+            parts = upper.split(None, 1)
+            first_word = parts[0] if parts else ""
+            stmt_line = 1
+            for i, line in enumerate(lines):
+                if first_word and first_word in line.upper():
+                    stmt_line = i + 1
+                    break
+
+            if re.match(r"\s*UPDATE\s+", upper) and " WHERE " not in upper:
+                warnings.append({
+                    "line": stmt_line,
+                    "message": "UPDATE 문에 WHERE 절이 없습니다 (전체 행 갱신 위험)",
+                    "rule": "update_without_where",
+                })
+            elif re.match(r"\s*DELETE\s+", upper) and " WHERE " not in upper:
+                warnings.append({
+                    "line": stmt_line,
+                    "message": "DELETE 문에 WHERE 절이 없습니다 (전체 행 삭제 위험)",
+                    "rule": "delete_without_where",
+                })
+
+        return errors, warnings
 
     @staticmethod
     def _find_stmt_line(stmt_text: str, full_content: str) -> int:

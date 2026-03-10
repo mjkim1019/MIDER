@@ -164,3 +164,26 @@
 | 2026-03-06 | MIDER_EXCLUDE_FUNCTIONS 임시 workaround 제거 | 함수별 개별 호출로 근본 해결되어 불필요 |
 | 2026-03-06 | issue_id 재번호 (C-001부터 순차) | 함수별 LLM이 각각 C-001부터 시작하므로 합산 후 재번호 필수 |
 | 2026-03-06 | 함수 경계 찾기 실패 시 warning 로그 추가 | 리뷰 반영 — silent skip 방지, 디버깅 가시성 확보 |
+| 2026-03-10 | T23 계획 수립 (T18 확장) | ExplainPlan 텍스트 덤프 파싱 검증, SQL 크기 안전장치, 프롬프트 개선, E2E 테스트 |
+| 2026-03-10 | ExplainPlanParser 텍스트 덤프 파싱 단위 테스트 55개 추가 | 기존 구현(62a0ae8)의 검증 — `_is_text_dump`, `_parse_text_dump`, `_parse_operation_detail`, `_format_as_xplan_table`, `_is_operation_line` |
+| 2026-03-10 | SQL 대형 파일 안전장치: 토큰 추정 로깅 + 100K 초과 warning | FileReader는 잘림 없으나, 향후 LLM context 초과 방어 |
+| 2026-03-10 | 프롬프트 개선: Explain Plan → 인덱스 힌트 유도 지시 추가 | LLM이 TABLE ACCESS FULL 탐지 시 `/*+ INDEX(alias (column)) */` 같은 구체적 힌트 제안하도록 |
+| 2026-03-10 | E2E 테스트 성공: gpt-4o-mini가 4개 이슈 탐지, `/*+ INDEX(b (svc_prod_grp_id)) */` 구체적 힌트 제안 | 프롬프트 개선 효과 확인 — 이전에는 인덱스 힌트 미생성 |
+| 2026-03-10 | SQL Analyzer 기본 모델 gpt-4o-mini → gpt-4o 변경 | gpt-4o-mini는 PK 인덱스 비효율 패턴을 DBA 수준으로 추론 불가 (이슈 #004) |
+| 2026-03-10 | gpt-4o E2E 테스트: 6개 이슈, 인덱스 힌트 포함 확인 | gpt-4o가 `(chld_svc_mgmt_num, svc_mgmt_num)` 힌트 제안 성공 |
+| 2026-03-10 | CLI 테스트에서 인덱스 힌트 누락 확인 → LLM 비결정성 문제 | 수동 테스트에서 나왔지만 CLI에서 안 나옴 — 근본 해결 필요 (T24 계획) |
+
+## T24 설계 결정 (Explain Plan 정적 이슈 자동 생성)
+- **문제**: LLM이 튜닝 포인트를 이슈로 변환하는 것이 비결정적 — 같은 입력이라도 결과가 달라짐
+- **해결**: HIGH/CRITICAL 튜닝 포인트를 LLM 없이 직접 이슈로 생성, LLM 이슈와 병합
+- **이슈 생성 위치**: SQLAnalyzerAgent (Tool이 아닌 Agent에서 이슈 형식 생성)
+- **병합 규칙**: 같은 object 이름이 LLM 이슈에도 있으면 LLM 우선 (더 상세), 없으면 정적 이슈 추가
+- **대상 튜닝 포인트**: CRITICAL (CARTESIAN), HIGH (PK 인덱스 고비용, TABLE ACCESS FULL 고비용)
+- **인덱스 접미사 매칭**: `_PK`, `_N1`, `_U1` 등 접미사를 제거하여 베이스 테이블명으로도 중복 판정 (리뷰 중 발견)
+
+| 2026-03-10 | `_generate_static_issues()` + `_merge_issues()` 구현 | LLM 비결정성 근본 해결 — 정적 이슈가 LLM 누락을 보충 |
+| 2026-03-10 | 인덱스 접미사 제거 매칭: `ZORD_WIRE_SVC_DC_PK` → `ZORD_WIRE_SVC_DC` | `_PK` 접미사가 있으면 LLM 텍스트의 테이블명과 매칭 실패 — 테스트 실패로 발견 |
+| 2026-03-10 | `/*+` 힌트 추출 시 `*/` 존재 여부 확인 추가 | 리뷰 H2: `*/` 없는 비정상 suggestion 시 ValueError crash 방지 |
+| 2026-03-10 | `high_cost_ids` dead code 제거 | 리뷰 H1: 미사용 변수 정리 |
+| 2026-03-10 | `fallback_model=None` (기본 모델과 동일하면 불필요) | 리뷰 H3: gpt-4o → gpt-4o fallback은 실질적 효과 없음 |
+| 2026-03-10 | `__main__.py`에 `if __name__ == "__main__":` 가드 추가 | 리뷰 M3: import 시 의도치 않은 CLI 실행 방지 |
