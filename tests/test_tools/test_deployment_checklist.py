@@ -69,9 +69,9 @@ class TestMapFileToSection:
     def test_js_to_screen(self):
         assert map_file_to_section("app/view.js") == "screen"
 
-    def test_xml_returns_none(self):
-        """xml은 Mider 분석 대상이 아니므로 None."""
-        assert map_file_to_section("app/layout.xml") is None
+    def test_xml_returns_screen(self):
+        """xml은 화면 배포 섹션."""
+        assert map_file_to_section("app/layout.xml") == "screen"
 
     def test_c_to_tp_by_default(self):
         assert map_file_to_section("service.c") == "tp"

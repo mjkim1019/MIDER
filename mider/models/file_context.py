@@ -47,7 +47,7 @@ class SingleFileContext(BaseModel):
     """단일 파일의 컨텍스트 정보."""
 
     file: str = Field(description="파일 경로")
-    language: Literal["javascript", "c", "proc", "sql"] = Field(
+    language: Literal["javascript", "c", "proc", "sql", "xml"] = Field(
         description="파일 언어"
     )
     imports: List[ImportInfo] = Field(default_factory=list)

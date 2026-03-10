@@ -62,7 +62,7 @@ class AnalysisResult(BaseModel):
 
     task_id: str = Field(description="ExecutionPlan의 task_id와 매칭")
     file: str = Field(description="분석된 파일 경로")
-    language: Literal["javascript", "c", "proc", "sql"] = Field(
+    language: Literal["javascript", "c", "proc", "sql", "xml"] = Field(
         description="파일 언어"
     )
     agent: str = Field(description="분석 Agent명 (e.g., JavaScriptAnalyzerAgent)")
