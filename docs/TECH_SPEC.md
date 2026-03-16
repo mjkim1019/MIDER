@@ -10,6 +10,7 @@
 ```
 ┌─────────────────────────────────────────────────┐
 │                  CLI (main.py)                    │
+│            --files --explain-plan --output        │
 └──────────────────────┬──────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────┐
@@ -18,12 +19,12 @@
 └──┬────────┬────────┬────────┬────────┬──────────┘
    │        │        │        │        │
    ▼        ▼        ▼        ▼        ▼
- Task    Context    JS/C/   ProC/    Reporter
+ Task    Context   JS/C/   ProC/XML  Reporter
 Classifier Collector SQL    Analyzer  Agent
  Agent     Agent   Analyzer  Agent
 ```
 
-### Agent 목록 (1차 PoC: 7개)
+### Agent 목록 (1차 PoC: 8개)
 
 | # | Agent | 역할 | LLM Model |
 |---|-------|------|-----------|
@@ -31,10 +32,11 @@ Classifier Collector SQL    Analyzer  Agent
 | 2 | TaskClassifierAgent | 파일 분류, 실행 계획 수립 | gpt-4o-mini |
 | 3 | ContextCollectorAgent | import/include 추출, 의존성 매핑 | gpt-4o-mini |
 | 4 | JavaScriptAnalyzerAgent | JS 정적분석 + LLM 심층분석 | gpt-4o |
-| 5 | CAnalyzerAgent | C 정적분석 + LLM 심층분석 | gpt-4o |
+| 5 | CAnalyzerAgent | C 정적분석 + LLM 심층분석 (3경로) | gpt-4o |
 | 6 | ProCAnalyzerAgent | Pro*C 정적분석 + LLM 심층분석 | gpt-4o |
-| 7 | SQLAnalyzerAgent | SQL 패턴분석 + LLM 심층분석 | gpt-4o-mini |
-| 8 | ReporterAgent | 리포트 생성 (3개 JSON) | gpt-4o-mini (temp 0.3) |
+| 7 | SQLAnalyzerAgent | SQL 패턴분석 + Explain Plan + LLM 심층분석 | gpt-4o |
+| 8 | XMLAnalyzerAgent | WebSquare XML 구조분석 + JS 핸들러 검증 | gpt-4o-mini |
+| 9 | ReporterAgent | 리포트 생성 (4개 JSON: 이슈/체크리스트/요약/배포) | gpt-4o-mini (temp 0.3) |
 
 ### 2차 PoC 예정 Agent
 
@@ -84,11 +86,13 @@ Phase 1: Context Collection
 Phase 2: Sequential Language Analysis
   For each task in ExecutionPlan:
     → 언어별 AnalyzerAgent 호출 (FileContext 전달)
+    → SQL 분석 시 explain_plan_file 전달
     → AnalysisResult 수집
+  Sub-agent 인스턴스 캐싱 (같은 언어 Analyzer 재사용)
 
 Phase 3: Report Generation
   → ReporterAgent.generate(all_results)
-  → IssueList, Checklist, Summary 생성
+  → IssueList, Checklist, Summary, DeploymentChecklist 생성
 ```
 
 **Step 3: Execution & Response**
@@ -98,10 +102,12 @@ Phase 3: Report Generation
    - 각 Phase 완료 메시지
    - Critical 이슈 요약
    - 배포 가능 여부 판정
+   - 배포 체크리스트 (5개 섹션)
 2. 파일 출력
    - ./output/issue-list.json
    - ./output/checklist.json
    - ./output/summary.json
+   - ./output/deployment-checklist.json
 ```
 
 #### 2.1.3 상태 관리
@@ -156,6 +162,7 @@ For each file in selected_files:
      - .c, .h → C
      - .pc → Pro*C
      - .sql → SQL
+     - .xml → XML (WebSquare/Proframe)
   2. 파일 메타데이터 수집
      - 파일 크기
      - 라인 수
@@ -252,6 +259,10 @@ For each file in ExecutionPlan:
     - #include 추출
   SQL:
     - N/A (SQL 파일은 의존성 없음)
+  XML (WebSquare):
+    - 이벤트 핸들러 함수 참조 추출 (ev:onclick 등)
+    - 매칭 .js 파일 탐색
+    - 패턴: event_binding
 ```
 
 **Step 2: Dependency Mapping**
@@ -729,7 +740,21 @@ explain_plan_parser(explain_plan_file)
   ]
 ```
 
-**Step 4: LLM Analysis**
+**Step 4: 정적 이슈 자동 생성 (Explain Plan → Static Issues)**
+```
+Explain Plan tuning_points에서 정적 이슈를 자동 생성:
+  _generate_static_issues(tuning_points) → static_issues[]
+
+  변환 규칙:
+    CARTESIAN JOIN / MERGE JOIN CARTESIAN → severity: critical
+    INDEX RANGE SCAN on PK (cost > 100)   → severity: high
+    TABLE ACCESS FULL (cost > 1000)        → severity: high
+    HASH JOIN (rows > 100,000)             → severity: high
+
+  각 이슈에 source="static_analysis" 태그 부여
+```
+
+**Step 5: LLM Analysis**
 ```
 경로 A (Error-Focused: syntax_errors/patterns/explain_plan 있을 때):
   prompt = """
@@ -742,7 +767,7 @@ explain_plan_parser(explain_plan_file)
   {patterns}
 
   [Explain Plan 분석] (있을 경우)
-  {explain_plan}
+  {explain_plan}  # 100+ steps 시 고비용 step만 필터링
 
   [SQL 파일]
   {file_content}
@@ -777,6 +802,15 @@ explain_plan_parser(explain_plan_file)
   """
 ```
 
+**Step 6: 이슈 병합 (LLM + Static)**
+```
+_merge_issues(llm_issues, static_issues) → final_issues[]
+  1. LLM 이슈와 정적 이슈를 하나의 리스트로 합산
+  2. 동일 object에 대한 중복 제거 (LLM이 이미 지적한 테이블은 정적 이슈에서 제외)
+  3. 병합된 이슈에 source="hybrid" 태그 부여
+  4. 최종 AnalysisResult 반환
+```
+
 #### 2.7.3 상태 관리
 
 - **Stateless**: 파일 단위 분석
@@ -786,9 +820,9 @@ explain_plan_parser(explain_plan_file)
 | 도구명 | 기능 설명 | 입력 | 출력 |
 |--------|----------|------|------|
 | file_reader | 파일 읽기 | path: str | content: str |
-| grep | SQL 패턴 검색 | pattern: str, file: str | matches: List[Dict] |
-| sql_syntax_checker | SQL 문법 검증 | file: str | syntax_errors: List[Dict] |
-| explain_plan_parser | Explain Plan 파싱 | file: str | steps: List[Dict], tuning_points: List[Dict] |
+| ast_grep_search | SQL 패턴 검색 (5종: select_star, function_in_where, like_wildcard, subquery, or_condition) | pattern: str, file: str | matches: List[Dict] |
+| sql_syntax_checker | SQL 문법 검증 (sqlparse) | file: str | syntax_errors: List[Dict], warnings: List[Dict] |
+| explain_plan_parser | Explain Plan 파싱 + 튜닝 포인트 탐지 | file: str | steps: List[Dict], tuning_points: List[Dict], formatted_table: str |
 
 #### 2.7.5 메모리 전략
 
@@ -800,11 +834,11 @@ explain_plan_parser(explain_plan_file)
 
 | 구분 | 선정 기술 | 사유 |
 |------|----------|------|
-| LLM Model | gpt-4o-mini (Fallback: gpt-4o) | 정적 패턴 분석, 경량 모델 충분 |
+| LLM Model | gpt-4o (No Fallback) | Explain Plan 분석에 고성능 모델 필요 |
 | Agent Framework | Python Class | 순차 실행 |
 | Prompt Strategy | CoT + Few-Shot | 성능 영향도 추론, 최적화 예시 |
 | Output Parsing | JSON Mode | 구조화된 이슈 |
-| Monitoring | logging | 비용 추적 |
+| Monitoring | logging + token counting | 대형 Explain Plan 시 토큰 경고 (100K 임계값) |
 
 ---
 
@@ -815,8 +849,8 @@ explain_plan_parser(explain_plan_file)
 | 항목 | 정의 내용 |
 |------|----------|
 | Agent 이름 | ReporterAgent |
-| 주요 역할 | Phase 2의 모든 AnalysisResult를 통합하여 3개 리포트(IssueList, Checklist, Summary) 생성 |
-| 핵심 목표 | - 심각도별 분류 (Critical/High/Medium/Low)<br>- Before/After 코드 1-3줄 추출<br>- 검증 명령어 체크리스트 생성<br>- 기본 통계 요약 (파일별, 심각도별) |
+| 주요 역할 | Phase 2의 모든 AnalysisResult를 통합하여 4개 리포트(IssueList, Checklist, Summary, DeploymentChecklist) 생성 |
+| 핵심 목표 | - 심각도별 분류 (Critical/High/Medium/Low)<br>- Before/After 코드 1-3줄 추출<br>- 검증 명령어 체크리스트 생성<br>- 기본 통계 요약 (파일별, 심각도별)<br>- 배포 체크리스트 자동 생성 (5개 섹션) |
 | 톤앤매너 | 분석가, 보고서 작성자 스타일. 객관적, 팩트 기반 |
 | 제약 사항 | - 전체 파일 Diff 생성 금지 (비용 절감)<br>- Before/After 1-3줄만 추출<br>- 체크리스트에 "checked" 필드 없음 (개발자 수동) |
 
@@ -882,7 +916,7 @@ verification_command 예시:
     "by_layer": {...}
   },
   "risk_assessment": {
-    "deployment_risk": "HIGH if critical > 0",
+    "deployment_risk": "LOW|MEDIUM|HIGH|CRITICAL",
     "blocking_issues": ["critical_issue_ids"],
     "deployment_allowed": "critical == 0"
   },
@@ -893,20 +927,43 @@ verification_command 예시:
 }
 ```
 
+**Step 5: Deployment Checklist Generation**
+```
+DeploymentChecklistGenerator 호출:
+  입력: file_paths (분석된 모든 파일), analysis_results
+
+  5개 섹션으로 분류:
+    1. screen  (화면)   ← .js, .xml 파일
+    2. tp      (TP)     ← .c 파일 (첫줄 주석 또는 파일명에 'tp', 'svc' 포함)
+    3. module  (모듈)   ← .c 파일 (TP 아닌 것)
+    4. batch   (배치)   ← .pc 파일
+    5. dbio    (DBIO)   ← .sql 파일
+
+  각 섹션의 item:
+    {
+      "file": "service.c",
+      "description": "TP 서비스 모듈",
+      "issues_count": 3,
+      "critical_count": 1,
+      "deployment_ready": false
+    }
+```
+
 #### 2.8.3 상태 관리
 
-- **Stateless**: 모든 AnalysisResult → 3개 JSON 파일
+- **Stateless**: 모든 AnalysisResult → 4개 JSON 파일
 
 #### 2.8.4 도구(Tools)
 
 | 도구명 | 기능 설명 | 입력 | 출력 |
 |--------|----------|------|------|
-| checklist_generator | 이슈 기반 체크리스트 자동 생성 | results: List[AnalysisResult] | checklist: Dict |
+| checklist_generator | 이슈 기반 검증 체크리스트 자동 생성 | results: List[AnalysisResult] | checklist: Dict |
+| deployment_checklist_generator | 배포 체크리스트 자동 생성 (5개 섹션) | file_paths: List[str], results: List[Dict] | deployment_checklist: Dict |
 
 #### 2.8.5 메모리 전략
 
 - **메모리 유형**: None
-- **저장 전략**: 3개 JSON 파일만 생성
+- **저장 전략**: 4개 JSON 파일 생성
 - **RAG**: 사용 안 함 (AnalysisResult 통합만)
 
 #### 2.8.6 기술 스택
@@ -916,8 +973,90 @@ verification_command 예시:
 | LLM Model | gpt-4o-mini (temp 0.3, Fallback: gpt-4o) | 간단한 요약, 한국어 |
 | Agent Framework | Python Class | 순차 처리 |
 | Prompt Strategy | Instruction-based (금지 사항 명시) | "전체 Diff 생성 금지" 강조 |
-| Output Parsing | JSON Mode (3개 스키마) | IssueList, Checklist, Summary |
+| Output Parsing | JSON Mode (4개 스키마) | IssueList, Checklist, Summary, DeploymentChecklist |
 | Monitoring | logging | 생성 시간 추적 |
+
+---
+
+### Agent 9: XMLAnalyzerAgent
+
+#### 2.9.1 페르소나 (Identity)
+
+| 항목 | 정의 내용 |
+|------|----------|
+| Agent 이름 | XMLAnalyzerAgent |
+| 주요 역할 | WebSquare(Proframe) XML 파일 전문 분석. XML 구조 파싱 + JS 핸들러 검증 + LLM 심층 분석을 결합하여 UI 바인딩 오류 및 이벤트 누락 탐지 |
+| 핵심 목표 | - 데이터 리스트(dataList) 및 컬럼 구조 검증<br>- 이벤트 바인딩(ev:onclick 등) 추출 및 핸들러 함수 존재 검증<br>- 컴포넌트 ID 중복 탐지<br>- JS 핸들러 함수 미존재 탐지 |
+| 톤앤매너 | UI 개발자, 프론트엔드 전문가 스타일. 바인딩 오류 명확히 제시 |
+| 제약 사항 | - 코드 수정 불가 (제안만)<br>- XML 파싱 실패 시 에러 보고만<br>- XXE/Billion Laughs 방어 (DOCTYPE/ENTITY 포함 XML 거부) |
+
+#### 2.9.2 워크플로우
+
+**Step 1: XML Parsing (XMLParser Tool)**
+```
+xml_parser(file=file_path)
+결과:
+  data_lists: [
+    {"id": "dataList1", "columns": [{"id": "col1", "name": "이름", "dataType": "text"}]}
+  ]
+  events: [
+    {"element_id": "btn_search", "element_tag": "trigger",
+     "event_type": "onclick", "handler": "scwin.btn_search_onclick()",
+     "handler_functions": ["btn_search_onclick"]}
+  ]
+  component_ids: [{"id": "btn_search", "tag": "trigger"}, ...]
+  duplicate_ids: [{"id": "dup1", "count": 2, "tags": ["input", "trigger"]}]
+  parse_errors: []
+```
+
+**Step 2: JS Handler Validation**
+```
+1. 매칭 JS 파일 탐색
+   - {filename}.js 또는 {filename}_wq.js
+2. JS 파일 내에서 핸들러 함수 존재 여부 검증
+   handler_functions에서 추출된 함수명 → grep으로 JS 파일 검색
+3. 미존재 핸들러 → missing_handlers 목록 생성
+```
+
+**Step 3: LLM Analysis**
+```
+경로 A (Error-Focused: parse_errors | duplicate_ids | missing_handlers 있을 때):
+  prompt = xml_analyzer_error_focused.txt
+  변수: {xml_structure}, {parse_errors}, {duplicate_ids},
+        {missing_handlers}, {events}, {data_lists}
+
+경로 B (Heuristic: 오류 없을 때):
+  prompt = xml_analyzer_heuristic.txt
+  변수: {xml_structure}, {events}, {data_lists}, {component_ids}
+```
+
+#### 2.9.3 상태 관리
+
+- **Stateless**: 파일 단위 분석
+
+#### 2.9.4 도구(Tools)
+
+| 도구명 | 기능 설명 | 입력 | 출력 |
+|--------|----------|------|------|
+| file_reader | 파일 읽기 | path: str | content: str |
+| xml_parser | WebSquare XML 파싱 (ElementTree 기반) | file: str | data_lists, events, component_ids, duplicate_ids, parse_errors |
+| grep | JS 핸들러 함수 검색 | pattern: str, file: str | matches: List[Dict] |
+
+#### 2.9.5 메모리 전략
+
+- **메모리 유형**: None
+- **저장 전략**: AnalysisResult만 반환
+- **RAG**: 2차 PoC 예정 (resources/knowledge_base/xml/)
+
+#### 2.9.6 기술 스택
+
+| 구분 | 선정 기술 | 사유 |
+|------|----------|------|
+| LLM Model | gpt-4o-mini (Fallback: gpt-4o) | XML 구조 분석은 경량 모델 충분 |
+| Agent Framework | Python Class | 순차 실행 (XML 파싱 → JS 검증 → LLM) |
+| Prompt Strategy | Instruction-based | 구조적 검증 중심 |
+| Output Parsing | JSON Mode (AnalysisResult 스키마) | 구조화된 이슈 반환 |
+| Monitoring | Python logging | 파싱 결과 로그 |
 
 ---
 
@@ -931,6 +1070,7 @@ openai>=1.0.0
 httpx==0.28.0
 pydantic==2.10.0
 rich==13.9.0              # 터미널 UI (Progress Bar)
+sqlparse>=0.5.0           # SQL 문법 검증
 
 # 정적 분석 도구 (Portable 바이너리)
 node-v20 (ESLint 포함)
@@ -956,14 +1096,16 @@ tiktoken
 mider/
 ├── agents/
 │   ├── __init__.py
+│   ├── base_agent.py            # BaseAgent ABC (LLM 재시도/fallback)
 │   ├── orchestrator.py          # OrchestratorAgent
 │   ├── task_classifier.py       # TaskClassifierAgent
 │   ├── context_collector.py     # ContextCollectorAgent
 │   ├── js_analyzer.py           # JavaScriptAnalyzerAgent
-│   ├── c_analyzer.py            # CAnalyzerAgent
+│   ├── c_analyzer.py            # CAnalyzerAgent (3경로: clang-tidy/2-Pass/Heuristic)
 │   ├── proc_analyzer.py         # ProCAnalyzerAgent
-│   ├── sql_analyzer.py          # SQLAnalyzerAgent
-│   └── reporter.py              # ReporterAgent
+│   ├── sql_analyzer.py          # SQLAnalyzerAgent (Explain Plan + 정적이슈 생성)
+│   ├── xml_analyzer.py          # XMLAnalyzerAgent (WebSquare XML)
+│   └── reporter.py              # ReporterAgent (4개 JSON 출력)
 ├── tools/
 │   ├── __init__.py
 │   ├── file_io/
@@ -978,7 +1120,7 @@ mider/
 │   │   ├── proc_runner.py
 │   │   ├── c_heuristic_scanner.py  # regex 기반 C 위험 패턴 스캔
 │   │   ├── sql_syntax_checker.py   # sqlparse 기반 SQL 문법 검증
-│   │   └── xml_parser.py           # WebSquare XML 파싱 (T19 예정)
+│   │   └── xml_parser.py           # WebSquare XML 파싱 (dataList/이벤트/ID 추출)
 │   ├── lsp/
 │   │   └── lsp_client.py
 │   └── utility/
@@ -994,7 +1136,7 @@ mider/
 │   ├── execution_plan.py        # ExecutionPlan 스키마
 │   ├── file_context.py          # FileContext 스키마
 │   ├── analysis_result.py       # AnalysisResult 스키마
-│   └── report.py                # IssueList, Checklist, Summary
+│   └── report.py                # IssueList, Checklist, Summary, DeploymentChecklist
 ├── config/
 │   ├── settings.yaml
 │   └── prompts/
@@ -1007,7 +1149,10 @@ mider/
 │       ├── proc_analyzer_error_focused.txt
 │       ├── proc_analyzer_heuristic.txt
 │       ├── sql_analyzer_error_focused.txt
-│       └── sql_analyzer_heuristic.txt
+│       ├── sql_analyzer_heuristic.txt
+│       ├── xml_analyzer_error_focused.txt   # XML 구조 오류 분석
+│       ├── xml_analyzer_heuristic.txt       # XML 휴리스틱 분석
+│       └── reporter.txt                     # 리스크 설명 생성
 ├── resources/
 │   ├── binaries/                # ESLint, clang-tidy, proc portable
 │   └── lint-configs/
@@ -1027,25 +1172,28 @@ mider/
 | TaskClassifierAgent | gpt-4o-mini | gpt-4o | 0.0 |
 | ContextCollectorAgent | gpt-4o-mini | gpt-4o | 0.0 |
 | JavaScriptAnalyzerAgent | gpt-4o | - | 0.0 |
-| CAnalyzerAgent | gpt-4o | - | 0.0 |
+| CAnalyzerAgent | gpt-4o (Pass 1: gpt-4o-mini) | - | 0.0 |
 | ProCAnalyzerAgent | gpt-4o | - | 0.0 |
-| SQLAnalyzerAgent | gpt-4o-mini | gpt-4o | 0.0 |
+| SQLAnalyzerAgent | gpt-4o | - | 0.0 |
+| XMLAnalyzerAgent | gpt-4o-mini | gpt-4o | 0.0 |
 | ReporterAgent | gpt-4o-mini | gpt-4o | 0.3 |
 
 ---
 
 ## 4. PoC 로드맵
 
-### 1차 PoC (현재)
-- 정적 분석 (ESLint, clang-tidy, proc) + LLM 하이브리드
-- 7개 Agent (Orchestrator + 6 Sub-agents) + XMLAnalyzerAgent 예정
-- CLI 기반 실행
+### 1차 PoC (구현 완료)
+- 정적 분석 (ESLint, clang-tidy, proc, sqlparse, XMLParser) + LLM 하이브리드
+- 8개 Agent (Orchestrator + 7 Sub-agents: TaskClassifier, ContextCollector, JS/C/ProC/SQL/XML Analyzer, Reporter)
+- CLI 기반 실행 (`--files`, `--explain-plan`, `--output`, `--model`)
 - 폐쇄망 실행파일 패키징
-- 토큰 최적화 (Structure + Function Window)
-- C Heuristic Pre-Scanner (2-Pass: regex + gpt-4o-mini 선별 + gpt-4o 심층)
-- clang-tidy + Heuristic 하이브리드 (헤더 미존재 보완)
-- SQL 성능개선 (문법 검증 + Explain Plan 해석)
-- 배포 체크리스트 자동 생성
+- 토큰 최적화 (Structure + Function Window, ~80% 토큰 절감)
+- C Heuristic Pre-Scanner (2-Pass: regex 6종 + gpt-4o-mini 선별 + gpt-4o 함수별 개별 심층)
+- clang-tidy + Heuristic 하이브리드 (헤더 미존재 보완, _merge_warnings 중복 제거)
+- SQL 성능개선 (문법 검증 + Explain Plan 해석 + 정적 이슈 자동 생성 + LLM/Static 병합)
+- WebSquare(Proframe) XML 분석 (구조 파싱 + JS 핸들러 검증 + XXE 방어)
+- 배포 체크리스트 자동 생성 (5개 섹션: 화면/TP/모듈/배치/DBIO)
+- 4개 JSON 출력 (issue-list, checklist, summary, deployment-checklist)
 
 ### 2차 PoC (예정)
 - Session Resume (세션 저장/복구, Checkpoint)
