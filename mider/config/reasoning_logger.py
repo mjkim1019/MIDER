@@ -63,7 +63,7 @@ class ReasoningLogger:
 
     def scan(self, message: str) -> None:
         """입력 데이터 / 스캔 결과 (dot 없이 dim 텍스트)."""
-        self._print(f"    [dim]{message}[/dim]")
+        self._print(f"    [grey70]{message}[/grey70]")
 
     def detect(self, message: str) -> None:
         """탐지된 문제 / 경고 (red dot + dim 내용)."""
@@ -78,7 +78,7 @@ class ReasoningLogger:
         """
         self._dot_styled("yellow", message)
         if reason:
-            self._print(f"     [dim]∵ {reason}[/dim]")
+            self._print(f"     [grey70]∵ {reason}[/grey70]")
 
     def prompt(self, message: str) -> None:
         """프롬프트 구성 등 내부 처리 (blue dot + dim 내용)."""
@@ -175,7 +175,7 @@ class ReasoningLogger:
                 title = issue.get("title", "")
                 color = _severity_color(severity)
                 self._print(
-                    f"     [{color}][{severity}][/{color}] [dim]{issue_id} {title}[/dim]"
+                    f"     [{color}][{severity}][/{color}] [grey70]{issue_id} {title}[/grey70]"
                 )
 
     # ──────────────────────────────────────────────
@@ -194,10 +194,10 @@ class ReasoningLogger:
         if ": " in message:
             keyword, content = message.split(": ", 1)
             self._print(
-                f"  [{color}]●[/{color}] [bold]{keyword}:[/bold] [dim]{content}[/dim]"
+                f"  [{color}]●[/{color}] [bold]{keyword}:[/bold] [grey70]{content}[/grey70]"
             )
         else:
-            self._print(f"  [{color}]●[/{color}] [dim]{message}[/dim]")
+            self._print(f"  [{color}]●[/{color}] [grey70]{message}[/grey70]")
 
     def _print(self, text: str) -> None:
         """Rich Console로 출력한다."""
