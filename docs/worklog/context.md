@@ -195,3 +195,12 @@
 | 2026-03-10 | PatternInfo Literal에 `event_binding` 추가 | 리뷰 반영 — XML 이벤트 바인딩을 error_handling으로 잘못 분류하던 문제 |
 | 2026-03-10 | 미사용 `_NS` 딕셔너리 제거, 불필요한 `js_content` 반환 제거 | 리뷰 반영 — dead code 정리 |
 | 2026-03-10 | 이슈 #005 기록: XML `<script>` 미추출 및 토큰 비효율 | 실제 XML 테스트에서 발견 — 별도 Task로 분리 |
+
+## T25 설계 결정 (XML 중복 ID 스코프 개선)
+- **문제**: `_extract_component_ids`가 `<w2:column>` 등 데이터 정의 요소의 id도 수집 → 서로 다른 dataList 간 동명 컬럼이 중복으로 오탐
+- **실제 사례**: `ZORDSS03S0100.xml`에서 `DS_REQR_INFO`와 `DS_FAX_INFO`의 `req_sale_org_id`가 중복 보고
+- **해결**: 데이터 정의 내부 요소(`column`, `columnInfo`, `data`)를 컴포넌트 ID 수집에서 제외
+- **`dataList`/`dataMap` ID는 유지**: WebSquare에서 `$w.getById("dlt_search")`로 접근하는 document-level ID이므로 중복 검사 대상
+- **제외 태그 상수화**: `_DATA_DEFINITION_TAGS` 세트로 관리 → 향후 추가 태그 지원 용이
+
+| 2026-03-17 | `_extract_component_ids`에서 column/columnInfo/data 태그 제외 | 데이터 정의 요소 id는 DOM 컴포넌트가 아니므로 중복 검사 대상 아님 (이슈 #005 Phase 3) |
