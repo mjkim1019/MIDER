@@ -636,16 +636,16 @@ class TestAgentInit:
 
     def test_default_params(self):
         agent = ContextCollectorAgent()
-        assert agent.model == "gpt-4o-mini"
-        assert agent.fallback_model == "gpt-4o"
+        assert agent.model == "gpt-5-mini"
+        assert agent.fallback_model == "gpt-5"
         assert agent.temperature == 0.0
 
     def test_custom_params(self):
         agent = ContextCollectorAgent(
             model="custom-model",
-            fallback_model=None,
+            fallback_model="custom-fallback",
             temperature=0.5,
         )
         assert agent.model == "custom-model"
-        assert agent.fallback_model is None
+        assert agent.fallback_model == "custom-fallback"
         assert agent.temperature == 0.5

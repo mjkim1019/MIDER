@@ -1,47 +1,44 @@
 # Mider 설정 파일
 
 llm:
-  primary_model: "gpt-4o"
-  fallback_model: "gpt-4o-mini"
-  mini_model: "gpt-4o-mini"
+  primary_model: "gpt-5"
+  fallback_model: "gpt-5-mini"
+  mini_model: "gpt-5-mini"
   max_retries: 3
   timeout_seconds: 120
 
+  # gpt-5/gpt-5-mini는 temperature=1(기본값)만 지원
   # Agent별 모델 설정
-  # fallback이 없는 agent는 글로벌 fallback_model 사용
+  # gpt-5: 심층 분석 (Analyzer, Orchestrator)
+  # gpt-5-mini: 분류/요약/보고 (Classifier, Collector, Reporter, XML)
   agents:
     orchestrator:
-      model: "gpt-4o"
-      temperature: 0.3
-      fallback: "gpt-4o-mini"
+      model: "gpt-5"
+      fallback: "gpt-5-mini"
     task_classifier:
-      model: "gpt-4o-mini"
-      temperature: 0.0
-      fallback: "gpt-4o"
+      model: "gpt-5-mini"
+      fallback: "gpt-5"
     context_collector:
-      model: "gpt-4o-mini"
-      temperature: 0.0
-      fallback: "gpt-4o"
+      model: "gpt-5-mini"
+      fallback: "gpt-5"
     js_analyzer:
-      model: "gpt-4o"
-      temperature: 0.0
-      fallback: "gpt-4o-mini"
+      model: "gpt-5"
+      fallback: "gpt-5-mini"
     c_analyzer:
-      model: "gpt-4o"
-      temperature: 0.0
-      fallback: "gpt-4o-mini"
+      model: "gpt-5"
+      fallback: "gpt-5-mini"
     proc_analyzer:
-      model: "gpt-4o"
-      temperature: 0.0
-      fallback: "gpt-4o-mini"
+      model: "gpt-5"
+      fallback: "gpt-5-mini"
     sql_analyzer:
-      model: "gpt-4o-mini"
-      temperature: 0.0
-      fallback: "gpt-4o"
+      model: "gpt-5"
+      fallback: "gpt-5-mini"
+    xml_analyzer:
+      model: "gpt-5-mini"
+      fallback: "gpt-5"
     reporter:
-      model: "gpt-4o-mini"
-      temperature: 0.3
-      fallback: "gpt-4o"
+      model: "gpt-5-mini"
+      fallback: "gpt-5"
 
 api:
   provider: "azure"  # "azure" 또는 "openai"

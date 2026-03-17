@@ -13,6 +13,11 @@ from typing import Any
 
 from mider.agents.base_agent import BaseAgent
 from mider.config.prompt_loader import load_prompt
+from mider.config.settings_loader import (
+    get_agent_fallback_model,
+    get_agent_model,
+    get_agent_temperature,
+)
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.static_analysis.xml_parser import XMLParser
@@ -29,10 +34,14 @@ class XMLAnalyzerAgent(BaseAgent):
 
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
-        fallback_model: str | None = "gpt-4o",
-        temperature: float = 0.0,
+        model: str | None = None,
+        fallback_model: str | None = None,
+        temperature: float | None = None,
     ) -> None:
+        _name = "xml_analyzer"
+        model = model or get_agent_model(_name)
+        fallback_model = fallback_model or get_agent_fallback_model(_name)
+        temperature = temperature if temperature is not None else get_agent_temperature(_name)
         super().__init__(
             model=model,
             fallback_model=fallback_model,

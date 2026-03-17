@@ -14,6 +14,11 @@ from typing import Any
 
 from mider.agents.base_agent import BaseAgent
 from mider.config.prompt_loader import load_prompt
+from mider.config.settings_loader import (
+    get_agent_fallback_model,
+    get_agent_model,
+    get_agent_temperature,
+)
 from mider.models.execution_plan import DependencyGraph
 from mider.models.file_context import FileContext
 from mider.tools.file_io.file_reader import FileReader
@@ -91,10 +96,14 @@ class ContextCollectorAgent(BaseAgent):
 
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
-        fallback_model: str | None = "gpt-4o",
-        temperature: float = 0.0,
+        model: str | None = None,
+        fallback_model: str | None = None,
+        temperature: float | None = None,
     ) -> None:
+        _name = "context_collector"
+        model = model or get_agent_model(_name)
+        fallback_model = fallback_model or get_agent_fallback_model(_name)
+        temperature = temperature if temperature is not None else get_agent_temperature(_name)
         super().__init__(
             model=model,
             fallback_model=fallback_model,
