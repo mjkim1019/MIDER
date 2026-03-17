@@ -118,7 +118,7 @@ class CAnalyzerAgent(BaseAgent):
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
             line_count = len(file_content.splitlines())
-            self.rl.scan(f"File: [cornflower_blue]{Path(file).name}[/cornflower_blue] ({line_count}줄, ~{line_count * 10 // 1000}K tokens)")
+            self.rl.scan(f"File: [dodger_blue2]{Path(file).name}[/dodger_blue2] ({line_count}줄, ~{line_count * 10 // 1000}K tokens)")
 
             # Step 2: clang-tidy 정적분석 (내부에서 추론 로그 출력)
             clang_data = self._run_clang_tidy(file)
@@ -287,7 +287,7 @@ class CAnalyzerAgent(BaseAgent):
         for entry in risky_entries:
             fname = entry.get("function_name", "?")
             reason = entry.get("reason", "이유 없음")
-            self.rl.scan(f"  [cornflower_blue]{fname}[/cornflower_blue]: {reason}")
+            self.rl.scan(f"  [dodger_blue2]{fname}[/dodger_blue2]: {reason}")
 
         # Pass 2: 함수별 개별 LLM 호출
         structure_summary = build_structure_summary(file_content, file_context, "c")
@@ -307,7 +307,7 @@ class CAnalyzerAgent(BaseAgent):
         ) -> list[dict]:
             async with sem:
                 self.rl.step(
-                    f"Pass 2 [{idx}/{total_funcs}] [cornflower_blue]{func_name}[/cornflower_blue] 분석 시작"
+                    f"Pass 2 [{idx}/{total_funcs}] [dodger_blue2]{func_name}[/dodger_blue2] 분석 시작"
                 )
                 return await self._analyze_single_function(
                     file=file,
@@ -409,14 +409,14 @@ class CAnalyzerAgent(BaseAgent):
                 severity_summary[sev] = severity_summary.get(sev, 0) + 1
             sev_str = " ".join(f"{k}:{v}" for k, v in severity_summary.items())
             self.rl.step(
-                f"Pass 2 [[cornflower_blue]{func_name}[/cornflower_blue]]: {len(issues)}개 이슈 ({sev_str}, {tokens:,} tokens)"
+                f"Pass 2 [[dodger_blue2]{func_name}[/dodger_blue2]]: {len(issues)}개 이슈 ({sev_str}, {tokens:,} tokens)"
             )
             for iss in issues:
                 sev = iss.get("severity", "?").upper()
                 title = iss.get("title", "")
                 self.rl.scan(f"  [{sev}] {title}")
         else:
-            self.rl.step(f"Pass 2 [[cornflower_blue]{func_name}[/cornflower_blue]]: 이슈 없음 ({tokens:,} tokens)")
+            self.rl.step(f"Pass 2 [[dodger_blue2]{func_name}[/dodger_blue2]]: 이슈 없음 ({tokens:,} tokens)")
 
         return issues
 
