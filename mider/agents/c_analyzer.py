@@ -82,6 +82,7 @@ _REMOVE_KEYWORDS: list[str] = [
     "mutex", "동시 접근", "스레드 안전성",
     "데이터 레이스", "동시성", "요청 간 공유", "멀티스레드",
     "race", "concurrent", "동기화 누락",
+    "안전 대안", "관례 개선", "memset_s",
 ]
 
 # severity 우선순위 (높을수록 우선)
