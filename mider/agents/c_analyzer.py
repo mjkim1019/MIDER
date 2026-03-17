@@ -384,6 +384,7 @@ class CAnalyzerAgent(BaseAgent):
         ]
 
         response = await self.call_llm(messages, json_mode=True)
+        tokens = (len(prompt) + len(response)) // 4
         llm_result = json.loads(response)
 
         if not isinstance(llm_result, dict):
@@ -391,6 +392,24 @@ class CAnalyzerAgent(BaseAgent):
 
         issues = llm_result.get("issues", [])
         logger.debug(f"함수 {func_name}: {len(issues)}개 이슈")
+
+        # 함수별 결과 추론 로그
+        if issues:
+            severity_summary = {}
+            for iss in issues:
+                sev = iss.get("severity", "?").upper()
+                severity_summary[sev] = severity_summary.get(sev, 0) + 1
+            sev_str = " ".join(f"{k}:{v}" for k, v in severity_summary.items())
+            self.rl.llm_response(
+                f"Pass 2 [{func_name}]: {len(issues)}개 이슈 ({sev_str}, {tokens:,} tokens)"
+            )
+            for iss in issues:
+                sev = iss.get("severity", "?").upper()
+                title = iss.get("title", "")
+                self.rl.scan(f"  [{sev}] {title}")
+        else:
+            self.rl.llm_response(f"Pass 2 [{func_name}]: 이슈 없음 ({tokens:,} tokens)")
+
         return issues
 
     async def _run_single_pass_heuristic(
