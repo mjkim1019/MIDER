@@ -150,7 +150,8 @@ class ReasoningLogger:
                 finally:
                     stop_event.set()
                     updater.join(timeout=1)
-                    self._console.print()  # spinner 종료 후 줄바꿈
+            # Live 블록 종료 후 줄바꿈 (spinner가 지워진 뒤)
+            self._console.print()
         except LiveError:
             # 병렬 호출 시 Live 충돌 → 단순 출력으로 fallback
             self._dot_styled("magenta", message)
