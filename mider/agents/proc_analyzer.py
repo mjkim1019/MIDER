@@ -7,6 +7,7 @@ Pro*C 파일의 데이터 무결성 위협 패턴을 탐지한다.
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from mider.agents.base_agent import BaseAgent
@@ -82,12 +83,23 @@ class ProCAnalyzerAgent(BaseAgent):
             # Step 1: 파일 읽기
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
+            line_count = len(file_content.splitlines())
+            self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄)")
 
             # Step 2: proc 프리컴파일러 실행
             proc_errors = self._run_proc(file)
+            if proc_errors:
+                self.rl.scan(f"proc: {len(proc_errors)}건 에러")
 
             # Step 3: SQL 블록 추출
             sql_blocks = self._extract_sql_blocks(file)
+            if sql_blocks:
+                # EXEC SQL 함수명 표시
+                sql_funcs = {b.get("function", "?") for b in sql_blocks if b.get("function")}
+                self.rl.scan(
+                    f"EXEC SQL: {len(sql_blocks)}개 블록 "
+                    f"([sky_blue2]{', '.join(sorted(sql_funcs)[:5])}[/sky_blue2])"
+                )
 
             # Step 4: Error-Focused / Heuristic 판정
             has_proc_errors = bool(proc_errors)
@@ -96,6 +108,13 @@ class ProCAnalyzerAgent(BaseAgent):
                 for block in sql_blocks
             )
             use_error_focused = has_proc_errors or has_missing_sqlca
+            if use_error_focused:
+                self.rl.decision(
+                    "Decision: Error-Focused path",
+                    reason=f"proc errors={len(proc_errors or [])}, SQLCA 미검사={has_missing_sqlca}",
+                )
+            else:
+                self.rl.decision("Decision: Heuristic path", reason="proc 에러 없음, SQLCA 정상")
 
             # Step 5: LLM 분석
             prompt, messages = self._build_messages(
