@@ -62,8 +62,8 @@ class ReasoningLogger:
     # ──────────────────────────────────────────────
 
     def scan(self, message: str) -> None:
-        """입력 데이터 / 스캔 결과 (cyan dot + dim 내용)."""
-        self._dot_styled("cyan", message)
+        """입력 데이터 / 스캔 결과 (dot 없이 dim 텍스트)."""
+        self._print(f"    [dim]{message}[/dim]")
 
     def detect(self, message: str) -> None:
         """탐지된 문제 / 경고 (red dot + dim 내용)."""

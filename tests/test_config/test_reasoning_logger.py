@@ -22,7 +22,6 @@ class TestVerboseMode:
         rl, buf = _make_logger(verbose=True)
         rl.scan("test message")
         output = buf.getvalue()
-        assert "●" in output
         assert "test message" in output
 
     def test_verbose_false_no_output(self):
@@ -63,12 +62,12 @@ class TestPhaseHeader:
 class TestLogMethods:
     """각 로그 메서드 출력 검증."""
 
-    def test_scan_cyan_dot(self):
-        """scan은 ● 마커를 포함한다."""
+    def test_scan_no_dot(self):
+        """scan은 dot 없이 dim 텍스트로 출력한다."""
         rl, buf = _make_logger()
         rl.scan("Parse: 2 dataList")
         output = buf.getvalue()
-        assert "●" in output
+        assert "●" not in output
         assert "Parse: 2 dataList" in output
 
     def test_detect_message(self):
