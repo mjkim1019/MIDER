@@ -533,8 +533,47 @@ class TestHeaderErrorFallback:
         assert "pfmcom.h" not in prompt
 
     @pytest.mark.asyncio
-    async def test_meaningful_warnings_with_header_errors(self, agent, c_file):
-        """유의미 경고 + 헤더 에러 혼재 → 유의미 경고만 Error-Focused."""
+    async def test_level2_warnings_with_header_errors(self, agent, c_file):
+        """헤더 에러 + Level 2(clang-analyzer) → Level 2만 Error-Focused."""
+        clang_result = ToolResult(
+            success=True,
+            data={
+                "warnings": [
+                    {
+                        "check": "clang-diagnostic-error",
+                        "message": "'pfmcom.h' file not found",
+                        "line": 3, "column": 10, "severity": "error",
+                        "file": c_file,
+                    },
+                    {
+                        "check": "clang-analyzer-core.uninitialized.Assign",
+                        "message": "uninitialized variable",
+                        "line": 20, "column": 5, "severity": "warning",
+                        "file": c_file,
+                    },
+                ],
+                "total_warnings": 2,
+            },
+        )
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.return_value = clang_result
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(task_id="task_1", file=c_file, language="c")
+
+        # Error-Focused 프롬프트에 Level 2 경고만 포함
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        assert "clang-analyzer-core.uninitialized.Assign" in prompt
+        # 헤더 에러는 제외됨
+        assert "pfmcom.h" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_level1_only_with_header_errors_triggers_fallback(
+        self, agent, c_file,
+    ):
+        """헤더 에러 + Level 1(bugprone)만 → Heuristic fallback (Level 1 저가치)."""
         clang_result = ToolResult(
             success=True,
             data={
@@ -561,12 +600,11 @@ class TestHeaderErrorFallback:
 
         await agent.run(task_id="task_1", file=c_file, language="c")
 
-        # Error-Focused 프롬프트에 유의미 경고만 포함
+        # Heuristic fallback: Level 1은 저가치, 프롬프트에 bugprone 없어야 함
         call_args = agent._llm_client.chat.call_args
         messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
         prompt = messages[1]["content"]
-        assert "bugprone-branch-clone" in prompt
-        # 헤더 에러는 제외됨
+        assert "bugprone-branch-clone" not in prompt
         assert "pfmcom.h" not in prompt
 
 

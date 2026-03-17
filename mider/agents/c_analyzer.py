@@ -43,18 +43,26 @@ _HEADER_ERROR_KEYWORDS = frozenset({
     "no such file or directory",
 })
 
+# Level 2 체크 접두사 — 데이터 흐름 분석 (AST 완성 필요, 헤더 없으면 동작 불가)
+_LEVEL2_CHECK_PREFIX = "clang-analyzer-"
+
 
 def _is_header_error(warning: dict[str, Any]) -> bool:
-    """clang-tidy 경고가 헤더 누락으로 인한 컴파일 에러인지 판정한다.
-
-    severity=error이고 메시지에 헤더 누락 관련 키워드가 포함된 경우만 True.
-    clang-diagnostic-error라도 구문 에러(expected ';' 등)는 유의미하므로
-    반드시 메시지 키워드를 함께 확인한다.
-    """
+    """clang-tidy 경고가 헤더 누락으로 인한 컴파일 에러인지 판정한다."""
     if warning.get("severity") != "error":
         return False
     message = warning.get("message", "").lower()
     return any(kw in message for kw in _HEADER_ERROR_KEYWORDS)
+
+
+def _is_level2_warning(warning: dict[str, Any]) -> bool:
+    """clang-tidy Level 2(데이터 흐름 분석) 경고인지 판정한다.
+
+    Level 2: clang-analyzer-* — AST 완성이 필요, 헤더 없으면 동작 불가.
+    Level 1: bugprone-*, cert-*, misc-* 등 — 텍스트/구문 패턴, 헤더 없이도 동작.
+    """
+    check = warning.get("check", "")
+    return check.startswith(_LEVEL2_CHECK_PREFIX)
 
 
 class CAnalyzerAgent(BaseAgent):
@@ -510,29 +518,32 @@ class CAnalyzerAgent(BaseAgent):
             if not warnings:
                 return None
 
-            # 헤더 누락 에러와 유의미한 경고 분리
-            meaningful = []
-            header_errors = []
-            for w in warnings:
-                if _is_header_error(w):
-                    header_errors.append(w)
-                else:
-                    meaningful.append(w)
+            # 헤더 에러 분리
+            header_errors = [w for w in warnings if _is_header_error(w)]
+            non_header = [w for w in warnings if not _is_header_error(w)]
 
-            if header_errors:
-                logger.info(
-                    f"clang-tidy 헤더 에러 {len(header_errors)}건 필터링 "
-                    f"(유의미 경고 {len(meaningful)}건)"
-                )
+            if not header_errors:
+                # 헤더 에러 없음 → 전체 경고가 유의미 (AST 정상)
+                return {"warnings": non_header} if non_header else None
 
-            if meaningful:
-                return {"warnings": meaningful}
+            # 헤더 에러 있음 → Level 1은 저가치, Level 2만 유의미
+            level2 = [w for w in non_header if _is_level2_warning(w)]
+            level1 = [w for w in non_header if not _is_level2_warning(w)]
 
-            # 유의미한 경고 0건 → Heuristic/2-Pass fallback
-            if header_errors:
-                logger.info(
-                    "clang-tidy 헤더 에러만 존재 → Heuristic/2-Pass fallback"
-                )
+            logger.info(
+                f"clang-tidy: 헤더 에러 {len(header_errors)}건, "
+                f"Level 1 저가치 {len(level1)}건 필터링, "
+                f"Level 2 유의미 {len(level2)}건"
+            )
+
+            if level2:
+                return {"warnings": level2}
+
+            # Level 2 = 0건 → Heuristic/2-Pass fallback
+            logger.info(
+                "clang-tidy: 헤더 누락으로 Level 2 분석 불가 "
+                "→ Heuristic/2-Pass fallback"
+            )
             return None
         except Exception as e:
             logger.warning(f"clang-tidy 실행 실패, Heuristic 모드로 전환: {e}")
