@@ -1,0 +1,36 @@
+{
+  // Report 결과 파일 : issue-list.json
+  "generated_at": "2026-03-17T09:58:07.751869Z",
+  "session_id": "cd0297af6ebb",
+  "total_issues": 1,
+  "by_severity": {
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0
+  },
+  "issues": [
+    {
+      "issue_id": "XML-001",
+      "file": "/Users/a11401/Documents/2026/Mider/tests/fixtures/error/ZORDSS03S0100_buggy.xml",
+      "language": "xml",
+      "category": "data_integrity",
+      "severity": "high",
+      "title": "중복 컴포넌트 ID 'btn_save' 발견",
+      "description": "XML 파일 내에 동일한 컴포넌트 ID 'btn_save'가 2회 선언되어 있습니다 (라인 916, 1015). 동일 ID가 여러 컴포넌트에 사용되면 런타임에서 getElementById/컴포넌트 식별 및 이벤트 바인딩이 충돌하여 예기치 않은 동작(버튼 동작이 한쪽만 동작하거나 잘못된 컴포넌트에 적용됨)을 일으킬 수 있습니다. 두 컴포넌트의 ID를 고유하게 변경하고 필요 시 서로 다른 이벤트 핸들러로 분리하여 의도된 동작을 보장하세요.",
+      "location": {
+        "file": "/Users/a11401/Documents/2026/Mider/tests/fixtures/error/ZORDSS03S0100_buggy.xml",
+        "line_start": 916,
+        "line_end": 1015,
+        "column_start": null,
+        "column_end": null
+      },
+      "fix": {
+        "before": "<trigger id=\"btn_save\" ev:onclick=\"scwin.btn_save_onclick\"/>",
+        "after": "<trigger id=\"btn_save_sub\" ev:onclick=\"scwin.btn_save_sub_onclick\"/>",
+        "description": "두 번째(또는 중복된) 컴포넌트의 ID를 고유한 값으로 변경하고, 필요하면 해당 컴포넌트에 대한 별도 핸들러(scwin.btn_save_sub_onclick)를 구현하거나 기존 핸들러에서 ID별 분기 처리를 추가합니다."
+      },
+      "source": "static_analysis"
+    }
+  ]
+}

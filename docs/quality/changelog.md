@@ -527,3 +527,11 @@
 - `2026-03-17 18:11:29` [fix/T25-xml-duplicate-id-scope] **Write**: `/Users/a11401/Documents/2026/Mider/mider/config/settings.yaml`
 - `2026-03-17 18:11:36` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
 - `2026-03-17 18:19:39` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_reporter.py`
+- `2026-03-17 18:45:56` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/xml_parser.py`
+- `2026-03-17 18:46:08` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/xml_parser.py`
+- `2026-03-17 18:46:17` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/xml_parser.py`
+- `2026-03-17 18:47:07` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/xml_analyzer_error_focused.txt`
+- `2026-03-17 18:47:27` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_xml_parser.py`
+- `2026-03-17 18:53:46` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/task_classifier.py`
+- `2026-03-17 18:53:53` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/context_collector.py`
+- `2026-03-17 18:54:56` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_task_classifier.py`
