@@ -543,13 +543,13 @@ class CAnalyzerAgent(BaseAgent):
 
             # Level 2 = 0건 → Heuristic/2-Pass fallback
             self.rl.decision(
-                "Decision: clang-tidy Level 2 분석 불가 → fallback",
-                reason=f"헤더 에러 {len(header_errors)}건으로 AST 생성 실패, "
-                       f"Level 1 {len(level1)}건은 저가치",
+                "Decision: clang-tidy 유의미 경고 0건 → Heuristic/2-Pass fallback",
+                reason=f"헤더 누락({len(header_errors)}건)으로 clang-analyzer 미동작, "
+                       f"Level 1(bugprone 등) {len(level1)}건은 LLM 분석 가치 없음",
             )
             logger.info(
-                "clang-tidy: 헤더 누락으로 Level 2 분석 불가 "
-                "→ Heuristic/2-Pass fallback"
+                f"clang-tidy: 헤더 누락으로 clang-analyzer 미동작, "
+                f"Level 1 {len(level1)}건 저가치 → Heuristic/2-Pass fallback"
             )
             return None
         except Exception as e:
