@@ -1,12 +1,23 @@
 """Logging 설정: Rich 기반 로깅.
 
 print() 대신 이 모듈을 통해 로깅한다.
+DEBUG/INFO는 dim(회색), WARNING/ERROR는 기본 색상.
 """
 
 import logging
 import os
+from typing import Any
 
 from rich.logging import RichHandler
+
+
+class _DimRichHandler(RichHandler):
+    """DEBUG/INFO 메시지를 dim으로 출력하는 RichHandler."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno <= logging.INFO:
+            record.msg = f"[dim]{record.msg}[/dim]"
+        super().emit(record)
 
 
 def setup_logging(level: str | None = None) -> None:
@@ -23,7 +34,7 @@ def setup_logging(level: str | None = None) -> None:
         format="%(message)s",
         datefmt="[%X]",
         handlers=[
-            RichHandler(
+            _DimRichHandler(
                 rich_tracebacks=True,
                 show_path=False,
                 markup=True,
