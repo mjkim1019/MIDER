@@ -151,7 +151,7 @@
   - [x] T26.1: ReasoningLogger 유틸 구현
   - [x] T26.2: OrchestratorAgent에 추론 로그 연동
   - [x] T26.3: Analyzer Agent에 추론 로그 추가
-  - [ ] T26.4: CLI 출력 통합
+  - [x] T26.4: CLI 출력 통합
   - [ ] T26.5: 단위 테스트
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
