@@ -12,9 +12,13 @@ Rich Console 기반 컬러 dot 로그로 CLI에 실시간 출력한다.
   green   — 최종 결과
 """
 
-from typing import Any
+import time
+from contextlib import contextmanager
+from typing import Any, Generator
 
 from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 
 
 class ReasoningLogger:
@@ -85,12 +89,64 @@ class ReasoningLogger:
         self._dot("blue", message)
 
     def llm_request(self, message: str) -> None:
-        """LLM 호출 시작 (magenta)."""
+        """LLM 호출 시작 (magenta). spinner 없이 단순 출력."""
         self._dot("magenta", message)
 
     def llm_response(self, message: str) -> None:
         """LLM 응답 수신 (magenta)."""
         self._dot("magenta", message)
+
+    @contextmanager
+    def spinner(self, message: str) -> Generator[None, None, None]:
+        """LLM 호출 중 spinner 애니메이션을 표시한다.
+
+        verbose=False이면 아무것도 하지 않는다.
+
+        사용법:
+            with self.rl.spinner("LLM 분석 중..."):
+                response = await self.call_llm(messages)
+        """
+        if not self._verbose:
+            yield
+            return
+
+        start = time.time()
+        spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+        def _render() -> Text:
+            elapsed = time.time() - start
+            frame = spinner_frames[int(elapsed * 8) % len(spinner_frames)]
+            text = Text()
+            text.append(f"  {frame} ", style="magenta")
+            text.append(message, style="magenta")
+            text.append(f" ({elapsed:.1f}초 경과)", style="dim")
+            return text
+
+        with Live(
+            _render(),
+            console=self._console,
+            refresh_per_second=8,
+            transient=True,
+        ) as live:
+            # Live의 refresh가 자동으로 _render를 호출하지 않으므로
+            # 별도 태스크가 필요하지만, async context에서는
+            # Live가 자체 스레드로 동작. 수동 update 패턴 사용.
+            import threading
+
+            stop_event = threading.Event()
+
+            def _update_loop() -> None:
+                while not stop_event.is_set():
+                    live.update(_render())
+                    stop_event.wait(0.125)
+
+            updater = threading.Thread(target=_update_loop, daemon=True)
+            updater.start()
+            try:
+                yield
+            finally:
+                stop_event.set()
+                updater.join(timeout=1)
 
     def result(
         self,
