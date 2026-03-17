@@ -265,10 +265,10 @@ class TestAgentInit:
 
     def test_default_model(self):
         agent = XMLAnalyzerAgent()
-        assert agent.model == "gpt-4o-mini"
-        assert agent.fallback_model == "gpt-4o"
+        assert agent.model == "gpt-5-mini"
+        assert agent.fallback_model == "gpt-5"
 
     def test_custom_model(self):
-        agent = XMLAnalyzerAgent(model="gpt-4o", fallback_model=None)
-        assert agent.model == "gpt-4o"
-        assert agent.fallback_model is None
+        agent = XMLAnalyzerAgent(model="custom-model", fallback_model="custom-fallback")
+        assert agent.model == "custom-model"
+        assert agent.fallback_model == "custom-fallback"

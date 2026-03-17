@@ -126,10 +126,10 @@ class TestResolveModel:
         assert result == "gpt-4-turbo"
 
     def test_default_gpt4o(self, monkeypatch):
-        """기본값 gpt-4o."""
+        """기본값은 settings.yaml의 orchestrator 모델."""
         monkeypatch.delenv("MIDER_MODEL", raising=False)
         result = resolve_model(None)
-        assert result == "gpt-4o"
+        assert result == "gpt-5"
 
 
 # ──────────────────────────────────────────────

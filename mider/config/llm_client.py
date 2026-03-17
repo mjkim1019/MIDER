@@ -77,8 +77,11 @@ class LLMClient:
         kwargs: dict = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
         }
+
+        # gpt-5 계열은 temperature 기본값(1)만 지원
+        if not model.startswith("gpt-5"):
+            kwargs["temperature"] = temperature
 
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}

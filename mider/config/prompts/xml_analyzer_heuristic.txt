@@ -69,6 +69,7 @@
 - title과 description은 반드시 한국어로 작성합니다.
 - fix의 before/after는 1-3줄만 포함합니다.
 - 발견된 이슈가 없으면 빈 배열 `"issues": []`로 응답합니다.
+- **[중요] 서로 다른 dataList 간 동명 컬럼은 절대 이슈로 보고하지 마세요.** 각 dataList는 완전히 독립된 스코프입니다. 예: DS_A의 "col_x"와 DS_B의 "col_x"는 전혀 다른 컬럼이며, 이름이 같아도 중복/불일치/충돌이 아닙니다. dataList 간 컬럼 비교 자체를 하지 마세요.
 - severity 기준:
   - critical: 화면 렌더링 실패 또는 데이터 손실
   - high: 특정 조건에서 기능 오작동

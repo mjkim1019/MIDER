@@ -4,8 +4,8 @@ clang-tidy 정적분석 + LLM 심층분석을 결합하여
 C 파일의 메모리 안전성 및 장애 유발 패턴을 탐지한다.
 
 clang-tidy 없고 대형 파일(>500줄)이면 2-Pass 전략:
-  Pass 1: Heuristic Pre-Scanner → gpt-4o-mini로 위험 함수 선별
-  Pass 2: 선별된 함수 → gpt-4o로 심층 분석
+  Pass 1: Heuristic Pre-Scanner → mini 모델로 위험 함수 선별
+  Pass 2: 선별된 함수 → primary 모델로 심층 분석
 """
 
 import asyncio
@@ -16,6 +16,11 @@ from typing import Any
 
 from mider.agents.base_agent import BaseAgent
 from mider.config.prompt_loader import load_prompt
+from mider.config.settings_loader import (
+    get_agent_fallback_model,
+    get_agent_model,
+    get_agent_temperature,
+)
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.static_analysis.c_heuristic_scanner import CHeuristicScanner
@@ -39,10 +44,14 @@ class CAnalyzerAgent(BaseAgent):
 
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str | None = None,
         fallback_model: str | None = None,
-        temperature: float = 0.0,
+        temperature: float | None = None,
     ) -> None:
+        _name = "c_analyzer"
+        model = model or get_agent_model(_name)
+        fallback_model = fallback_model or get_agent_fallback_model(_name)
+        temperature = temperature if temperature is not None else get_agent_temperature(_name)
         super().__init__(
             model=model,
             fallback_model=fallback_model,
@@ -155,8 +164,8 @@ class CAnalyzerAgent(BaseAgent):
     ) -> list[dict[str, Any]]:
         """2-Pass 분석: Pre-Scanner → LLM 선별 → 함수별 개별 심층 분석.
 
-        Pass 1: regex 스캔 + gpt-4o-mini로 위험 함수 선별
-        Pass 2: 선별된 함수를 각각 개별 gpt-4o 호출로 심층 분석
+        Pass 1: regex 스캔 + mini 모델로 위험 함수 선별
+        Pass 2: 선별된 함수를 각각 개별 primary 모델 호출로 심층 분석
         """
         # Pass 1-a: Heuristic Pre-Scanner (regex, 비용 0)
         scan_result = self._heuristic_scanner.execute(file=file)
@@ -174,7 +183,7 @@ class CAnalyzerAgent(BaseAgent):
         lines = file_content.splitlines()
         boundaries = find_function_boundaries(lines, "c")
 
-        # Pass 1-c: gpt-4o-mini로 위험 함수 선별
+        # Pass 1-c: mini 모델로 위험 함수 선별
         prescan_prompt = load_prompt(
             "c_prescan_fewshot",
             file_path=file,
@@ -191,10 +200,11 @@ class CAnalyzerAgent(BaseAgent):
             {"role": "user", "content": prescan_prompt},
         ]
 
-        # gpt-4o-mini로 빠르게 선별 (호출 후 원래 모델 복원)
+        # mini 모델로 빠르게 선별 (호출 후 원래 모델 복원)
+        from mider.config.settings_loader import get_mini_model
         original_model = self.model
         original_fallback = self.fallback_model
-        self.model = "gpt-4o-mini"
+        self.model = get_mini_model()
         self.fallback_model = None
         try:
             prescan_response = await self.call_llm(prescan_messages, json_mode=True)

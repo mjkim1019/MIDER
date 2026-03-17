@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from mider.agents.base_agent import BaseAgent
+from mider.config.settings_loader import (
+    get_agent_fallback_model,
+    get_agent_model,
+)
 from mider.agents.c_analyzer import CAnalyzerAgent
 from mider.agents.context_collector import ContextCollectorAgent
 from mider.agents.js_analyzer import JavaScriptAnalyzerAgent
@@ -65,11 +69,14 @@ class OrchestratorAgent(BaseAgent):
 
     def __init__(
         self,
-        model: str = "gpt-4o",
-        fallback_model: str | None = "gpt-4-turbo",
+        model: str | None = None,
+        fallback_model: str | None = None,
         temperature: float = 0.3,
         progress_callback: Optional[ProgressCallback] = None,
     ) -> None:
+        _name = "orchestrator"
+        model = model or get_agent_model(_name)
+        fallback_model = fallback_model or get_agent_fallback_model(_name)
         super().__init__(
             model=model,
             fallback_model=fallback_model,

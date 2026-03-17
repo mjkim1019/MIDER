@@ -245,7 +245,7 @@ class TestAgentInit:
     """Agent 초기화 테스트."""
 
     def test_default_model(self):
-        """기본 모델은 gpt-4o, fallback 없음."""
+        """기본 모델은 settings.yaml에서 로드."""
         agent = ProCAnalyzerAgent()
-        assert agent.model == "gpt-4o"
-        assert agent.fallback_model is None
+        assert agent.model == "gpt-5"
+        assert agent.fallback_model == "gpt-5-mini"

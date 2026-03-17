@@ -54,6 +54,33 @@ DUPLICATE_ID_XML = """\
 </html>
 """
 
+# 서로 다른 dataList에 동명 column id가 있는 XML (false positive 재현)
+CROSS_DATALIST_SAME_COLUMN_XML = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:w2="http://www.inswave.com/websquare">
+<head>
+    <w2:dataList id="DS_REQR_INFO">
+        <w2:columnInfo>
+            <w2:column id="req_sale_org_id" name="신청영업조직ID" dataType="text"/>
+            <w2:column id="reqr_nm" name="신청인명" dataType="text"/>
+        </w2:columnInfo>
+        <w2:data use="true"/>
+    </w2:dataList>
+    <w2:dataList id="DS_FAX_INFO">
+        <w2:columnInfo>
+            <w2:column id="req_sale_org_id" name="판매점아이디" dataType="text"/>
+            <w2:column id="fax_num" name="팩스번호" dataType="text"/>
+        </w2:columnInfo>
+        <w2:data use="true"/>
+    </w2:dataList>
+</head>
+<body>
+    <input id="txt_search"/>
+</body>
+</html>
+"""
+
 INVALID_XML = """\
 <?xml version="1.0"?>
 <root>
@@ -237,11 +264,52 @@ class TestComponentIds:
     """컴포넌트 ID 추출 테스트."""
 
     def test_extract_all_ids(self, parser, tmp_path):
-        """모든 컴포넌트 ID 추출."""
+        """UI 컴포넌트 + dataList ID 추출, column ID 제외."""
         f = tmp_path / "screen.xml"
         f.write_text(SAMPLE_WEBSQUARE_XML, encoding="utf-8")
         result = parser.execute(file=str(f))
         ids = {item["id"] for item in result.data["component_ids"]}
+        # dataList ID는 document-level이므로 포함
         assert "dlt_search" in ids
+        # body UI 컴포넌트 포함
         assert "btn_search" in ids
         assert "grd_list" in ids
+        # column ID는 데이터 정의 내부이므로 제외
+        assert "svc_mgmt_num" not in ids
+        assert "start_date" not in ids
+        assert "order_id" not in ids
+        assert "amount" not in ids
+
+    def test_column_ids_excluded_from_duplicates(self, parser, tmp_path):
+        """서로 다른 dataList의 동명 column id는 중복으로 탐지하지 않는다."""
+        f = tmp_path / "screen.xml"
+        f.write_text(CROSS_DATALIST_SAME_COLUMN_XML, encoding="utf-8")
+        result = parser.execute(file=str(f))
+        # req_sale_org_id가 2개 dataList에 있지만 중복 아님
+        assert result.data["duplicate_ids"] == []
+        # dataList ID는 component_ids에 포함
+        ids = {item["id"] for item in result.data["component_ids"]}
+        assert "DS_REQR_INFO" in ids
+        assert "DS_FAX_INFO" in ids
+        # column ID는 component_ids에서 제외
+        assert "req_sale_org_id" not in ids
+
+    def test_body_duplicate_still_detected(self, parser, tmp_path):
+        """body UI 컴포넌트 중복은 여전히 탐지한다 (회귀 테스트)."""
+        f = tmp_path / "screen.xml"
+        f.write_text(DUPLICATE_ID_XML, encoding="utf-8")
+        result = parser.execute(file=str(f))
+        duplicates = result.data["duplicate_ids"]
+        dup_ids = {d["id"] for d in duplicates}
+        assert "txt_name" in dup_ids
+        assert "btn_ok" in dup_ids
+
+    def test_duplicate_ids_have_line_numbers(self, parser, tmp_path):
+        """중복 ID에 라인 번호가 포함된다."""
+        f = tmp_path / "screen.xml"
+        f.write_text(DUPLICATE_ID_XML, encoding="utf-8")
+        result = parser.execute(file=str(f))
+        for dup in result.data["duplicate_ids"]:
+            assert "lines" in dup
+            assert len(dup["lines"]) == dup["count"]
+            assert all(isinstance(n, int) and n > 0 for n in dup["lines"])

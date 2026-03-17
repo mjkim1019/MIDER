@@ -314,13 +314,13 @@ class TestAgentInit:
     """Agent 초기화 테스트."""
 
     def test_default_model(self):
-        """기본 모델은 gpt-4o."""
+        """기본 모델은 settings.yaml의 js_analyzer 설정값."""
         agent = JavaScriptAnalyzerAgent()
-        assert agent.model == "gpt-4o"
-        assert agent.fallback_model is None
+        assert agent.model == "gpt-5"
+        assert agent.fallback_model == "gpt-5-mini"
 
     def test_custom_model(self):
         """커스텀 모델 설정."""
-        agent = JavaScriptAnalyzerAgent(model="gpt-4o-mini", fallback_model="gpt-4o")
-        assert agent.model == "gpt-4o-mini"
-        assert agent.fallback_model == "gpt-4o"
+        agent = JavaScriptAnalyzerAgent(model="custom-model", fallback_model="custom-fallback")
+        assert agent.model == "custom-model"
+        assert agent.fallback_model == "custom-fallback"

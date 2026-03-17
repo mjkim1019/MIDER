@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model", "-m",
         default=None,
-        help="LLM 모델명 (기본: MIDER_MODEL 환경변수 또는 gpt-4o)",
+        help="LLM 모델명 (기본: MIDER_MODEL 환경변수 또는 settings.yaml)",
     )
     parser.add_argument(
         "--explain-plan", "-e",
@@ -84,10 +84,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def resolve_model(args_model: str | None) -> str:
-    """모델명을 결정한다: CLI 인자 > 환경변수 > 기본값."""
+    """모델명을 결정한다: CLI 인자 > 환경변수 > settings.yaml."""
     if args_model:
         return args_model
-    return os.environ.get("MIDER_MODEL", "gpt-4o")
+    if os.environ.get("MIDER_MODEL"):
+        return os.environ["MIDER_MODEL"]
+    from mider.config.settings_loader import get_agent_model
+    return get_agent_model("orchestrator")
 
 
 def validate_api_key() -> str | None:
