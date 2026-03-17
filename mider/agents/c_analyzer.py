@@ -72,7 +72,6 @@ def _is_level2_warning(warning: dict[str, Any]) -> bool:
 # 중복 병합 그룹 키워드 (title 소문자에서 매칭)
 _DEDUP_GROUPS: list[tuple[str, list[str]]] = [
     ("strncpy 널 종료", ["strncpy", "널 종료", "null 종료", "strlcpy"]),
-    ("NULL 체크 누락", ["null 체크", "null 검증", "유효성 검증", "널 체크"]),
     ("ix 미초기화", ["ix 변수", "ix 미초기화"]),
 ]
 
@@ -83,6 +82,8 @@ _REMOVE_KEYWORDS: list[str] = [
     "데이터 레이스", "동시성", "요청 간 공유", "멀티스레드",
     "race", "concurrent", "동기화 누락",
     "안전 대안", "관례 개선", "memset_s",
+    "null 검증 부재", "null 체크 누락", "유효성 검증 누락",
+    "방어적 프로그래밍", "null 역참조",
 ]
 
 # severity 우선순위 (높을수록 우선)
