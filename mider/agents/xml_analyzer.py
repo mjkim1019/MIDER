@@ -77,8 +77,42 @@ class XMLAnalyzerAgent(BaseAgent):
             parse_result = self._xml_parser.execute(file=file)
             parse_data = parse_result.data
 
+            # 파싱 결과 로그
+            data_lists = parse_data.get("data_lists", [])
+            dl_summary = ", ".join(
+                f"{dl['id']}: {len(dl.get('columns', []))}cols"
+                for dl in data_lists[:5]
+            )
+            self.rl.scan(
+                f"Parse: {len(data_lists)} dataList ({dl_summary})"
+            )
+            self.rl.scan(
+                f"Parse: {len(parse_data.get('events', []))} events, "
+                f"{len(parse_data.get('component_ids', []))} components, "
+                f"{len(parse_data.get('duplicate_ids', []))} duplicate ID"
+            )
+
+            # 중복 ID 상세
+            for dup in parse_data.get("duplicate_ids", []):
+                lines_str = ", ".join(str(ln) for ln in dup.get("lines", []))
+                self.rl.detect(
+                    f"Detect: {dup['id']} 중복 ({lines_str}행) "
+                    f"— {' × '.join(dup.get('tags', []))}"
+                )
+
             # Step 2: JS 교차 검증
             js_validation = self._validate_js_handlers(file, parse_data)
+            js_file = js_validation.get("js_file")
+            missing = js_validation.get("missing_handlers", [])
+            if js_file:
+                if missing:
+                    self.rl.detect(
+                        f"JS검증: {len(missing)}개 핸들러 누락 ({js_file})"
+                    )
+                else:
+                    self.rl.scan(f"JS검증: 핸들러 검증 통과 ({js_file})")
+            else:
+                self.rl.decision("JS검증: 대응 JS 파일 없음 — 핸들러 교차검증 불가")
 
             # Step 3: Error-Focused / Heuristic 분기
             has_errors = (
@@ -87,6 +121,22 @@ class XMLAnalyzerAgent(BaseAgent):
                 or js_validation.get("missing_handlers")
             )
 
+            dup_count = len(parse_data.get("duplicate_ids", []))
+            miss_count = len(missing)
+            err_count = len(parse_data.get("parse_errors", []))
+            if has_errors:
+                self.rl.decision(
+                    "Decision: Error-Focused path",
+                    reason=f"duplicate_ids={dup_count}건, "
+                           f"missing_handlers={miss_count}건, "
+                           f"parse_errors={err_count}건",
+                )
+            else:
+                self.rl.decision(
+                    "Decision: Heuristic path",
+                    reason="정적 오류 없음 → 구조 전체 검증",
+                )
+
             prompt, messages = self._build_messages(
                 file=file,
                 parse_data=parse_data,
@@ -94,18 +144,36 @@ class XMLAnalyzerAgent(BaseAgent):
                 has_errors=has_errors,
             )
 
+            # 프롬프트 정보 로그
+            prompt_name = "xml_analyzer_error_focused" if has_errors else "xml_analyzer_heuristic"
+            prompt_tokens = len(prompt) // 4
+            self.rl.prompt(
+                f"Prompt: {prompt_name} "
+                f"({len(data_lists)} dataList, "
+                f"{len(parse_data.get('events', []))} events 포함)"
+            )
+            self.rl.prompt(f"  입력 토큰 추정: ~{prompt_tokens:,}")
+
             # Step 4: LLM 분석
+            llm_start = time.time()
+            self.rl.llm_request(f"LLM 호출: {self.model} 요청 중...")
             response = await self.call_llm(messages, json_mode=True)
+            llm_elapsed = time.time() - llm_start
+            tokens_estimate = (len(prompt) + len(response)) // 4
+            self.rl.llm_response(
+                f"LLM 응답: {tokens_estimate:,} tokens, {llm_elapsed:.1f}초"
+            )
+
             llm_result = json.loads(response)
 
             if not isinstance(llm_result, dict):
                 raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
 
             issues = llm_result.get("issues", [])
+            self.rl.process(f"Parse: LLM JSON 파싱 → {len(issues)}개 이슈 추출")
 
             # Step 5: AnalysisResult 생성
             elapsed = time.time() - start_time
-            tokens_estimate = (len(prompt) + len(response)) // 4
 
             result = AnalysisResult.model_validate({
                 "task_id": task_id,
@@ -116,6 +184,8 @@ class XMLAnalyzerAgent(BaseAgent):
                 "analysis_time_seconds": round(elapsed, 2),
                 "llm_tokens_used": tokens_estimate,
             })
+
+            self.rl.process("Validate: AnalysisResult 스키마 검증 통과")
 
             logger.info(
                 f"XML 분석 완료: {file} → {len(result.issues)}개 이슈, "

@@ -535,3 +535,5 @@
 - `2026-03-17 18:53:46` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/task_classifier.py`
 - `2026-03-17 18:53:53` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/context_collector.py`
 - `2026-03-17 18:54:56` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_task_classifier.py`
+- `2026-03-17 19:55:45` [feat/T26-reasoning-logger] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/reporter.py`
+- `2026-03-17 19:56:08` [feat/T26-reasoning-logger] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/context_collector.py`

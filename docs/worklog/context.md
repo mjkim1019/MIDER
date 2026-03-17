@@ -214,3 +214,10 @@
 - **구현 위치**: `ReasoningLogger` 유틸 (Rich Console 기반, 기존 logging과 분리)
 - **기존 logging과의 관계**: `logging.DEBUG`는 개발자용 상세 로그, ReasoningLogger는 사용자 facing 고수준 로그
 - **verbose 모드**: `-v` 옵션일 때 상세 추론 로그 표시, 기본은 Phase 진행률만
+
+| 2026-03-17 | ReasoningLogger 유틸 구현 (reasoning_logger.py) | Agent 추론 과정을 컬러 dot으로 CLI 시각화 — 기존 logging과 분리 |
+| 2026-03-17 | BaseAgent에 `rl` 속성 추가 (기본 no-op) | 모든 Agent가 ReasoningLogger에 접근, verbose=False이면 오버헤드 없음 |
+| 2026-03-17 | OrchestratorAgent에서 Sub-Agent에 rl 전달 | `agent.rl = self.rl` 패턴으로 주입 전파 |
+| 2026-03-17 | XMLAnalyzerAgent 상세 추론 로그 | 파서→경로선택→프롬프트→LLM→후처리 전 과정 시각화 |
+| 2026-03-17 | 리뷰 반영: reporter reason elif 분기 | CRITICAL+HIGH 동시 시 중복 차단 문구 방지 (M2) |
+| 2026-03-17 | 리뷰 반영: context scan 로그에 파일명 추가 | 어떤 파일의 scan 결과인지 식별 가능 (L2) |

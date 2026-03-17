@@ -9,8 +9,12 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional
 
 from mider.config.llm_client import LLMClient
+from mider.config.reasoning_logger import ReasoningLogger
 
 logger = logging.getLogger(__name__)
+
+# 전역 no-op 로거 (verbose=False이면 아무것도 출력하지 않음)
+_NOOP_LOGGER = ReasoningLogger(verbose=False)
 
 
 class BaseAgent(ABC):
@@ -21,6 +25,7 @@ class BaseAgent(ABC):
         fallback_model: 기본 모델 실패 시 사용할 모델
         temperature: LLM 샘플링 온도
         max_retries: LLM API 재시도 횟수
+        rl: ReasoningLogger 인스턴스 (추론 과정 시각화)
     """
 
     def __init__(
@@ -35,6 +40,7 @@ class BaseAgent(ABC):
         self.temperature = temperature
         self.max_retries = max_retries
         self._llm_client: Optional[LLMClient] = None
+        self.rl: ReasoningLogger = _NOOP_LOGGER
 
     @property
     def llm_client(self) -> LLMClient:

@@ -23,6 +23,7 @@ from rich.text import Text
 from mider import __version__
 from mider.agents.orchestrator import OrchestratorAgent
 from mider.config.logging_config import setup_logging
+from mider.config.reasoning_logger import ReasoningLogger
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +346,7 @@ async def run_analysis(
     model: str,
     console: Console,
     explain_plan: str | None = None,
+    verbose: bool = False,
 ) -> int:
     """분석 파이프라인을 실행한다.
 
@@ -352,10 +354,12 @@ async def run_analysis(
         종료 코드 (0, 1, 2, 3)
     """
     progress_callback = _create_progress_callback(console)
+    reasoning_logger = ReasoningLogger(console=console, verbose=verbose)
 
     orchestrator = OrchestratorAgent(
         model=model,
         progress_callback=progress_callback,
+        reasoning_logger=reasoning_logger,
     )
 
     result = await orchestrator.run(
@@ -428,6 +432,7 @@ def main() -> None:
                 model=model,
                 console=console,
                 explain_plan=explain_plan,
+                verbose=args.verbose,
             )
         )
     except KeyboardInterrupt:

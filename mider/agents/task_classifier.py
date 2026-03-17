@@ -92,12 +92,18 @@ class TaskClassifierAgent(BaseAgent):
 
         # Step 3: LLM 우선순위 보정 (단일 파일이면 skip — 보정 의미 없음)
         if len(files) > 1:
+            self.rl.llm_request(f"LLM 우선순위 보정: {self.model} 요청 중...")
             plan_data = await self._refine_priorities_with_llm(
                 files=files,
                 plan_data=plan_data,
             )
+            self.rl.llm_response("LLM 우선순위 보정 완료")
         else:
             logger.debug("단일 파일 — LLM 우선순위 보정 건너뜀")
+            self.rl.decision(
+                "Decision: LLM 우선순위 보정 skip",
+                reason="단일 파일이므로 정렬할 대상 없음",
+            )
 
         # Step 4: ExecutionPlan 스키마로 검증
         execution_plan = ExecutionPlan.model_validate(plan_data)

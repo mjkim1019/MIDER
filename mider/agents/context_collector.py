@@ -158,13 +158,34 @@ class ContextCollectorAgent(BaseAgent):
             "common_patterns": common_patterns,
         }
 
+        # Scan 결과 로그
+        for ctx in file_contexts:
+            imports_count = len(ctx.get("imports", []))
+            calls_count = len(ctx.get("calls", []))
+            patterns = ctx.get("patterns", [])
+            pattern_summary = ", ".join(
+                f"{p['pattern_type']}: {p.get('description', '')[:30]}"
+                for p in patterns[:3]
+            )
+            fname = Path(ctx.get("file", "?")).name
+            self.rl.scan(
+                f"Scan [{fname}]: imports={imports_count}, calls={calls_count}, "
+                f"patterns=[{pattern_summary}]"
+            )
+
         if len(sub_tasks) > 1:
+            self.rl.llm_request(f"LLM 컨텍스트 보정: {self.model} 요청 중...")
             refined = await self._refine_with_llm(
                 execution_plan=execution_plan,
                 tool_result=tool_result,
             )
+            self.rl.llm_response("LLM 컨텍스트 보정 완료")
         else:
             logger.debug("단일 파일 — LLM 컨텍스트 보정 건너뜀")
+            self.rl.decision(
+                "Decision: LLM 컨텍스트 보정 skip",
+                reason="단일 파일이므로 교차 참조 보정 불필요",
+            )
             refined = tool_result
 
         # Step 4: FileContext 스키마 검증

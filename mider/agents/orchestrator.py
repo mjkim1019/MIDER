@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from mider.agents.base_agent import BaseAgent
+from mider.config.reasoning_logger import ReasoningLogger
 from mider.config.settings_loader import (
     get_agent_fallback_model,
     get_agent_model,
@@ -73,6 +74,7 @@ class OrchestratorAgent(BaseAgent):
         fallback_model: str | None = None,
         temperature: float = 0.3,
         progress_callback: Optional[ProgressCallback] = None,
+        reasoning_logger: Optional[ReasoningLogger] = None,
     ) -> None:
         _name = "orchestrator"
         model = model or get_agent_model(_name)
@@ -84,6 +86,8 @@ class OrchestratorAgent(BaseAgent):
         )
         self.session_id: str = uuid.uuid4().hex[:12]
         self.progress_callback = progress_callback
+        if reasoning_logger is not None:
+            self.rl = reasoning_logger
         self._explain_plan_file: str | None = None
 
         # Tools
@@ -132,10 +136,13 @@ class OrchestratorAgent(BaseAgent):
         # Sub-Agent 초기화 (이미 설정된 경우 유지 — 테스트 시 mock 주입용)
         if self._task_classifier is None:
             self._task_classifier = TaskClassifierAgent()
+            self._task_classifier.rl = self.rl
         if self._context_collector is None:
             self._context_collector = ContextCollectorAgent()
+            self._context_collector.rl = self.rl
         if self._reporter is None:
             self._reporter = ReporterAgent()
+            self._reporter.rl = self.rl
 
         # Phase 0: Task Classification
         execution_plan = await self._run_phase0(valid_files)
@@ -186,6 +193,13 @@ class OrchestratorAgent(BaseAgent):
     ) -> dict[str, Any]:
         """Phase 0: TaskClassifierAgent로 파일 분류 및 실행 계획 수립."""
         self._report_progress(0, "파일 분류", 0, 1, "실행 계획 수립 중")
+        self.rl.phase_header(0, "TaskClassifierAgent")
+
+        # 입력 정보 로그
+        lang_summary = ", ".join(
+            f"{Path(f).suffix}: {Path(f).name}" for f in valid_files[:5]
+        )
+        self.rl.scan(f"입력: {len(valid_files)}개 파일 ({lang_summary})")
 
         execution_plan = await self._call_agent(
             self._task_classifier,  # type: ignore[arg-type]
@@ -193,11 +207,10 @@ class OrchestratorAgent(BaseAgent):
         )
 
         sub_tasks = execution_plan.get("sub_tasks", [])
-        logger.info(
-            f"Phase 0 완료: {len(sub_tasks)}개 태스크, "
-            f"예상 {execution_plan.get('estimated_time_seconds', 0)}초"
-        )
+        est = execution_plan.get("estimated_time_seconds", 0)
+        logger.info(f"Phase 0 완료: {len(sub_tasks)}개 태스크, 예상 {est}초")
 
+        self.rl.result(f"Result: {len(sub_tasks)} tasks, 예상 {est}초")
         self._report_progress(0, "파일 분류", 1, 1, f"{len(sub_tasks)}개 태스크 계획")
 
         return execution_plan
@@ -208,6 +221,7 @@ class OrchestratorAgent(BaseAgent):
     ) -> dict[str, Any]:
         """Phase 1: ContextCollectorAgent로 파일 컨텍스트 수집."""
         self._report_progress(1, "컨텍스트 수집", 0, 1, "의존성/패턴 분석 중")
+        self.rl.phase_header(1, "ContextCollectorAgent")
 
         file_context = await self._call_agent(
             self._context_collector,  # type: ignore[arg-type]
@@ -217,6 +231,7 @@ class OrchestratorAgent(BaseAgent):
         contexts = file_context.get("file_contexts", [])
         logger.info(f"Phase 1 완료: {len(contexts)}개 파일 컨텍스트")
 
+        self.rl.result(f"Result: {len(contexts)} file contexts collected")
         self._report_progress(1, "컨텍스트 수집", 1, 1, f"{len(contexts)}개 컨텍스트")
 
         return file_context
@@ -266,7 +281,14 @@ class OrchestratorAgent(BaseAgent):
             )
 
             # 파일 라인 수 집계
-            total_lines += task.get("metadata", {}).get("line_count", 0)
+            line_count = task.get("metadata", {}).get("line_count", 0)
+            total_lines += line_count
+
+            # Phase 2 헤더 (Analyzer 이름 포함)
+            agent_cls = _LANGUAGE_AGENT_MAP.get(language)
+            agent_name = getattr(agent_cls, "__name__", language.upper() + "Analyzer")
+            self.rl.phase_header(2, agent_name)
+            self.rl.scan(f"File: {Path(file_path).name} ({line_count}줄, {language})")
 
             # 언어별 Analyzer 호출
             result = await self._analyze_single_file(
@@ -282,10 +304,16 @@ class OrchestratorAgent(BaseAgent):
             error = result.get("error")
             if error:
                 logger.warning(f"분석 에러: {file_path}: {error}")
+                self.rl.detect(f"Error: {error}")
             else:
                 logger.info(
                     f"Phase 2 [{idx + 1}/{total_tasks}]: "
                     f"{file_path} → {issues_count}개 이슈"
+                )
+                elapsed = result.get("analysis_time_seconds", 0)
+                self.rl.result(
+                    f"Result: {issues_count} issues, {elapsed}초",
+                    issues=result.get("issues", []),
                 )
 
         self._report_progress(
@@ -309,6 +337,16 @@ class OrchestratorAgent(BaseAgent):
     ) -> dict[str, Any]:
         """Phase 3: ReporterAgent로 통합 리포트 생성."""
         self._report_progress(3, "리포트 생성", 0, 1, "리포트 생성 중")
+        self.rl.phase_header(3, "ReporterAgent")
+
+        # 이슈 집계 로그
+        all_issues = [i for r in analysis_results for i in r.get("issues", [])]
+        severity_counts = {}
+        for issue in all_issues:
+            sev = issue.get("severity", "unknown")
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+        sev_str = " ".join(f"{k.upper()}:{v}" for k, v in severity_counts.items())
+        self.rl.scan(f"Input: {total_files} files, {len(all_issues)} issues ({sev_str})")
 
         report = await self._call_agent(
             self._reporter,  # type: ignore[arg-type]
@@ -322,6 +360,7 @@ class OrchestratorAgent(BaseAgent):
         )
 
         logger.info("Phase 3 완료: 리포트 생성")
+        self.rl.result("Result: issue-list + checklist + summary + deployment-checklist")
         self._report_progress(3, "리포트 생성", 1, 1, "완료")
 
         return report
@@ -375,7 +414,9 @@ class OrchestratorAgent(BaseAgent):
 
         # Analyzer 캐싱: 같은 언어는 같은 인스턴스 재사용
         if language not in self._analyzers:
-            self._analyzers[language] = agent_cls()
+            analyzer = agent_cls()
+            analyzer.rl = self.rl
+            self._analyzers[language] = analyzer
         analyzer = self._analyzers[language]
 
         try:
