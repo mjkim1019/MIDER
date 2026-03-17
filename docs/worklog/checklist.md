@@ -140,6 +140,10 @@
   - [x] T24.1: 튜닝 포인트 → 정적 이슈 변환 메서드 (_generate_static_issues)
   - [x] T24.2: LLM + 정적 이슈 병합 로직 (_merge_issues)
   - [x] T24.3: 단위 테스트
+- [ ] T25: XML 중복 ID 스코프 개선 (이슈 #005 Phase 3)
+  - [x] T25.1: `_extract_component_ids`에서 데이터 정의 요소 제외
+  - [ ] T25.2: 테스트 수정 및 추가
+  - [ ] T25.3: 이슈 로그 업데이트
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [ ] T15.2: E2E 테스트

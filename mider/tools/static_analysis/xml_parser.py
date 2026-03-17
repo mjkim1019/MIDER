@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # 이벤트 속성 패턴 (ev:onclick, ev:onchange 등)
 _EVENT_ATTR_RE = re.compile(r"\{.*\}on\w+$|^ev:on\w+$|^on\w+$")
 
+# 데이터 정의 내부 요소 — 컴포넌트 ID 중복 검사에서 제외
+# dataList/dataMap 자체는 $w.getById()로 접근하는 document-level ID이므로 유지
+_DATA_DEFINITION_TAGS = frozenset({"column", "columnInfo", "data"})
+
 
 class XMLParser(BaseTool):
     """WebSquare XML 파일을 파싱하여 구조 정보를 추출하는 Tool."""
@@ -174,7 +178,11 @@ class XMLParser(BaseTool):
     def _extract_component_ids(
         root: ET.Element,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """모든 컴포넌트의 ID를 추출하고 중복을 검사한다."""
+        """UI 컴포넌트의 ID를 추출하고 중복을 검사한다.
+
+        데이터 정의 내부 요소(column, columnInfo, data)는
+        dataList 스코프 내 스키마 정의이므로 제외한다.
+        """
         id_map: dict[str, list[str]] = {}  # id → [tag1, tag2, ...]
         all_ids: list[dict[str, Any]] = []
 
@@ -184,6 +192,10 @@ class XMLParser(BaseTool):
                 continue
 
             local_tag = elem.tag.rsplit("}", 1)[-1] if "}" in elem.tag else elem.tag
+
+            # 데이터 정의 내부 요소는 컴포넌트 ID가 아니므로 제외
+            if local_tag in _DATA_DEFINITION_TAGS:
+                continue
 
             all_ids.append({
                 "id": elem_id,
