@@ -262,14 +262,17 @@ class CAnalyzerAgent(BaseAgent):
         if not isinstance(prescan_result, dict):
             prescan_result = {"risky_functions": []}
 
-        risky_functions = [
-            f["function_name"]
-            for f in prescan_result.get("risky_functions", [])
+        risky_entries = [
+            f for f in prescan_result.get("risky_functions", [])
             if isinstance(f, dict) and "function_name" in f
         ]
+        risky_functions = [f["function_name"] for f in risky_entries]
 
         if not risky_functions:
             logger.info(f"Pass 1: 위험 함수 없음 (LLM 판단) → Heuristic: {file}")
+            self.rl.decision(
+                "Pass 1 판정: 위험 함수 없음 → Heuristic fallback",
+            )
             return await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
             )
@@ -278,6 +281,13 @@ class CAnalyzerAgent(BaseAgent):
             f"Pass 1 완료: {len(risky_functions)}개 위험 함수 선별 → "
             f"{risky_functions}"
         )
+        self.rl.decision(
+            f"Pass 1 판정: {len(risky_functions)}개 위험 함수 선별",
+        )
+        for entry in risky_entries:
+            fname = entry.get("function_name", "?")
+            reason = entry.get("reason", "이유 없음")
+            self.rl.scan(f"  {fname}: {reason}")
 
         # Pass 2: 함수별 개별 LLM 호출
         structure_summary = build_structure_summary(file_content, file_context, "c")
