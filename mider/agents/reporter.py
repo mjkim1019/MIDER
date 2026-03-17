@@ -293,6 +293,16 @@ class ReporterAgent(BaseAgent):
             critical_count, high_count, sorted_issues,
         )
 
+        allowed = risk_assessment["deployment_allowed"]
+        risk = risk_assessment["deployment_risk"]
+        status = "가능" if allowed else "차단"
+        self.rl.decision(
+            f"Decision: 배포 {status} ({risk})",
+            reason=f"CRITICAL={critical_count}, HIGH={high_count}"
+                   f"{' (HIGH≥3 차단)' if high_count >= 3 and not allowed else ''}"
+                   f"{' (CRITICAL>0 차단)' if critical_count > 0 else ''}",
+        )
+
         # LLM으로 risk_description 생성
         risk_description = await self._generate_risk_description(
             by_severity, risk_assessment["deployment_risk"], generated_at,
@@ -394,7 +404,11 @@ class ReporterAgent(BaseAgent):
                 {"role": "user", "content": prompt},
             ]
 
+            self.rl.prompt(f"Prompt: reporter ({by_severity} 이슈 요약 요청)")
+            self.rl.llm_request(f"LLM 호출: {self.model} 요청 중...")
             response = await self.call_llm(messages, json_mode=True)
+            tokens = (len(prompt) + len(response)) // 4
+            self.rl.llm_response(f"LLM 응답: {tokens:,} tokens")
             result = json.loads(response)
 
             if not isinstance(result, dict):

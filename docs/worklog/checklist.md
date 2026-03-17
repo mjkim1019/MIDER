@@ -150,7 +150,7 @@
 - [ ] T26: Agent 추론 로그 시각화
   - [x] T26.1: ReasoningLogger 유틸 구현
   - [x] T26.2: OrchestratorAgent에 추론 로그 연동
-  - [ ] T26.3: Analyzer Agent에 추론 로그 추가
+  - [x] T26.3: Analyzer Agent에 추론 로그 추가
   - [ ] T26.4: CLI 출력 통합
   - [ ] T26.5: 단위 테스트
 - [ ] T15: Integration Test
