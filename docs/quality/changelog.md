@@ -457,3 +457,8 @@
 - `2026-03-16 12:37:43` [main] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/TECH_SPEC.md`
 - `2026-03-16 12:42:41` [main] **Write**: `/Users/a11401/Documents/2026/Mider/docs/workflow.md`
 - `2026-03-16 12:48:20` [main] **Write**: `/Users/a11401/Documents/2026/Mider/docs/workflow-summary.md`
+- `2026-03-17 17:25:14` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/xml_parser.py`
+- `2026-03-17 17:25:30` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/xml_parser.py`
+- `2026-03-17 17:26:34` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_xml_parser.py`
+- `2026-03-17 17:26:56` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_xml_parser.py`
+- `2026-03-17 17:27:39` [fix/T25-xml-duplicate-id-scope] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/005-xml-script-extraction-missing.md`
