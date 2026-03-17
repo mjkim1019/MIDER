@@ -147,7 +147,7 @@
   - [x] T25.4: gpt-5/gpt-5-mini 업그레이드 + settings_loader 도입
   - [x] T25.5: 중복 ID 라인 번호 추출 + 프롬프트 개선
   - [x] T25.6: 단일 파일 Phase 0/1 LLM skip
-- [ ] T26: Agent 추론 로그 시각화
+- [x] T26: Agent 추론 로그 시각화
   - [x] T26.1: ReasoningLogger 유틸 구현
   - [x] T26.2: OrchestratorAgent에 추론 로그 연동
   - [x] T26.3: Analyzer Agent에 추론 로그 추가
