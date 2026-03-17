@@ -80,6 +80,8 @@ _DEDUP_GROUPS: list[tuple[str, list[str]]] = [
 _REMOVE_KEYWORDS: list[str] = [
     "스레드 안전", "동기화 부재", "경쟁 상태", "race condition",
     "mutex", "동시 접근", "스레드 안전성",
+    "데이터 레이스", "동시성", "요청 간 공유", "멀티스레드",
+    "race", "concurrent", "동기화 누락",
 ]
 
 # severity 우선순위 (높을수록 우선)
