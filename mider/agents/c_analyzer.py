@@ -35,25 +35,25 @@ from mider.tools.utility.token_optimizer import (
 
 logger = logging.getLogger(__name__)
 
-# clang-tidy 헤더 누락 에러 판정 키워드
+# clang-tidy 헤더 누락 에러 판정 키워드 (메시지 소문자 매칭)
 _HEADER_ERROR_KEYWORDS = frozenset({
     "file not found",
     "unknown type name",
-    "'included' file not found",
     "use of undeclared identifier",
+    "no such file or directory",
 })
 
 
 def _is_header_error(warning: dict[str, Any]) -> bool:
-    """clang-tidy 경고가 헤더 누락으로 인한 컴파일 에러인지 판정한다."""
+    """clang-tidy 경고가 헤더 누락으로 인한 컴파일 에러인지 판정한다.
+
+    severity=error이고 메시지에 헤더 누락 관련 키워드가 포함된 경우만 True.
+    clang-diagnostic-error라도 구문 에러(expected ';' 등)는 유의미하므로
+    반드시 메시지 키워드를 함께 확인한다.
+    """
     if warning.get("severity") != "error":
         return False
-    check = warning.get("check", "")
     message = warning.get("message", "").lower()
-    # clang-diagnostic-error는 헤더 누락 등 컴파일 에러
-    if check == "clang-diagnostic-error":
-        return True
-    # 메시지 패턴 매칭
     return any(kw in message for kw in _HEADER_ERROR_KEYWORDS)
 
 
