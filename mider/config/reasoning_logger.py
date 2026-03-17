@@ -101,6 +101,7 @@ class ReasoningLogger:
         """LLM 호출 중 spinner 애니메이션을 표시한다.
 
         verbose=False이면 아무것도 하지 않는다.
+        Rich Live 충돌 시(병렬 호출) 단순 출력으로 fallback.
 
         사용법:
             with self.rl.spinner("LLM 분석 중..."):
@@ -109,6 +110,9 @@ class ReasoningLogger:
         if not self._verbose:
             yield
             return
+
+        import threading
+        from rich.errors import LiveError
 
         start = time.time()
         spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -122,31 +126,34 @@ class ReasoningLogger:
             text.append(f" ({elapsed:.1f}초 경과)", style="dim")
             return text
 
-        with Live(
-            _render(),
-            console=self._console,
-            refresh_per_second=8,
-            transient=True,
-        ) as live:
-            # Live의 refresh가 자동으로 _render를 호출하지 않으므로
-            # 별도 태스크가 필요하지만, async context에서는
-            # Live가 자체 스레드로 동작. 수동 update 패턴 사용.
-            import threading
+        try:
+            with Live(
+                _render(),
+                console=self._console,
+                refresh_per_second=8,
+                transient=True,
+            ) as live:
+                stop_event = threading.Event()
 
-            stop_event = threading.Event()
+                def _update_loop() -> None:
+                    while not stop_event.is_set():
+                        try:
+                            live.update(_render())
+                        except LiveError:
+                            break
+                        stop_event.wait(0.125)
 
-            def _update_loop() -> None:
-                while not stop_event.is_set():
-                    live.update(_render())
-                    stop_event.wait(0.125)
-
-            updater = threading.Thread(target=_update_loop, daemon=True)
-            updater.start()
-            try:
-                yield
-            finally:
-                stop_event.set()
-                updater.join(timeout=1)
+                updater = threading.Thread(target=_update_loop, daemon=True)
+                updater.start()
+                try:
+                    yield
+                finally:
+                    stop_event.set()
+                    updater.join(timeout=1)
+        except LiveError:
+            # 병렬 호출 시 Live 충돌 → 단순 출력으로 fallback
+            self._dot("magenta", message)
+            yield
 
     def result(
         self,
