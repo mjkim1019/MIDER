@@ -151,17 +151,21 @@ class ContextCollectorAgent(BaseAgent):
         # Step 2: 공통 패턴 집계
         common_patterns = self._aggregate_patterns(file_contexts)
 
-        # Step 3: LLM 보정
+        # Step 3: LLM 보정 (단일 파일이면 skip — Tool 결과만으로 충분)
         tool_result = {
             "file_contexts": file_contexts,
             "dependencies": dependencies,
             "common_patterns": common_patterns,
         }
 
-        refined = await self._refine_with_llm(
-            execution_plan=execution_plan,
-            tool_result=tool_result,
-        )
+        if len(sub_tasks) > 1:
+            refined = await self._refine_with_llm(
+                execution_plan=execution_plan,
+                tool_result=tool_result,
+            )
+        else:
+            logger.debug("단일 파일 — LLM 컨텍스트 보정 건너뜀")
+            refined = tool_result
 
         # Step 4: FileContext 스키마 검증
         file_context = FileContext.model_validate(refined)

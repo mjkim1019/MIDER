@@ -326,18 +326,21 @@ class TestFileContentReading:
 
     @pytest.mark.asyncio
     async def test_large_file_truncated(self, agent, tmp_path):
-        """500줄 초과 파일은 처음/끝만 포함."""
+        """500줄 초과 파일은 처음/끝만 포함 (2개 이상 파일에서 LLM 호출)."""
         large_file = tmp_path / "large.c"
+        small_file = tmp_path / "small.c"
         lines = [f"int x{i} = {i};" for i in range(600)]
         large_file.write_text("\n".join(lines))
+        small_file.write_text("int main() { return 0; }")
 
         agent._llm_client.chat.return_value = _make_llm_response([
             {"file": str(large_file), "priority": 1},
+            {"file": str(small_file), "priority": 2},
         ])
 
-        result = await agent.run(files=[str(large_file)])
+        result = await agent.run(files=[str(large_file), str(small_file)])
         plan = ExecutionPlan.model_validate(result)
-        assert plan.total_files == 1
+        assert plan.total_files == 2
 
         # LLM에 전달된 프롬프트에서 파일 내용이 잘린 것을 확인
         call_args = agent._llm_client.chat.call_args

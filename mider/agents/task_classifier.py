@@ -90,11 +90,14 @@ class TaskClassifierAgent(BaseAgent):
 
         plan_data = plan_result.data
 
-        # Step 3: LLM 우선순위 보정
-        plan_data = await self._refine_priorities_with_llm(
-            files=files,
-            plan_data=plan_data,
-        )
+        # Step 3: LLM 우선순위 보정 (단일 파일이면 skip — 보정 의미 없음)
+        if len(files) > 1:
+            plan_data = await self._refine_priorities_with_llm(
+                files=files,
+                plan_data=plan_data,
+            )
+        else:
+            logger.debug("단일 파일 — LLM 우선순위 보정 건너뜀")
 
         # Step 4: ExecutionPlan 스키마로 검증
         execution_plan = ExecutionPlan.model_validate(plan_data)
