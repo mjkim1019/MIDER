@@ -204,3 +204,13 @@
 - **제외 태그 상수화**: `_DATA_DEFINITION_TAGS` 세트로 관리 → 향후 추가 태그 지원 용이
 
 | 2026-03-17 | `_extract_component_ids`에서 column/columnInfo/data 태그 제외 | 데이터 정의 요소 id는 DOM 컴포넌트가 아니므로 중복 검사 대상 아님 (이슈 #005 Phase 3) |
+| 2026-03-17 | gpt-5/gpt-5-mini 업그레이드 + settings_loader.py 도입 | Agent별 모델 하드코딩 제거, settings.yaml 중앙 관리 |
+| 2026-03-17 | gpt-5 계열 temperature 파라미터 생략 | gpt-5는 기본값(1)만 지원 — llm_client.py에서 자동 처리 |
+| 2026-03-17 | 중복 ID 라인 번호 추출 (`_find_id_lines`) | LLM이 정확한 location.line_start 제공하도록 |
+| 2026-03-17 | 단일 파일 Phase 0/1 LLM skip | 파일 1개일 때 우선순위 보정/컨텍스트 보정 불필요 — LLM 2회 호출 절감 |
+
+## T26 설계 결정 (Agent 추론 로그 시각화)
+- **목적**: Agent의 사고 과정(Planning, Tool Call, LLM Call, Self-Correction)을 CLI에 실시간 표시
+- **구현 위치**: `ReasoningLogger` 유틸 (Rich Console 기반, 기존 logging과 분리)
+- **기존 logging과의 관계**: `logging.DEBUG`는 개발자용 상세 로그, ReasoningLogger는 사용자 facing 고수준 로그
+- **verbose 모드**: `-v` 옵션일 때 상세 추론 로그 표시, 기본은 Phase 진행률만

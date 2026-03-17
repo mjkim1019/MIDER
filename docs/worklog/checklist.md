@@ -144,6 +144,15 @@
   - [x] T25.1: `_extract_component_ids`에서 데이터 정의 요소 제외
   - [x] T25.2: 테스트 수정 및 추가
   - [x] T25.3: 이슈 로그 업데이트
+  - [x] T25.4: gpt-5/gpt-5-mini 업그레이드 + settings_loader 도입
+  - [x] T25.5: 중복 ID 라인 번호 추출 + 프롬프트 개선
+  - [x] T25.6: 단일 파일 Phase 0/1 LLM skip
+- [ ] T26: Agent 추론 로그 시각화
+  - [ ] T26.1: ReasoningLogger 유틸 구현
+  - [ ] T26.2: OrchestratorAgent에 추론 로그 연동
+  - [ ] T26.3: Analyzer Agent에 추론 로그 추가
+  - [ ] T26.4: CLI 출력 통합
+  - [ ] T26.5: 단위 테스트
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [ ] T15.2: E2E 테스트
