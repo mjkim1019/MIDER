@@ -491,6 +491,85 @@ class TestTwoPassPath:
         assert validated.agent == "CAnalyzerAgent"
 
 
+class TestHeaderErrorFallback:
+    """헤더 에러 필터링 + fallback 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_header_errors_only_triggers_fallback(self, agent, c_file):
+        """헤더 에러만 있으면 Heuristic fallback (Error-Focused 아님)."""
+        clang_result = ToolResult(
+            success=True,
+            data={
+                "warnings": [
+                    {
+                        "check": "clang-diagnostic-error",
+                        "message": "'pfmcom.h' file not found",
+                        "line": 3, "column": 10, "severity": "error",
+                        "file": c_file,
+                    },
+                    {
+                        "check": "clang-diagnostic-error",
+                        "message": "unknown type name 'ctx_t'",
+                        "line": 50, "column": 1, "severity": "error",
+                        "file": c_file,
+                    },
+                ],
+                "total_warnings": 2,
+            },
+        )
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.return_value = clang_result
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(task_id="task_1", file=c_file, language="c")
+
+        # LLM 호출됨 (Heuristic 경로)
+        agent._llm_client.chat.assert_called_once()
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        # Error-Focused 프롬프트에만 있는 clang-tidy 키워드가 없어야 함
+        assert "clang-diagnostic-error" not in prompt
+        assert "pfmcom.h" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_meaningful_warnings_with_header_errors(self, agent, c_file):
+        """유의미 경고 + 헤더 에러 혼재 → 유의미 경고만 Error-Focused."""
+        clang_result = ToolResult(
+            success=True,
+            data={
+                "warnings": [
+                    {
+                        "check": "clang-diagnostic-error",
+                        "message": "'pfmcom.h' file not found",
+                        "line": 3, "column": 10, "severity": "error",
+                        "file": c_file,
+                    },
+                    {
+                        "check": "bugprone-branch-clone",
+                        "message": "repeated branch in conditional",
+                        "line": 20, "column": 5, "severity": "warning",
+                        "file": c_file,
+                    },
+                ],
+                "total_warnings": 2,
+            },
+        )
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.return_value = clang_result
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(task_id="task_1", file=c_file, language="c")
+
+        # Error-Focused 프롬프트에 유의미 경고만 포함
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        assert "bugprone-branch-clone" in prompt
+        # 헤더 에러는 제외됨
+        assert "pfmcom.h" not in prompt
+
+
 class TestAgentInit:
     """Agent 초기화 테스트."""
 
