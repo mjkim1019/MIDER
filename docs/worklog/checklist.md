@@ -153,7 +153,7 @@
   - [x] T26.3: Analyzer Agent에 추론 로그 추가
   - [x] T26.4: CLI 출력 통합
   - [x] T26.5: 단위 테스트
-- [ ] T27: clang-tidy 헤더 누락 시 Heuristic/2-Pass fallback
+- [x] T27: clang-tidy 헤더 누락 시 Heuristic/2-Pass fallback
   - [x] T27.1: clang-tidy 결과에서 헤더 에러 필터링
   - [x] T27.2: 추론 로그 추가
   - [x] T27.3: 단위 테스트

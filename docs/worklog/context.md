@@ -225,5 +225,10 @@
 ## T27 설계 결정 (clang-tidy 헤더 누락 fallback)
 - **문제**: clang-tidy가 실행은 되지만 헤더 에러(fatal error: file not found)만 발생 → 유의미한 경고 0개인데 Error-Focused 경로 진입 → LLM에 쓸모없는 에러만 전달
 - **해결**: `_run_clang_tidy()`에서 헤더 관련 에러를 필터링, 유의미한 경고만 남김. 0건이면 None 반환 → Heuristic/2-Pass fallback
-- **헤더 에러 판정 기준**: severity가 "error"이고 check가 `clang-diagnostic-error` 또는 메시지에 `file not found`, `unknown type` 포함
+- **헤더 에러 판정 기준**: severity="error" + 메시지에 `file not found`, `unknown type name`, `use of undeclared identifier`, `no such file or directory` 포함
+- **clang-diagnostic-error 과도한 일반화 방지**: check 이름만으로 판정하지 않고 반드시 메시지 키워드 확인 (구문 에러 `expected ';'` 등은 유의미하므로 필터링 방지)
 - **유의미 경고 + 헤더 에러 혼재 시**: 유의미 경고만 남기고 Error-Focused 유지 (이슈 #002 방안 1의 축소 적용)
+
+| 2026-03-17 | `_is_header_error()` + `_run_clang_tidy()` 헤더 에러 필터링 | 헤더 에러만 있으면 Error-Focused가 무의미 → Heuristic/2-Pass fallback (이슈 #006) |
+| 2026-03-17 | 리뷰 반영: clang-diagnostic-error 메시지 키워드 확인 필수 | 구문 에러(expected ';')도 clang-diagnostic-error이므로 check만으로 판정하면 유의미 에러 필터링됨 |
+| 2026-03-17 | 리뷰 반영: dead entry `'included' file not found` 제거, `no such file or directory` 추가 | 실제 clang 메시지와 매칭되지 않는 키워드 정리 |
