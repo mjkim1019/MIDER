@@ -91,7 +91,7 @@ class XMLParser(BaseTool):
         events = self._extract_events(root)
 
         # 3) 컴포넌트 ID 추출 + 중복 검사
-        component_ids, duplicate_ids = self._extract_component_ids(root)
+        component_ids, duplicate_ids = self._extract_component_ids(root, content)
 
         logger.debug(
             f"XML 파싱 완료: {file} → "
@@ -177,11 +177,13 @@ class XMLParser(BaseTool):
     @staticmethod
     def _extract_component_ids(
         root: ET.Element,
+        content: str = "",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """UI 컴포넌트의 ID를 추출하고 중복을 검사한다.
 
         데이터 정의 내부 요소(column, columnInfo, data)는
         dataList 스코프 내 스키마 정의이므로 제외한다.
+        중복 ID 발견 시 원본 텍스트에서 라인 번호를 추출한다.
         """
         id_map: dict[str, list[str]] = {}  # id → [tag1, tag2, ...]
         all_ids: list[dict[str, Any]] = []
@@ -206,17 +208,40 @@ class XMLParser(BaseTool):
                 id_map[elem_id] = []
             id_map[elem_id].append(local_tag)
 
-        # 중복 ID 추출
+        # 중복 ID 추출 + 라인 번호
         duplicates: list[dict[str, Any]] = []
         for eid, tags in id_map.items():
             if len(tags) > 1:
+                lines = _find_id_lines(content, eid) if content else []
                 duplicates.append({
                     "id": eid,
                     "count": len(tags),
                     "tags": tags,
+                    "lines": lines,
                 })
 
         return all_ids, duplicates
+
+
+def _find_id_lines(content: str, elem_id: str) -> list[int]:
+    """원본 XML 텍스트에서 id="elem_id" 패턴의 라인 번호를 찾는다.
+
+    dataList 내부 column 등 데이터 정의 요소는 제외한다.
+    """
+    pattern = re.compile(rf'\bid=["\']{re.escape(elem_id)}["\']')
+    lines: list[int] = []
+    for line_num, line in enumerate(content.splitlines(), start=1):
+        if pattern.search(line):
+            # 데이터 정의 태그(column, columnInfo, data) 안의 id는 제외
+            stripped = line.strip()
+            is_data_def = False
+            for tag in _DATA_DEFINITION_TAGS:
+                if stripped.startswith(f"<w2:{tag}") or stripped.startswith(f"<{tag}"):
+                    is_data_def = True
+                    break
+            if not is_data_def:
+                lines.append(line_num)
+    return lines
 
 
 def _extract_handler_functions(handler_str: str) -> list[str]:

@@ -303,3 +303,13 @@ class TestComponentIds:
         dup_ids = {d["id"] for d in duplicates}
         assert "txt_name" in dup_ids
         assert "btn_ok" in dup_ids
+
+    def test_duplicate_ids_have_line_numbers(self, parser, tmp_path):
+        """중복 ID에 라인 번호가 포함된다."""
+        f = tmp_path / "screen.xml"
+        f.write_text(DUPLICATE_ID_XML, encoding="utf-8")
+        result = parser.execute(file=str(f))
+        for dup in result.data["duplicate_ids"]:
+            assert "lines" in dup
+            assert len(dup["lines"]) == dup["count"]
+            assert all(isinstance(n, int) and n > 0 for n in dup["lines"])
