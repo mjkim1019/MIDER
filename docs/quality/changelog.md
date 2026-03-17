@@ -590,3 +590,8 @@
 - `2026-03-17 22:07:28` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
 - `2026-03-17 22:08:01` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
 - `2026-03-17 22:08:13` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/sql_analyzer.py`
+- `2026-03-17 22:18:11` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
+- `2026-03-17 22:18:54` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
+- `2026-03-17 22:19:54` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_c_analyzer.py`
+- `2026-03-17 22:20:17` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_c_analyzer.py`
+- `2026-03-17 22:21:02` [fix/T27-clang-tidy-header-fallback] **Write**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/007-c-duplicate-issues.md`

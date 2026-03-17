@@ -65,6 +65,120 @@ def _is_level2_warning(warning: dict[str, Any]) -> bool:
     return check.startswith(_LEVEL2_CHECK_PREFIX)
 
 
+# ──────────────────────────────────────────────
+# 이슈 후처리: 동일 패턴 병합 + 노이즈 제거
+# ──────────────────────────────────────────────
+
+# 중복 병합 그룹 키워드 (title 소문자에서 매칭)
+_DEDUP_GROUPS: list[tuple[str, list[str]]] = [
+    ("strncpy 널 종료", ["strncpy", "널 종료", "null 종료", "strlcpy"]),
+    ("NULL 체크 누락", ["null 체크", "null 검증", "유효성 검증", "널 체크"]),
+    ("ix 미초기화", ["ix 변수", "ix 미초기화"]),
+]
+
+# 자동 제거 키워드 (title 소문자에서 매칭 → 이슈 삭제)
+_REMOVE_KEYWORDS: list[str] = [
+    "스레드 안전", "동기화 부재", "경쟁 상태", "race condition",
+    "mutex", "동시 접근", "스레드 안전성",
+]
+
+# severity 우선순위 (높을수록 우선)
+_SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+
+
+def _deduplicate_issues(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """함수별 LLM 결과에서 동일 패턴 이슈를 병합하고 노이즈를 제거한다.
+
+    1. 스레드 안전성 이슈 자동 제거 (Proframe 단일스레드)
+    2. 동일 패턴 그룹의 이슈를 대표 1건으로 병합
+       - severity가 가장 높은 것 유지
+       - description에 "(외 N곳 동일 패턴)" 추가
+    3. 동일 변수명 + 동일 카테고리 이슈 병합
+    """
+    # Step 1: 스레드 안전성 제거
+    filtered: list[dict[str, Any]] = []
+    for issue in issues:
+        title_lower = issue.get("title", "").lower()
+        if any(kw in title_lower for kw in _REMOVE_KEYWORDS):
+            continue
+        filtered.append(issue)
+
+    # Step 2: 키워드 그룹 병합
+    group_map: dict[str, list[dict[str, Any]]] = {}
+    ungrouped: list[dict[str, Any]] = []
+
+    for issue in filtered:
+        title_lower = issue.get("title", "").lower()
+        matched_group = None
+        for group_name, keywords in _DEDUP_GROUPS:
+            if any(kw in title_lower for kw in keywords):
+                matched_group = group_name
+                break
+        if matched_group:
+            group_map.setdefault(matched_group, []).append(issue)
+        else:
+            ungrouped.append(issue)
+
+    # 각 그룹에서 대표 1건 선택
+    merged: list[dict[str, Any]] = []
+    for group_name, group_issues in group_map.items():
+        if not group_issues:
+            continue
+        # severity 최고 우선
+        group_issues.sort(
+            key=lambda x: _SEVERITY_RANK.get(x.get("severity", "low"), 0),
+            reverse=True,
+        )
+        representative = group_issues[0].copy()
+        if len(group_issues) > 1:
+            representative["description"] += (
+                f" (외 {len(group_issues) - 1}곳 동일 패턴)"
+            )
+        merged.append(representative)
+
+    # Step 3: 동일 변수 + 동일 카테고리 병합 (ungrouped 중)
+    var_dedup: dict[str, list[dict[str, Any]]] = {}
+    final_ungrouped: list[dict[str, Any]] = []
+
+    for issue in ungrouped:
+        title_lower = issue.get("title", "").lower()
+        category = issue.get("category", "")
+        # "svc_cnt", "currsvclist_s", "out_04" 등 변수명 + 카테고리로 그룹
+        var_key = None
+        for var in ["svc_cnt", "currsvclist_s", "out_04", "g_chg_psbl_flag"]:
+            if var in title_lower:
+                var_key = f"{var}_{category}"
+                break
+        if var_key:
+            var_dedup.setdefault(var_key, []).append(issue)
+        else:
+            final_ungrouped.append(issue)
+
+    for var_key, var_issues in var_dedup.items():
+        if not var_issues:
+            continue
+        var_issues.sort(
+            key=lambda x: _SEVERITY_RANK.get(x.get("severity", "low"), 0),
+            reverse=True,
+        )
+        representative = var_issues[0].copy()
+        if len(var_issues) > 1:
+            representative["description"] += (
+                f" (외 {len(var_issues) - 1}곳 동일 패턴)"
+            )
+        merged.append(representative)
+
+    result = merged + final_ungrouped
+
+    # severity 순 정렬
+    result.sort(
+        key=lambda x: _SEVERITY_RANK.get(x.get("severity", "low"), 0),
+        reverse=True,
+    )
+
+    return result
+
+
 class CAnalyzerAgent(BaseAgent):
     """Phase 2: C 파일을 분석하는 Agent.
 
@@ -337,6 +451,15 @@ class CAnalyzerAgent(BaseAgent):
                 logger.warning(f"함수 분석 실패: {result}")
                 continue
             all_issues.extend(result)
+
+        # 후처리: 동일 패턴 병합 + 노이즈 제거
+        before_count = len(all_issues)
+        all_issues = _deduplicate_issues(all_issues)
+        if before_count != len(all_issues):
+            self.rl.process(
+                f"Dedup: {before_count}건 → {len(all_issues)}건 "
+                f"({before_count - len(all_issues)}건 중복/노이즈 제거)"
+            )
 
         # issue_id 재번호 (C-001부터 순차)
         for i, issue in enumerate(all_issues):
