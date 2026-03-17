@@ -300,9 +300,15 @@ class CAnalyzerAgent(BaseAgent):
         )
 
         sem = asyncio.Semaphore(self._MAX_CONCURRENT_LLM)
+        total_funcs = len(risky_functions)
 
-        async def _analyze_with_limit(func_name: str, start_line: int) -> list[dict]:
+        async def _analyze_with_limit(
+            idx: int, func_name: str, start_line: int,
+        ) -> list[dict]:
             async with sem:
+                self.rl.prompt(
+                    f"Pass 2 [{idx}/{total_funcs}] {func_name} 분석 시작"
+                )
                 return await self._analyze_single_function(
                     file=file,
                     file_content=file_content,
@@ -314,12 +320,14 @@ class CAnalyzerAgent(BaseAgent):
                 )
 
         tasks = []
+        func_idx = 0
         for func_name in risky_functions:
             start_line = func_start_lines.get(func_name)
             if start_line is None:
                 logger.warning(f"함수 경계 찾기 실패, 분석 건너뜀: {func_name}")
                 continue
-            tasks.append(_analyze_with_limit(func_name, start_line))
+            func_idx += 1
+            tasks.append(_analyze_with_limit(func_idx, func_name, start_line))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
