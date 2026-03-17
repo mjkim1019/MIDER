@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from mider.agents.base_agent import BaseAgent
@@ -109,14 +110,25 @@ class CAnalyzerAgent(BaseAgent):
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
             line_count = len(file_content.splitlines())
+            self.rl.scan(f"File: {Path(file).name} ({line_count}줄, ~{line_count * 10 // 1000}K tokens)")
 
             # Step 2: clang-tidy 정적분석
             clang_data = self._run_clang_tidy(file)
+
+            if clang_data:
+                w_count = len(clang_data.get("warnings", []))
+                self.rl.scan(f"clang-tidy: {w_count}건 유의미 경고")
+            else:
+                self.rl.detect("clang-tidy: 유의미 경고 없음 (바이너리 없음 또는 헤더 에러)")
 
             # Step 3: 분석 경로 선택
             tokens_estimate = 0
             if not clang_data and line_count > 500:
                 # 2-Pass 전략: clang-tidy 없고 대형 파일
+                self.rl.decision(
+                    "Decision: 2-Pass 전략",
+                    reason=f"clang-tidy 없음 + {line_count}줄(>500)",
+                )
                 issues = await self._run_two_pass(
                     file=file,
                     file_content=file_content,
@@ -124,6 +136,17 @@ class CAnalyzerAgent(BaseAgent):
                 )
             else:
                 # 기존 경로: clang-tidy 있음 or 500줄 이하
+                if clang_data:
+                    w_count = len(clang_data.get("warnings", []))
+                    self.rl.decision(
+                        "Decision: Error-Focused path",
+                        reason=f"clang-tidy {w_count}건 유의미 경고",
+                    )
+                else:
+                    self.rl.decision(
+                        "Decision: Heuristic path",
+                        reason=f"clang-tidy 없음 + {line_count}줄(≤500) → 전체 코드 LLM 검증",
+                    )
                 prompt, messages = self._build_messages(
                     file=file,
                     file_content=file_content,
