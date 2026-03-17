@@ -461,8 +461,8 @@ class TestAgentInit:
     def test_default_model(self):
         """기본 모델은 settings.yaml의 reporter 설정값."""
         agent = ReporterAgent()
-        assert agent.model == "gpt-5-mini"
-        assert agent.fallback_model == "gpt-5"
+        assert agent.model == "gpt-4.1-mini"
+        assert agent.fallback_model == "gpt-4.1"
         assert agent.temperature == 0.0
 
     def test_custom_model(self):
