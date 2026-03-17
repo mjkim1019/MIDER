@@ -281,7 +281,7 @@ class CAnalyzerAgent(BaseAgent):
             f"Pass 1 완료: {len(risky_functions)}개 위험 함수 선별 → "
             f"{risky_functions}"
         )
-        self.rl.decision(
+        self.rl.step(
             f"Pass 1 판정: {len(risky_functions)}개 위험 함수 선별",
         )
         for entry in risky_entries:
@@ -306,7 +306,7 @@ class CAnalyzerAgent(BaseAgent):
             idx: int, func_name: str, start_line: int,
         ) -> list[dict]:
             async with sem:
-                self.rl.prompt(
+                self.rl.step(
                     f"Pass 2 [{idx}/{total_funcs}] {func_name} 분석 시작"
                 )
                 return await self._analyze_single_function(
@@ -408,7 +408,7 @@ class CAnalyzerAgent(BaseAgent):
                 sev = iss.get("severity", "?").upper()
                 severity_summary[sev] = severity_summary.get(sev, 0) + 1
             sev_str = " ".join(f"{k}:{v}" for k, v in severity_summary.items())
-            self.rl.llm_response(
+            self.rl.step(
                 f"Pass 2 [{func_name}]: {len(issues)}개 이슈 ({sev_str}, {tokens:,} tokens)"
             )
             for iss in issues:
@@ -416,7 +416,7 @@ class CAnalyzerAgent(BaseAgent):
                 title = iss.get("title", "")
                 self.rl.scan(f"  [{sev}] {title}")
         else:
-            self.rl.llm_response(f"Pass 2 [{func_name}]: 이슈 없음 ({tokens:,} tokens)")
+            self.rl.step(f"Pass 2 [{func_name}]: 이슈 없음 ({tokens:,} tokens)")
 
         return issues
 

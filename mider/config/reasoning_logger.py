@@ -17,8 +17,6 @@ from contextlib import contextmanager
 from typing import Any, Generator
 
 from rich.console import Console
-from rich.live import Live
-from rich.text import Text
 
 
 class ReasoningLogger:
@@ -80,12 +78,21 @@ class ReasoningLogger:
         if reason:
             self._print(f"     [grey70]∵ {reason}[/grey70]")
 
+    def step(self, message: str) -> None:
+        """중요 단계 표시 (white dot + bold 흰색 전체).
+
+        Pass 1/2, 주요 처리 단계 등에 사용.
+        """
+        if not self._verbose:
+            return
+        self._print(f"  [white]●[/white] [bold white]{message}[/bold white]")
+
     def prompt(self, message: str) -> None:
-        """프롬프트 구성 등 내부 처리 (blue dot + dim 내용)."""
+        """프롬프트 구성 등 내부 처리 (blue dot + grey70 내용)."""
         self._dot_styled("blue", message)
 
     def process(self, message: str) -> None:
-        """파싱, 검증 등 내부 처리 (blue dot + dim 내용)."""
+        """파싱, 검증 등 내부 처리 (blue dot + grey70 내용)."""
         self._dot_styled("blue", message)
 
     def llm_request(self, message: str) -> None:
@@ -98,64 +105,21 @@ class ReasoningLogger:
 
     @contextmanager
     def spinner(self, message: str) -> Generator[None, None, None]:
-        """LLM 호출 중 spinner 애니메이션을 표시한다.
+        """LLM 호출 시작/완료를 표시한다.
 
         verbose=False이면 아무것도 하지 않는다.
-        Rich Live 충돌 시(병렬 호출) 단순 출력으로 fallback.
-
-        사용법:
-            with self.rl.spinner("LLM 분석 중..."):
-                response = await self.call_llm(messages)
+        시작 시 dot 로그, 완료 시 경과 시간 로그를 출력한다.
+        (Rich Live spinner는 logging과 출력이 겹쳐 제거)
         """
         if not self._verbose:
             yield
             return
 
-        import threading
-        from rich.errors import LiveError
-
         start = time.time()
-        spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
-        def _render() -> Text:
-            elapsed = time.time() - start
-            frame = spinner_frames[int(elapsed * 8) % len(spinner_frames)]
-            text = Text()
-            text.append(f"  {frame} ", style="magenta")
-            text.append(message, style="magenta")
-            text.append(f" ({elapsed:.1f}초 경과)", style="dim")
-            return text
-
-        try:
-            with Live(
-                _render(),
-                console=self._console,
-                refresh_per_second=8,
-                transient=True,
-            ) as live:
-                stop_event = threading.Event()
-
-                def _update_loop() -> None:
-                    while not stop_event.is_set():
-                        try:
-                            live.update(_render())
-                        except LiveError:
-                            break
-                        stop_event.wait(0.125)
-
-                updater = threading.Thread(target=_update_loop, daemon=True)
-                updater.start()
-                try:
-                    yield
-                finally:
-                    stop_event.set()
-                    updater.join(timeout=1)
-            # Live 블록 종료 후 줄바꿈 (spinner가 지워진 뒤)
-            self._console.print()
-        except LiveError:
-            # 병렬 호출 시 Live 충돌 → 단순 출력으로 fallback
-            self._dot_styled("magenta", message)
-            yield
+        self._dot_styled("magenta", message)
+        yield
+        elapsed = time.time() - start
+        self._print(f"    [grey70]  └ {elapsed:.1f}초 완료[/grey70]")
 
     def result(
         self,
