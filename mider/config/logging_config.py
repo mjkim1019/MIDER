@@ -27,6 +27,7 @@ def setup_logging(level: str | None = None) -> None:
                 rich_tracebacks=True,
                 show_path=False,
                 markup=True,
+                highlighter=None,
             )
         ],
         force=True,
