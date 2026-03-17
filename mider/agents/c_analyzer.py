@@ -120,14 +120,8 @@ class CAnalyzerAgent(BaseAgent):
             line_count = len(file_content.splitlines())
             self.rl.scan(f"File: {Path(file).name} ({line_count}줄, ~{line_count * 10 // 1000}K tokens)")
 
-            # Step 2: clang-tidy 정적분석
+            # Step 2: clang-tidy 정적분석 (내부에서 추론 로그 출력)
             clang_data = self._run_clang_tidy(file)
-
-            if clang_data:
-                w_count = len(clang_data.get("warnings", []))
-                self.rl.scan(f"clang-tidy: {w_count}건 유의미 경고")
-            else:
-                self.rl.detect("clang-tidy: 유의미 경고 없음 (바이너리 없음 또는 헤더 에러)")
 
             # Step 3: 분석 경로 선택
             tokens_estimate = 0
@@ -524,22 +518,35 @@ class CAnalyzerAgent(BaseAgent):
 
             if not header_errors:
                 # 헤더 에러 없음 → 전체 경고가 유의미 (AST 정상)
+                self.rl.scan(
+                    f"clang-tidy: {len(non_header)}건 경고 (헤더 정상, 전부 유의미)"
+                )
                 return {"warnings": non_header} if non_header else None
 
             # 헤더 에러 있음 → Level 1은 저가치, Level 2만 유의미
             level2 = [w for w in non_header if _is_level2_warning(w)]
             level1 = [w for w in non_header if not _is_level2_warning(w)]
 
-            logger.info(
-                f"clang-tidy: 헤더 에러 {len(header_errors)}건, "
-                f"Level 1 저가치 {len(level1)}건 필터링, "
-                f"Level 2 유의미 {len(level2)}건"
+            self.rl.detect(
+                f"clang-tidy: 헤더 에러 {len(header_errors)}건 "
+                f"→ Level 1 저가치 {len(level1)}건 필터링"
             )
 
             if level2:
+                self.rl.scan(f"clang-tidy: Level 2 유의미 {len(level2)}건")
+                logger.info(
+                    f"clang-tidy: 헤더 에러 {len(header_errors)}건, "
+                    f"Level 1 저가치 {len(level1)}건 필터링, "
+                    f"Level 2 유의미 {len(level2)}건"
+                )
                 return {"warnings": level2}
 
             # Level 2 = 0건 → Heuristic/2-Pass fallback
+            self.rl.decision(
+                "Decision: clang-tidy Level 2 분석 불가 → fallback",
+                reason=f"헤더 에러 {len(header_errors)}건으로 AST 생성 실패, "
+                       f"Level 1 {len(level1)}건은 저가치",
+            )
             logger.info(
                 "clang-tidy: 헤더 누락으로 Level 2 분석 불가 "
                 "→ Heuristic/2-Pass fallback"
