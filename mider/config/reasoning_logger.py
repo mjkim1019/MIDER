@@ -62,39 +62,39 @@ class ReasoningLogger:
     # ──────────────────────────────────────────────
 
     def scan(self, message: str) -> None:
-        """입력 데이터 / 스캔 결과 (cyan)."""
-        self._dot("cyan", message)
+        """입력 데이터 / 스캔 결과 (cyan dot + dim 내용)."""
+        self._dot_styled("cyan", message)
 
     def detect(self, message: str) -> None:
-        """탐지된 문제 / 경고 (red)."""
-        self._dot("red", message)
+        """탐지된 문제 / 경고 (red dot + dim 내용)."""
+        self._dot_styled("red", message)
 
     def decision(self, message: str, reason: str | None = None) -> None:
-        """의사결정 (yellow) + 선택적 근거 라인.
+        """의사결정 (yellow dot + bold 키워드 + dim 내용).
 
         Args:
-            message: 결정 내용 (예: "Error-Focused path")
+            message: 결정 내용 (예: "Decision: Error-Focused path")
             reason: 근거 (예: "duplicate_ids=1건, parse_errors=0건")
         """
-        self._dot("yellow", message)
+        self._dot_styled("yellow", message)
         if reason:
             self._print(f"     [dim]∵ {reason}[/dim]")
 
     def prompt(self, message: str) -> None:
-        """프롬프트 구성 등 내부 처리 (blue)."""
-        self._dot("blue", message)
+        """프롬프트 구성 등 내부 처리 (blue dot + dim 내용)."""
+        self._dot_styled("blue", message)
 
     def process(self, message: str) -> None:
-        """파싱, 검증 등 내부 처리 (blue)."""
-        self._dot("blue", message)
+        """파싱, 검증 등 내부 처리 (blue dot + dim 내용)."""
+        self._dot_styled("blue", message)
 
     def llm_request(self, message: str) -> None:
-        """LLM 호출 시작 (magenta). spinner 없이 단순 출력."""
-        self._dot("magenta", message)
+        """LLM 호출 시작 (magenta dot + dim 내용)."""
+        self._dot_styled("magenta", message)
 
     def llm_response(self, message: str) -> None:
-        """LLM 응답 수신 (magenta)."""
-        self._dot("magenta", message)
+        """LLM 응답 수신 (magenta dot + dim 내용)."""
+        self._dot_styled("magenta", message)
 
     @contextmanager
     def spinner(self, message: str) -> Generator[None, None, None]:
@@ -166,7 +166,7 @@ class ReasoningLogger:
             message: 결과 요약 (예: "3 issues, 14.5초")
             issues: 이슈 딕셔너리 리스트 (severity, issue_id, title 포함)
         """
-        self._dot("green", message)
+        self._dot_styled("green", message)
         if issues:
             for issue in issues:
                 severity = issue.get("severity", "").upper()
@@ -174,18 +174,29 @@ class ReasoningLogger:
                 title = issue.get("title", "")
                 color = _severity_color(severity)
                 self._print(
-                    f"     [{color}][{severity}][/{color}] {issue_id} {title}"
+                    f"     [{color}][{severity}][/{color}] [dim]{issue_id} {title}[/dim]"
                 )
 
     # ──────────────────────────────────────────────
     # 내부 유틸
     # ──────────────────────────────────────────────
 
-    def _dot(self, color: str, message: str) -> None:
-        """컬러 dot + 메시지를 출력한다."""
+    def _dot_styled(self, color: str, message: str) -> None:
+        """컬러 dot + 키워드(bold) + 내용(dim)을 출력한다.
+
+        메시지에서 ':'가 있으면 앞부분을 bold 키워드, 뒷부분을 dim으로 분리.
+        예: "Decision: Error-Focused path" → "Decision:" bold + "Error-Focused path" dim
+        ':'가 없으면 전체를 dim으로 출력.
+        """
         if not self._verbose:
             return
-        self._print(f"  [{color}]●[/{color}] {message}")
+        if ": " in message:
+            keyword, content = message.split(": ", 1)
+            self._print(
+                f"  [{color}]●[/{color}] [bold]{keyword}:[/bold] [dim]{content}[/dim]"
+            )
+        else:
+            self._print(f"  [{color}]●[/{color}] [dim]{message}[/dim]")
 
     def _print(self, text: str) -> None:
         """Rich Console로 출력한다."""
