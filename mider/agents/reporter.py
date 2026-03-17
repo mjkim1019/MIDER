@@ -296,11 +296,15 @@ class ReporterAgent(BaseAgent):
         allowed = risk_assessment["deployment_allowed"]
         risk = risk_assessment["deployment_risk"]
         status = "가능" if allowed else "차단"
+        if critical_count > 0:
+            block_reason = "(CRITICAL>0 차단)"
+        elif high_count >= 3:
+            block_reason = "(HIGH>=3 차단)"
+        else:
+            block_reason = ""
         self.rl.decision(
             f"Decision: 배포 {status} ({risk})",
-            reason=f"CRITICAL={critical_count}, HIGH={high_count}"
-                   f"{' (HIGH≥3 차단)' if high_count >= 3 and not allowed else ''}"
-                   f"{' (CRITICAL>0 차단)' if critical_count > 0 else ''}",
+            reason=f"CRITICAL={critical_count}, HIGH={high_count} {block_reason}".rstrip(),
         )
 
         # LLM으로 risk_description 생성

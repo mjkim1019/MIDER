@@ -167,8 +167,9 @@ class ContextCollectorAgent(BaseAgent):
                 f"{p['pattern_type']}: {p.get('description', '')[:30]}"
                 for p in patterns[:3]
             )
+            fname = Path(ctx.get("file", "?")).name
             self.rl.scan(
-                f"Scan: imports={imports_count}, calls={calls_count}, "
+                f"Scan [{fname}]: imports={imports_count}, calls={calls_count}, "
                 f"patterns=[{pattern_summary}]"
             )
 
