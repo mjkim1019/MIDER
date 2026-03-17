@@ -221,3 +221,9 @@
 | 2026-03-17 | XMLAnalyzerAgent 상세 추론 로그 | 파서→경로선택→프롬프트→LLM→후처리 전 과정 시각화 |
 | 2026-03-17 | 리뷰 반영: reporter reason elif 분기 | CRITICAL+HIGH 동시 시 중복 차단 문구 방지 (M2) |
 | 2026-03-17 | 리뷰 반영: context scan 로그에 파일명 추가 | 어떤 파일의 scan 결과인지 식별 가능 (L2) |
+
+## T27 설계 결정 (clang-tidy 헤더 누락 fallback)
+- **문제**: clang-tidy가 실행은 되지만 헤더 에러(fatal error: file not found)만 발생 → 유의미한 경고 0개인데 Error-Focused 경로 진입 → LLM에 쓸모없는 에러만 전달
+- **해결**: `_run_clang_tidy()`에서 헤더 관련 에러를 필터링, 유의미한 경고만 남김. 0건이면 None 반환 → Heuristic/2-Pass fallback
+- **헤더 에러 판정 기준**: severity가 "error"이고 check가 `clang-diagnostic-error` 또는 메시지에 `file not found`, `unknown type` 포함
+- **유의미 경고 + 헤더 에러 혼재 시**: 유의미 경고만 남기고 Error-Focused 유지 (이슈 #002 방안 1의 축소 적용)

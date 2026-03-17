@@ -34,6 +34,27 @@ from mider.tools.utility.token_optimizer import (
 
 logger = logging.getLogger(__name__)
 
+# clang-tidy 헤더 누락 에러 판정 키워드
+_HEADER_ERROR_KEYWORDS = frozenset({
+    "file not found",
+    "unknown type name",
+    "'included' file not found",
+    "use of undeclared identifier",
+})
+
+
+def _is_header_error(warning: dict[str, Any]) -> bool:
+    """clang-tidy 경고가 헤더 누락으로 인한 컴파일 에러인지 판정한다."""
+    if warning.get("severity") != "error":
+        return False
+    check = warning.get("check", "")
+    message = warning.get("message", "").lower()
+    # clang-diagnostic-error는 헤더 누락 등 컴파일 에러
+    if check == "clang-diagnostic-error":
+        return True
+    # 메시지 패턴 매칭
+    return any(kw in message for kw in _HEADER_ERROR_KEYWORDS)
+
 
 class CAnalyzerAgent(BaseAgent):
     """Phase 2: C 파일을 분석하는 Agent.
@@ -456,13 +477,39 @@ class CAnalyzerAgent(BaseAgent):
     def _run_clang_tidy(self, file: str) -> dict[str, Any] | None:
         """clang-tidy를 실행하여 결과를 반환한다.
 
-        실행 실패 시 None을 반환한다 (Heuristic 모드로 전환).
+        헤더 누락 등 컴파일 에러만 있고 유의미한 경고가 없으면
+        None을 반환하여 Heuristic/2-Pass fallback을 유도한다.
+        실행 실패 시에도 None을 반환한다.
         """
         try:
             result = self._clang_tidy_runner.execute(file=file)
             warnings = result.data.get("warnings", [])
-            if warnings:
-                return {"warnings": warnings}
+            if not warnings:
+                return None
+
+            # 헤더 누락 에러와 유의미한 경고 분리
+            meaningful = []
+            header_errors = []
+            for w in warnings:
+                if _is_header_error(w):
+                    header_errors.append(w)
+                else:
+                    meaningful.append(w)
+
+            if header_errors:
+                logger.info(
+                    f"clang-tidy 헤더 에러 {len(header_errors)}건 필터링 "
+                    f"(유의미 경고 {len(meaningful)}건)"
+                )
+
+            if meaningful:
+                return {"warnings": meaningful}
+
+            # 유의미한 경고 0건 → Heuristic/2-Pass fallback
+            if header_errors:
+                logger.info(
+                    "clang-tidy 헤더 에러만 존재 → Heuristic/2-Pass fallback"
+                )
             return None
         except Exception as e:
             logger.warning(f"clang-tidy 실행 실패, Heuristic 모드로 전환: {e}")
