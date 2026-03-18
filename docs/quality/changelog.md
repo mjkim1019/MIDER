@@ -609,3 +609,8 @@
 - `2026-03-17 23:08:00` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
 - `2026-03-17 23:10:20` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/c_analyzer_error_focused.txt`
 - `2026-03-17 23:10:38` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/c_analyzer_heuristic.txt`
+- `2026-03-17 23:25:19` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/fixtures/error/zinvbpre01850_buggy.pc`
+- `2026-03-17 23:25:33` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/fixtures/error/zinvbpre01850_buggy.pc`
+- `2026-03-17 23:25:46` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/fixtures/error/zinvbpre01850_buggy.pc`
+- `2026-03-17 23:32:21` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/fixtures/error/zordbs0401549_buggy.pc`
+- `2026-03-18 14:20:06` [fix/T27-clang-tidy-header-fallback] **Write**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/008-proc-fclose-detection-gap.md`

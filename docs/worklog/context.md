@@ -240,3 +240,11 @@
 - **Level 2 판정 기준**: check 접두사가 `clang-analyzer-` (데이터 흐름 분석, AST 완성 필요)
 - **Level 1 판정 기준**: `bugprone-*`, `cert-*`, `misc-*` 등 나머지 (텍스트/구문 패턴)
 - **헤더 에러 없을 때**: 기존 동작 유지 (Level 1 포함 — AST 완성 시 Level 1도 유의미)
+
+## T30 설계 결정 (Pro*C Heuristic Scanner)
+- **목적**: 실제 장애 유발 패턴 3+1종을 regex로 사전 스캔 → LLM에 집중 분석 요청
+- **아키텍처**: C의 CHeuristicScanner + 2-Pass 전략을 Pro*C에 적용
+- **패턴 4종**: FORMAT_STRUCT(%s에 구조체), MEMSET_SIZEOF_MISMATCH, LOOP_INIT_MISSING, FCLOSE_MISSING
+- **Scanner 위치**: `mider/tools/static_analysis/proc_heuristic_scanner.py`
+- **연동**: ProCAnalyzerAgent에서 Scanner 결과 > 0이면 Error-Focused 강제 진입
+- **프롬프트**: 장애 사례 few-shot으로 LLM 판정 정확도 향상
