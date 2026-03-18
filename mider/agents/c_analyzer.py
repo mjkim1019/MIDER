@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from mider.agents.base_agent import BaseAgent
@@ -33,6 +34,175 @@ from mider.tools.utility.token_optimizer import (
 )
 
 logger = logging.getLogger(__name__)
+
+# clang-tidy 헤더 누락 에러 판정 키워드 (메시지 소문자 매칭)
+_HEADER_ERROR_KEYWORDS = frozenset({
+    "file not found",
+    "unknown type name",
+    "use of undeclared identifier",
+    "no such file or directory",
+})
+
+# Level 2 체크 접두사 — 데이터 흐름 분석 (AST 완성 필요, 헤더 없으면 동작 불가)
+_LEVEL2_CHECK_PREFIX = "clang-analyzer-"
+
+
+def _is_header_error(warning: dict[str, Any]) -> bool:
+    """clang-tidy 경고가 헤더 누락으로 인한 컴파일 에러인지 판정한다."""
+    if warning.get("severity") != "error":
+        return False
+    message = warning.get("message", "").lower()
+    return any(kw in message for kw in _HEADER_ERROR_KEYWORDS)
+
+
+def _is_level2_warning(warning: dict[str, Any]) -> bool:
+    """clang-tidy Level 2(데이터 흐름 분석) 경고인지 판정한다.
+
+    Level 2: clang-analyzer-* — AST 완성이 필요, 헤더 없으면 동작 불가.
+    Level 1: bugprone-*, cert-*, misc-* 등 — 텍스트/구문 패턴, 헤더 없이도 동작.
+    """
+    check = warning.get("check", "")
+    return check.startswith(_LEVEL2_CHECK_PREFIX)
+
+
+# ──────────────────────────────────────────────
+# 이슈 후처리: 동일 패턴 병합 + 노이즈 제거
+# ──────────────────────────────────────────────
+
+# 중복 병합 그룹 키워드 (title 소문자에서 매칭)
+_DEDUP_GROUPS: list[tuple[str, list[str]]] = [
+    ("strncpy 널 종료", ["strncpy", "널 종료", "null 종료", "strlcpy"]),
+    ("ix 미초기화", ["ix 변수", "ix 미초기화", "ix 선언", "지역 변수 ix"]),
+]
+
+# 자동 제거 키워드 (title 소문자에서 매칭 → 이슈 삭제)
+# Proframe 환경 특성:
+# - 프로세스 기반(fork) 단일스레드 → 동시성/스레드 이슈 해당 없음
+# - INPUT/NGMHEADER/OUTPUT 매크로는 프레임워크가 보장 → NULL 체크 불필요
+# - 전역 IO 구조체는 프로세스별 독립 → 공유 문제 없음
+# - memset/memcpy 관례는 프레임워크 표준 → 안전 대안 불필요
+_REMOVE_KEYWORDS: list[str] = [
+    # 동시성/스레드 (Proframe 단일스레드)
+    "스레드 안전", "동기화 부재", "경쟁 상태", "race condition",
+    "mutex", "동시 접근", "스레드 안전성",
+    "데이터 레이스", "동시성", "요청 간 공유", "멀티스레드",
+    "race", "concurrent", "동기화 누락",
+    # NULL 체크 (프레임워크 보장) — 한글/영어 양쪽 매칭
+    "null 검증", "null 체크", "널 검증", "널 체크", "널 포인터",
+    "유효성 검증 누락", "유효성 검사 누락",
+    "방어적 프로그래밍", "null 역참조", "널 역참조",
+    "포인터 검증", "ctx 유효성", "input 유효성",
+    # 코드 스타일 제안 (실제 버그 아님)
+    "안전 대안", "관례 개선", "memset_s",
+    "가독성", "유지보수성", "네이밍",
+    # 전역 변수 공유 (Proframe 프로세스별 독립)
+    "전역 변수 공유", "전역 상태 공유", "전역 io 구조체",
+    "요청 간 격리", "전역 버퍼",
+    # 구조체 부분 초기화 (Proframe a000_init_proc/memset 보장)
+    "부분적으로만 채", "부분 초기화", "미설정 필드",
+    "정보 유출", "패딩 바이트",
+    # 코드 스타일 / 미래 가능성 제안 (실제 버그 아님)
+    "개선 권장", "표현 개선", "향후", "가독성 향상",
+    # memset 전 구조체 선언 초기화 (memset이 보장)
+    "memset 이전 경로", "선언 시 초기화 누락",
+    "선언 시 {0} 초기화",
+]
+
+# severity 우선순위 (높을수록 우선)
+_SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+
+
+def _deduplicate_issues(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """함수별 LLM 결과에서 동일 패턴 이슈를 병합하고 노이즈를 제거한다.
+
+    1. 스레드 안전성 이슈 자동 제거 (Proframe 단일스레드)
+    2. 동일 패턴 그룹의 이슈를 대표 1건으로 병합
+       - severity가 가장 높은 것 유지
+       - description에 "(외 N곳 동일 패턴)" 추가
+    3. 동일 변수명 + 동일 카테고리 이슈 병합
+    """
+    # Step 1: 스레드 안전성 제거
+    filtered: list[dict[str, Any]] = []
+    for issue in issues:
+        title_lower = issue.get("title", "").lower()
+        if any(kw in title_lower for kw in _REMOVE_KEYWORDS):
+            continue
+        filtered.append(issue)
+
+    # Step 2: 키워드 그룹 병합
+    group_map: dict[str, list[dict[str, Any]]] = {}
+    ungrouped: list[dict[str, Any]] = []
+
+    for issue in filtered:
+        title_lower = issue.get("title", "").lower()
+        matched_group = None
+        for group_name, keywords in _DEDUP_GROUPS:
+            if any(kw in title_lower for kw in keywords):
+                matched_group = group_name
+                break
+        if matched_group:
+            group_map.setdefault(matched_group, []).append(issue)
+        else:
+            ungrouped.append(issue)
+
+    # 각 그룹에서 대표 1건 선택
+    merged: list[dict[str, Any]] = []
+    for group_name, group_issues in group_map.items():
+        if not group_issues:
+            continue
+        # severity 최고 우선
+        group_issues.sort(
+            key=lambda x: _SEVERITY_RANK.get(x.get("severity", "low"), 0),
+            reverse=True,
+        )
+        representative = group_issues[0].copy()
+        if len(group_issues) > 1:
+            representative["description"] += (
+                f" (외 {len(group_issues) - 1}곳 동일 패턴)"
+            )
+        merged.append(representative)
+
+    # Step 3: 동일 변수 + 동일 카테고리 병합 (ungrouped 중)
+    var_dedup: dict[str, list[dict[str, Any]]] = {}
+    final_ungrouped: list[dict[str, Any]] = []
+
+    for issue in ungrouped:
+        title_lower = issue.get("title", "").lower()
+        category = issue.get("category", "")
+        # "svc_cnt", "currsvclist_s", "out_04" 등 변수명 + 카테고리로 그룹
+        var_key = None
+        for var in ["svc_cnt", "currsvclist_s", "out_04", "g_chg_psbl_flag"]:
+            if var in title_lower:
+                var_key = f"{var}_{category}"
+                break
+        if var_key:
+            var_dedup.setdefault(var_key, []).append(issue)
+        else:
+            final_ungrouped.append(issue)
+
+    for var_key, var_issues in var_dedup.items():
+        if not var_issues:
+            continue
+        var_issues.sort(
+            key=lambda x: _SEVERITY_RANK.get(x.get("severity", "low"), 0),
+            reverse=True,
+        )
+        representative = var_issues[0].copy()
+        if len(var_issues) > 1:
+            representative["description"] += (
+                f" (외 {len(var_issues) - 1}곳 동일 패턴)"
+            )
+        merged.append(representative)
+
+    result = merged + final_ungrouped
+
+    # severity 순 정렬
+    result.sort(
+        key=lambda x: _SEVERITY_RANK.get(x.get("severity", "low"), 0),
+        reverse=True,
+    )
+
+    return result
 
 
 class CAnalyzerAgent(BaseAgent):
@@ -88,14 +258,19 @@ class CAnalyzerAgent(BaseAgent):
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
             line_count = len(file_content.splitlines())
+            self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄, ~{line_count * 10 // 1000}K tokens)")
 
-            # Step 2: clang-tidy 정적분석
+            # Step 2: clang-tidy 정적분석 (내부에서 추론 로그 출력)
             clang_data = self._run_clang_tidy(file)
 
             # Step 3: 분석 경로 선택
             tokens_estimate = 0
             if not clang_data and line_count > 500:
                 # 2-Pass 전략: clang-tidy 없고 대형 파일
+                self.rl.decision(
+                    "Decision: 2-Pass 전략",
+                    reason=f"clang-tidy 없음 + {line_count}줄(>500)",
+                )
                 issues = await self._run_two_pass(
                     file=file,
                     file_content=file_content,
@@ -103,6 +278,17 @@ class CAnalyzerAgent(BaseAgent):
                 )
             else:
                 # 기존 경로: clang-tidy 있음 or 500줄 이하
+                if clang_data:
+                    w_count = len(clang_data.get("warnings", []))
+                    self.rl.decision(
+                        "Decision: Error-Focused path",
+                        reason=f"clang-tidy {w_count}건 유의미 경고",
+                    )
+                else:
+                    self.rl.decision(
+                        "Decision: Heuristic path",
+                        reason=f"clang-tidy 없음 + {line_count}줄(≤500) → 전체 코드 LLM 검증",
+                    )
                 prompt, messages = self._build_messages(
                     file=file,
                     file_content=file_content,
@@ -216,14 +402,17 @@ class CAnalyzerAgent(BaseAgent):
         if not isinstance(prescan_result, dict):
             prescan_result = {"risky_functions": []}
 
-        risky_functions = [
-            f["function_name"]
-            for f in prescan_result.get("risky_functions", [])
+        risky_entries = [
+            f for f in prescan_result.get("risky_functions", [])
             if isinstance(f, dict) and "function_name" in f
         ]
+        risky_functions = [f["function_name"] for f in risky_entries]
 
         if not risky_functions:
             logger.info(f"Pass 1: 위험 함수 없음 (LLM 판단) → Heuristic: {file}")
+            self.rl.decision(
+                "Pass 1 판정: 위험 함수 없음 → Heuristic fallback",
+            )
             return await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
             )
@@ -232,6 +421,13 @@ class CAnalyzerAgent(BaseAgent):
             f"Pass 1 완료: {len(risky_functions)}개 위험 함수 선별 → "
             f"{risky_functions}"
         )
+        self.rl.step(
+            f"Pass 1 판정: {len(risky_functions)}개 위험 함수 선별",
+        )
+        for entry in risky_entries:
+            fname = entry.get("function_name", "?")
+            reason = entry.get("reason", "이유 없음")
+            self.rl.scan(f"  [sky_blue2]{fname}[/sky_blue2]: {reason}")
 
         # Pass 2: 함수별 개별 LLM 호출
         structure_summary = build_structure_summary(file_content, file_context, "c")
@@ -244,9 +440,15 @@ class CAnalyzerAgent(BaseAgent):
         )
 
         sem = asyncio.Semaphore(self._MAX_CONCURRENT_LLM)
+        total_funcs = len(risky_functions)
 
-        async def _analyze_with_limit(func_name: str, start_line: int) -> list[dict]:
+        async def _analyze_with_limit(
+            idx: int, func_name: str, start_line: int,
+        ) -> list[dict]:
             async with sem:
+                self.rl.step(
+                    f"Pass 2 [{idx}/{total_funcs}] [sky_blue2]{func_name}[/sky_blue2] 분석 시작"
+                )
                 return await self._analyze_single_function(
                     file=file,
                     file_content=file_content,
@@ -258,12 +460,14 @@ class CAnalyzerAgent(BaseAgent):
                 )
 
         tasks = []
+        func_idx = 0
         for func_name in risky_functions:
             start_line = func_start_lines.get(func_name)
             if start_line is None:
                 logger.warning(f"함수 경계 찾기 실패, 분석 건너뜀: {func_name}")
                 continue
-            tasks.append(_analyze_with_limit(func_name, start_line))
+            func_idx += 1
+            tasks.append(_analyze_with_limit(func_idx, func_name, start_line))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -273,6 +477,15 @@ class CAnalyzerAgent(BaseAgent):
                 logger.warning(f"함수 분석 실패: {result}")
                 continue
             all_issues.extend(result)
+
+        # 후처리: 동일 패턴 병합 + 노이즈 제거
+        before_count = len(all_issues)
+        all_issues = _deduplicate_issues(all_issues)
+        if before_count != len(all_issues):
+            self.rl.process(
+                f"Dedup: {before_count}건 → {len(all_issues)}건 "
+                f"({before_count - len(all_issues)}건 중복/노이즈 제거)"
+            )
 
         # issue_id 재번호 (C-001부터 순차)
         for i, issue in enumerate(all_issues):
@@ -328,6 +541,7 @@ class CAnalyzerAgent(BaseAgent):
         ]
 
         response = await self.call_llm(messages, json_mode=True)
+        tokens = (len(prompt) + len(response)) // 4
         llm_result = json.loads(response)
 
         if not isinstance(llm_result, dict):
@@ -335,6 +549,24 @@ class CAnalyzerAgent(BaseAgent):
 
         issues = llm_result.get("issues", [])
         logger.debug(f"함수 {func_name}: {len(issues)}개 이슈")
+
+        # 함수별 결과 추론 로그
+        if issues:
+            severity_summary = {}
+            for iss in issues:
+                sev = iss.get("severity", "?").upper()
+                severity_summary[sev] = severity_summary.get(sev, 0) + 1
+            sev_str = " ".join(f"{k}:{v}" for k, v in severity_summary.items())
+            self.rl.step(
+                f"Pass 2 [[sky_blue2]{func_name}[/sky_blue2]]: {len(issues)}개 이슈 ({sev_str}, {tokens:,} tokens)"
+            )
+            for iss in issues:
+                sev = iss.get("severity", "?").upper()
+                title = iss.get("title", "")
+                self.rl.scan(f"  [{sev}] {title}")
+        else:
+            self.rl.step(f"Pass 2 [[sky_blue2]{func_name}[/sky_blue2]]: 이슈 없음 ({tokens:,} tokens)")
+
         return issues
 
     async def _run_single_pass_heuristic(
@@ -456,13 +688,55 @@ class CAnalyzerAgent(BaseAgent):
     def _run_clang_tidy(self, file: str) -> dict[str, Any] | None:
         """clang-tidy를 실행하여 결과를 반환한다.
 
-        실행 실패 시 None을 반환한다 (Heuristic 모드로 전환).
+        헤더 누락 등 컴파일 에러만 있고 유의미한 경고가 없으면
+        None을 반환하여 Heuristic/2-Pass fallback을 유도한다.
+        실행 실패 시에도 None을 반환한다.
         """
         try:
             result = self._clang_tidy_runner.execute(file=file)
             warnings = result.data.get("warnings", [])
-            if warnings:
-                return {"warnings": warnings}
+            if not warnings:
+                return None
+
+            # 헤더 에러 분리
+            header_errors = [w for w in warnings if _is_header_error(w)]
+            non_header = [w for w in warnings if not _is_header_error(w)]
+
+            if not header_errors:
+                # 헤더 에러 없음 → 전체 경고가 유의미 (AST 정상)
+                self.rl.scan(
+                    f"clang-tidy: {len(non_header)}건 경고 (헤더 정상, 전부 유의미)"
+                )
+                return {"warnings": non_header} if non_header else None
+
+            # 헤더 에러 있음 → Level 1은 저가치, Level 2만 유의미
+            level2 = [w for w in non_header if _is_level2_warning(w)]
+            level1 = [w for w in non_header if not _is_level2_warning(w)]
+
+            self.rl.detect(
+                f"clang-tidy: 헤더 에러 {len(header_errors)}건 "
+                f"→ Level 1 저가치 {len(level1)}건 필터링"
+            )
+
+            if level2:
+                self.rl.scan(f"clang-tidy: Level 2 유의미 {len(level2)}건")
+                logger.info(
+                    f"clang-tidy: 헤더 에러 {len(header_errors)}건, "
+                    f"Level 1 저가치 {len(level1)}건 필터링, "
+                    f"Level 2 유의미 {len(level2)}건"
+                )
+                return {"warnings": level2}
+
+            # Level 2 = 0건 → Heuristic/2-Pass fallback
+            self.rl.decision(
+                "Decision: clang-tidy 유의미 경고 0건 → Heuristic/2-Pass fallback",
+                reason=f"헤더 누락({len(header_errors)}건)으로 clang-analyzer 미동작, "
+                       f"Level 1(bugprone 등) {len(level1)}건은 LLM 분석 가치 없음",
+            )
+            logger.info(
+                f"clang-tidy: 헤더 누락으로 clang-analyzer 미동작, "
+                f"Level 1 {len(level1)}건 저가치 → Heuristic/2-Pass fallback"
+            )
             return None
         except Exception as e:
             logger.warning(f"clang-tidy 실행 실패, Heuristic 모드로 전환: {e}")

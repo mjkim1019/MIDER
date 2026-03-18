@@ -195,6 +195,21 @@ def print_file_list(console: Console, files: list[str]) -> None:
     console.print()
 
 
+def _expand_code_lines(code: str) -> str:
+    """코드 문자열의 리터럴 \\n과 { } 내 ; 구분을 실제 줄바꿈으로 변환한다."""
+    import re
+    # 리터럴 \n → 줄바꿈
+    expanded = code.replace("\\n", "\n")
+    # { stmt1; stmt2; } → 줄바꿈 분리
+    # { 뒤에 줄바꿈
+    expanded = re.sub(r"\{\s*", "{\n    ", expanded)
+    # ; 뒤에 줄바꿈 (단, 문자열 리터럴 내부 제외)
+    expanded = re.sub(r";\s*(?![\s\n]*})", ";\n    ", expanded)
+    # } 앞에 줄바꿈
+    expanded = re.sub(r"\s*}", "\n}", expanded)
+    return expanded
+
+
 def print_issues(console: Console, issue_list: dict[str, Any]) -> None:
     """모든 이슈를 심각도별로 출력한다."""
     issues = issue_list.get("issues", [])
@@ -235,13 +250,15 @@ def print_issues(console: Console, issue_list: dict[str, Any]) -> None:
         # Critical/High는 Before/After 코드 표시
         if issue.get("severity") in ("critical", "high"):
             if before:
+                before_expanded = _expand_code_lines(before)
                 content.append("\n  - Before:\n", style="red")
-                for bline in before.strip().splitlines():
+                for bline in before_expanded.strip().splitlines():
                     content.append(f"    {bline}\n", style="red")
 
             if after:
+                after_expanded = _expand_code_lines(after)
                 content.append("  + After:\n", style="green")
-                for aline in after.strip().splitlines():
+                for aline in after_expanded.strip().splitlines():
                     content.append(f"    {aline}\n", style="green")
 
         if description:

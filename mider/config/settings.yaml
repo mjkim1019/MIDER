@@ -37,8 +37,8 @@ llm:
       model: "gpt-5-mini"
       fallback: "gpt-5"
     reporter:
-      model: "gpt-5-mini"
-      fallback: "gpt-5"
+      model: "gpt-4.1-mini"
+      fallback: "gpt-4.1"
 
 api:
   provider: "azure"  # "azure" 또는 "openai"

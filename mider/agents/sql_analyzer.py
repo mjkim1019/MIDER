@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 from mider.agents.base_agent import BaseAgent
@@ -99,6 +100,7 @@ class SQLAnalyzerAgent(BaseAgent):
             line_count = read_result.data.get("line_count", 0)
             file_size = read_result.data.get("file_size", 0)
             token_estimate = len(file_content) // 4
+            self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄, ~{token_estimate:,} tokens)")
 
             logger.info(
                 f"SQL 파일 크기: {file} → {line_count}줄, "
@@ -112,14 +114,39 @@ class SQLAnalyzerAgent(BaseAgent):
 
             # Step 2: SQL 문법 검증
             syntax_result = self._check_syntax(file)
+            syntax_errors = syntax_result.get("syntax_errors", [])
+            if syntax_errors:
+                self.rl.detect(f"SQL 문법 에러: {len(syntax_errors)}건")
 
             # Step 3: 정적 패턴 검색
             static_patterns = self._search_patterns(file)
+            if static_patterns:
+                # 테이블명 추출 (패턴에서)
+                tables = set()
+                for p in static_patterns:
+                    match_text = p.get("match", "")
+                    # FROM/INTO/UPDATE 뒤의 테이블명 추출
+                    for t in re.findall(r"(?:FROM|INTO|UPDATE|JOIN)\s+(\w+)", match_text, re.IGNORECASE):
+                        tables.add(t)
+                if tables:
+                    table_str = ", ".join(f"[sky_blue2]{t}[/sky_blue2]" for t in sorted(tables)[:5])
+                    self.rl.scan(f"테이블: {table_str}")
 
             # Step 4: Explain Plan 파싱 (옵션)
             explain_plan_data = self._parse_explain_plan(explain_plan_file)
+            if explain_plan_data:
+                tuning_points = explain_plan_data.get("tuning_points", [])
+                if tuning_points:
+                    self.rl.detect(f"Explain Plan: {len(tuning_points)}건 튜닝 포인트")
 
             # Step 5: LLM 분석
+            has_errors = bool(syntax_errors or (explain_plan_data and explain_plan_data.get("tuning_points")))
+            if has_errors:
+                self.rl.decision("Decision: Error-Focused path",
+                                 reason=f"syntax errors={len(syntax_errors)}, explain plan={bool(explain_plan_data)}")
+            else:
+                self.rl.decision("Decision: Heuristic path", reason="문법 에러 없음")
+
             prompt, messages = self._build_messages(
                 file=file,
                 file_content=file_content,

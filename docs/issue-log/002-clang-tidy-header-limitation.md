@@ -130,9 +130,43 @@ clang-tidy 없음 + >500줄 → 2-Pass Heuristic
 clang-tidy 없음 + ≤500줄 → 단일 Heuristic
 ```
 
-변경 후:
+변경 후 (T22 미머지):
 ```
 clang-tidy 있음 → Error-Focused (clang-tidy warnings + Heuristic findings 합산)
 clang-tidy 없음 + >500줄 → 2-Pass Heuristic (현재와 동일)
 clang-tidy 없음 + ≤500줄 → 단일 Heuristic (현재와 동일)
 ```
+
+---
+
+## 추가 발견: Level 1 저가치 경고 문제 (T27/T28, 2026-03-17)
+
+### 증상
+
+T27에서 헤더 에러를 필터링했으나, **Level 1(bugprone-*) 44건이 "유의미"로 통과**하여 Error-Focused에 진입. LLM이 44건을 개별 이슈로 번역 (285초, 94K tokens 소비). 48개 이슈 중 **45건이 노이즈**.
+
+| 분류 | 건수 | 내용 | LLM 가치 |
+|------|------|------|----------|
+| 헤더 에러 | 1 | `pfmcom.h` file not found | 없음 (T27에서 필터링) |
+| Level 1 (bugprone-*) | 44 | branch-clone 37 + narrowing 7 | **없음** — LLM 없이도 clang-tidy가 이미 탐지 |
+| Level 2 (clang-analyzer-*) | 0 | AST 생성 실패로 전혀 동작 안 함 | — |
+
+### 근본 원인
+
+T27에서 **헤더 에러**만 필터링하고, Level 1 경고는 유의미로 판정함. 그러나 Level 1은 AST 없이도 텍스트 패턴으로 탐지 가능하므로, LLM에 넘기면 **이미 알려진 정보를 번역하는 데만 토큰을 소비**.
+
+### 해결 (T28)
+
+`_run_clang_tidy()`에서 **헤더 에러가 1건이라도 있으면** Level 1도 저가치로 분류:
+- `clang-analyzer-*` (Level 2)만 유의미
+- `bugprone-*`, `cert-*`, `misc-*` 등 (Level 1)은 저가치
+- Level 2 = 0건이면 None → Heuristic/2-Pass fallback
+
+```
+수정 후 분기:
+clang-tidy 45건 → 헤더 에러 1건 + Level 1 저가치 44건 + Level 2 유의미 0건
+  → Level 2 = 0건 → None → 2-Pass (>500줄) 또는 Heuristic (≤500줄)
+  → regex 스캔으로 svc_cnt UNINIT_VAR 탐지 → 함수별 LLM 심층 분석
+```
+
+**참고**: 헤더 에러가 없는 경우(AST 정상)에는 Level 1도 유의미로 취급 — 이때는 clang-tidy가 정밀하게 동작하므로 모든 경고가 가치있음.

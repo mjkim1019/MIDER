@@ -7,6 +7,7 @@ Pro*C 파일의 데이터 무결성 위협 패턴을 탐지한다.
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from mider.agents.base_agent import BaseAgent
@@ -18,6 +19,7 @@ from mider.config.settings_loader import (
 )
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
+from mider.tools.static_analysis.proc_heuristic_scanner import ProCHeuristicScanner
 from mider.tools.static_analysis.proc_runner import ProcRunner
 from mider.tools.utility.sql_extractor import SQLExtractor
 from mider.tools.utility.token_optimizer import (
@@ -55,6 +57,7 @@ class ProCAnalyzerAgent(BaseAgent):
         self._file_reader = FileReader()
         self._proc_runner = ProcRunner()
         self._sql_extractor = SQLExtractor()
+        self._heuristic_scanner = ProCHeuristicScanner()
 
     async def run(
         self,
@@ -82,12 +85,32 @@ class ProCAnalyzerAgent(BaseAgent):
             # Step 1: 파일 읽기
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
+            line_count = len(file_content.splitlines())
+            self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄)")
 
             # Step 2: proc 프리컴파일러 실행
             proc_errors = self._run_proc(file)
+            if proc_errors:
+                self.rl.scan(f"proc: {len(proc_errors)}건 에러")
 
             # Step 3: SQL 블록 추출
             sql_blocks = self._extract_sql_blocks(file)
+            if sql_blocks:
+                # EXEC SQL 함수명 표시
+                sql_funcs = {b.get("function", "?") for b in sql_blocks if b.get("function")}
+                self.rl.scan(
+                    f"EXEC SQL: {len(sql_blocks)}개 블록 "
+                    f"([sky_blue2]{', '.join(sorted(sql_funcs)[:5])}[/sky_blue2])"
+                )
+
+            # Step 3.5: Heuristic Scanner (장애 유발 패턴 4종)
+            scanner_findings = self._run_heuristic_scanner(file)
+            if scanner_findings:
+                for f in scanner_findings:
+                    self.rl.detect(
+                        f"Scanner [{f['pattern_id']}] L{f['line']}: "
+                        f"{f['description'][:80]}"
+                    )
 
             # Step 4: Error-Focused / Heuristic 판정
             has_proc_errors = bool(proc_errors)
@@ -95,7 +118,24 @@ class ProCAnalyzerAgent(BaseAgent):
                 not block.get("has_sqlca_check", True)
                 for block in sql_blocks
             )
-            use_error_focused = has_proc_errors or has_missing_sqlca
+            has_scanner_findings = bool(scanner_findings)
+            use_error_focused = (
+                has_proc_errors or has_missing_sqlca or has_scanner_findings
+            )
+            reasons = []
+            if has_proc_errors:
+                reasons.append(f"proc errors={len(proc_errors or [])}")
+            if has_missing_sqlca:
+                reasons.append("SQLCA 미검사")
+            if has_scanner_findings:
+                reasons.append(f"Scanner {len(scanner_findings)}건")
+            if use_error_focused:
+                self.rl.decision(
+                    "Decision: Error-Focused path",
+                    reason=", ".join(reasons),
+                )
+            else:
+                self.rl.decision("Decision: Heuristic path", reason="정적 오류 없음")
 
             # Step 5: LLM 분석
             prompt, messages = self._build_messages(
@@ -105,6 +145,7 @@ class ProCAnalyzerAgent(BaseAgent):
                 sql_blocks=sql_blocks,
                 file_context=file_context,
                 use_error_focused=use_error_focused,
+                scanner_findings=scanner_findings,
             )
 
             response = await self.call_llm(messages, json_mode=True)
@@ -174,6 +215,15 @@ class ProCAnalyzerAgent(BaseAgent):
             logger.warning(f"SQL 블록 추출 실패: {e}")
             return []
 
+    def _run_heuristic_scanner(self, file: str) -> list[dict[str, Any]]:
+        """Pro*C Heuristic Scanner를 실행하여 장애 유발 패턴을 반환한다."""
+        try:
+            result = self._heuristic_scanner.execute(file=file)
+            return result.data.get("findings", [])
+        except Exception as e:
+            logger.warning(f"Pro*C Heuristic Scanner 실패: {e}")
+            return []
+
     def _build_messages(
         self,
         *,
@@ -183,6 +233,7 @@ class ProCAnalyzerAgent(BaseAgent):
         sql_blocks: list[dict[str, Any]],
         file_context: dict[str, Any] | None,
         use_error_focused: bool,
+        scanner_findings: list[dict[str, Any]] | None = None,
     ) -> tuple[str, list[dict[str, str]]]:
         """프롬프트 경로를 선택하고 LLM 메시지를 구성한다.
 
@@ -202,7 +253,7 @@ class ProCAnalyzerAgent(BaseAgent):
                 file_context, ensure_ascii=False, indent=2,
             ) if file_context else "컨텍스트 정보 없음"
 
-            # 에러 라인 추출
+            # 에러 라인 추출 (proc + sqlca + scanner)
             error_lines = []
             for item in proc_errors:
                 if isinstance(item, dict) and "line" in item:
@@ -210,6 +261,9 @@ class ProCAnalyzerAgent(BaseAgent):
             for block in sql_blocks:
                 if not block.get("has_sqlca_check", True) and "line" in block:
                     error_lines.append(block["line"])
+            for finding in (scanner_findings or []):
+                if finding.get("line"):
+                    error_lines.append(finding["line"])
 
             # 토큰 최적화
             structure_summary = build_structure_summary(
@@ -225,10 +279,15 @@ class ProCAnalyzerAgent(BaseAgent):
                 file_content, file_context, "proc",
             )
 
+            scanner_findings_str = json.dumps(
+                scanner_findings or [], ensure_ascii=False, indent=2,
+            )
+
             prompt = load_prompt(
                 "proc_analyzer_error_focused",
                 proc_errors=proc_errors_str,
                 sql_blocks=sql_blocks_str,
+                scanner_findings=scanner_findings_str,
                 file_path=file,
                 structure_summary=structure_summary,
                 error_functions=error_functions_str,
