@@ -39,9 +39,9 @@ _INIT_CALL_RE = re.compile(
     r"(INIT2VCHAR|INIT2STR|memset|memcpy)\s*\("
 )
 
-# ── 패턴 4: fopen/fclose ─────────────────────────
-_FOPEN_RE = re.compile(r"\bfopen\s*\(")
-_FCLOSE_RE = re.compile(r"\bfclose\s*\(")
+# ── 패턴 4: 파일 open/close (Proframe seq_open 포함) ───
+_FOPEN_RE = re.compile(r"\b(fopen|seq_open)\s*\(")
+_FCLOSE_RE = re.compile(r"\b(fclose|seq_close)\s*\(")
 
 
 def _extract_core_name(name: str) -> str:
@@ -146,7 +146,15 @@ class ProCHeuristicScanner(BaseTool):
                 type_name = m.group(2)
                 var_core = _extract_core_name(var_name)
                 type_core = _extract_core_name(type_name)
-                if var_core and type_core and var_core != type_core:
+                # Proframe 축약 허용: gst_read ↔ st_db_read, ls_ctx ↔ bat_ctx
+                # 변수 핵심명이 타입 핵심명에 포함되거나 그 반대면 정상
+                var_lower = var_core.lower().replace("_", "")
+                type_lower = type_core.lower().replace("_", "")
+                is_abbreviation = (
+                    var_lower in type_lower
+                    or type_lower in var_lower
+                )
+                if var_core and type_core and var_core != type_core and not is_abbreviation:
                     findings.append({
                         "pattern_id": "MEMSET_SIZEOF_MISMATCH",
                         "severity": "critical",
