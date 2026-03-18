@@ -629,3 +629,10 @@
 - `2026-03-18 15:10:01` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/fixtures/error/zinvbpre01850_buggy.pc`
 - `2026-03-18 15:10:17` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/fixtures/error/zinvbpre01850_buggy.pc`
 - `2026-03-18 15:10:31` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/fixtures/error/zinvbpre01850_buggy.pc`
+- `2026-03-18 15:48:42` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/proc_heuristic_scanner.py`
+- `2026-03-18 15:49:52` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/proc_heuristic_scanner.py`
+- `2026-03-18 16:00:56` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/proc_analyzer_error_focused.txt`
+- `2026-03-18 16:04:53` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-03-18 16:16:38` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-03-18 16:16:48` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-03-18 16:17:24` [fix/T27-clang-tidy-header-fallback] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
