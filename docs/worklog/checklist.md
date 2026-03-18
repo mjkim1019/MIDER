@@ -168,10 +168,10 @@
   - [x] T29.3: 단위 테스트
 - [ ] T30: Pro*C Heuristic Scanner (2-Pass)
   - [x] T30.1: ProCHeuristicScanner Tool 구현
-  - [ ] T30.2: ProCAnalyzerAgent에 Scanner 연동
-  - [ ] T30.3: Pro*C 프롬프트 Few-shot 추가
+  - [x] T30.2: ProCAnalyzerAgent에 Scanner 연동
+  - [x] T30.3: Pro*C 프롬프트 Few-shot 추가
   - [x] T30.4: Scanner 단위 테스트
-  - [ ] T30.5: Agent 통합 테스트
+  - [x] T30.5: Agent 통합 테스트
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [ ] T15.2: E2E 테스트
