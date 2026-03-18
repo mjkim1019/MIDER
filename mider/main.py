@@ -235,13 +235,16 @@ def print_issues(console: Console, issue_list: dict[str, Any]) -> None:
         # Critical/High는 Before/After 코드 표시
         if issue.get("severity") in ("critical", "high"):
             if before:
+                # LLM이 \n을 리터럴 문자열로 반환하는 경우 처리
+                before_expanded = before.replace("\\n", "\n")
                 content.append("\n  - Before:\n", style="red")
-                for bline in before.strip().splitlines():
+                for bline in before_expanded.strip().splitlines():
                     content.append(f"    {bline}\n", style="red")
 
             if after:
+                after_expanded = after.replace("\\n", "\n")
                 content.append("  + After:\n", style="green")
-                for aline in after.strip().splitlines():
+                for aline in after_expanded.strip().splitlines():
                     content.append(f"    {aline}\n", style="green")
 
         if description:
