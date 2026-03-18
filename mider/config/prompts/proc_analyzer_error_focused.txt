@@ -125,7 +125,13 @@ Scanner가 탐지한 패턴을 실제 코드에서 확인합니다:
 
 ## 주의사항
 - 이슈 ID는 PC-001부터 순차적으로 부여합니다.
-- Pro*C는 데이터 무결성이 가장 중요합니다. SQLCA 미검사, INDICATOR 누락, 커서 미닫힘은 severity를 높게 책정합니다.
+- Pro*C는 데이터 무결성이 가장 중요합니다. SQLCA 미검사, 커서 미닫힘은 severity를 높게 책정합니다.
 - title과 description은 반드시 한국어로 작성합니다.
 - fix의 before/after는 1-3줄만 포함합니다.
 - 발견된 이슈가 없으면 `"issues": []`로 응답합니다.
+- **[Proframe 환경] 아래 패턴은 이슈로 보고하지 마세요:**
+  - INDICATOR 변수 누락 — Proframe은 WHENEVER SQLERROR + NVL()로 NULL을 처리하므로 INDICATOR 불필요
+  - memset에서 sizeof(타입명) 사용 — Proframe 표준 관행이며 타입명과 변수 타입이 일치
+  - 전역 변수 동시성/스레드 안전성 — Proframe은 프로세스 기반 단일스레드
+  - NULL 포인터 검증 누락 — INPUT/NGMHEADER/ctx는 프레임워크가 보장
+- **[중요] fix.before/after에는 원본 코드에 실제로 존재하는 변수명만 사용하세요.**
