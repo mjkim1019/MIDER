@@ -460,6 +460,8 @@ class CAnalyzerAgent(BaseAgent):
         """
         try:
             result = self._clang_tidy_runner.execute(file=file)
+            # if result.data.get("skipped"):
+            #     return None
             warnings = result.data.get("warnings", [])
             if warnings:
                 return {"warnings": warnings}
@@ -490,6 +492,8 @@ class CAnalyzerAgent(BaseAgent):
                 file_context, ensure_ascii=False, indent=2,
             ) if file_context else "컨텍스트 정보 없음"
 
+            # 에러 라인 추출
+            error_lines = []
             # 에러 라인 추출
             error_lines = []
             for item in clang_data.get("warnings", []):

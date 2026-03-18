@@ -53,8 +53,13 @@ static_analysis:
     config: "resources/lint-configs/.eslintrc.json"
     binary: "resources/binaries/node"
   clang_tidy:
-    checks: "-*,clang-analyzer-*,bugprone-*"
+    checks: "-*,clang-analyzer-*,bugprone-*,-bugprone-branch-clone"
     binary: "resources/binaries/clang-tidy"
+    stub_extra_types:
+      - "typedef unsigned char BYTE;"
+      - "typedef unsigned int DWORD;"
+      - "#define SUCCESS 0"
+      - "#define FAILURE -1"
   proc:
     include_dirs:
       - "/usr/include/oracle"

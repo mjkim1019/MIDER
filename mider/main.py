@@ -11,6 +11,7 @@ import logging
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -250,10 +251,26 @@ def print_issues(console: Console, issue_list: dict[str, Any]) -> None:
         console.print(Panel(content, border_style="dim"))
 
 
+def get_output_prefix(files: list[str]) -> str:
+    """분석 대상 파일명과 현재 일시를 결합한 파일명 접두사를 반환한다."""
+    if not files:
+        base_name = "analysis"
+    else:
+        # 첫 번째 파일의 이름을 대표 이름으로 사용 (확장자 제외)
+        try:
+            base_name = Path(files[0]).stem
+        except Exception:
+            base_name = "analysis"
+            
+    timestamp = datetime.now().strftime("%Y%m%d%H%M")
+    return f"{base_name}_{timestamp}_"
+
+
 def print_summary(
     console: Console,
     summary: dict[str, Any],
     output_dir: str,
+    source_files: list[str],
 ) -> None:
     """심각도별 요약과 배포 판정을 출력한다."""
     issue_summary = summary.get("issue_summary", {})
@@ -292,25 +309,31 @@ def print_summary(
             console.print(f"  차단 이슈: {', '.join(blocking[:5])}")
 
     # 출력 파일 경로
-    console.print(f"\n출력: {output_dir}/issue-list.json")
-    console.print(f"      {output_dir}/checklist.json")
-    console.print(f"      {output_dir}/summary.json")
-    console.print(f"      {output_dir}/deployment-checklist.json")
+    prefix = get_output_prefix(source_files)
+    
+    console.print(f"\n출력 디렉토리: {output_dir}")
+    console.print(f"      {prefix}issue-list.json")
+    console.print(f"      {prefix}checklist.json")
+    console.print(f"      {prefix}summary.json")
+    console.print(f"      {prefix}deployment-checklist.json")
 
 
 def write_output_files(
     output_dir: str,
     result: dict[str, Any],
+    source_files: list[str],
 ) -> None:
     """분석 결과를 JSON 파일로 출력한다."""
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
+    prefix = get_output_prefix(source_files)
+
     files_to_write = {
-        "issue-list.json": result.get("issue_list", {}),
-        "checklist.json": result.get("checklist", {}),
-        "summary.json": result.get("summary", {}),
-        "deployment-checklist.json": result.get("deployment_checklist", {}),
+        f"{prefix}issue-list.json": result.get("issue_list", {}),
+        f"{prefix}checklist.json": result.get("checklist", {}),
+        f"{prefix}summary.json": result.get("summary", {}),
+        f"{prefix}deployment-checklist.json": result.get("deployment_checklist", {}),
     }
 
     for filename, data in files_to_write.items():
@@ -373,13 +396,13 @@ async def run_analysis(
     total_issues = issue_list.get("total_issues", 0)
 
     if errors and total_issues == 0 and not result.get("execution_plan", {}).get("sub_tasks"):
-        write_output_files(output_dir, result)
+        write_output_files(output_dir, result, files)
         return EXIT_FILE_ERROR
 
     # 결과 출력
-    write_output_files(output_dir, result)
+    write_output_files(output_dir, result, files)
     print_issues(console, issue_list)
-    print_summary(console, result.get("summary", {}), output_dir)
+    print_summary(console, result.get("summary", {}), output_dir, files)
 
     return determine_exit_code(result)
 

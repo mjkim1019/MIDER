@@ -11,13 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
+from mider.tools.static_analysis.stub_header_generator import StubHeaderGenerator
 
 logger = logging.getLogger(__name__)
 
 # 패키지 기준 기본 경로
 _PACKAGE_DIR = Path(__file__).parent.parent.parent  # mider/
 _DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "clang-tidy"
-_DEFAULT_CHECKS = "-*,clang-analyzer-*,bugprone-*"
+_DEFAULT_CHECKS = "-*,clang-analyzer-*,bugprone-*,-bugprone-branch-clone"
 
 # clang-tidy 출력 파싱 정규표현식
 # 형식: file:line:col: severity: message [check-name]
@@ -79,32 +80,43 @@ class ClangTidyRunner(BaseTool):
 
         checks_arg = checks or _DEFAULT_CHECKS
 
-        cmd = [
-            str(self._binary),
-            f"--checks={checks_arg}",
-            str(file_path),
-            "--",  # 컴파일 옵션 구분자
-        ]
-
+        # 1. stub 생성
+        stub_gen = StubHeaderGenerator()
+        stubs_dir = file_path.parent / "stubs"
         try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=_TIMEOUT_SECONDS,
-            )
-        except FileNotFoundError:
-            raise ToolExecutionError(
-                "clang_tidy_runner",
-                f"binary not found: {self._binary}",
-            )
-        except subprocess.TimeoutExpired:
-            raise ToolExecutionError(
-                "clang_tidy_runner",
-                f"timeout after {_TIMEOUT_SECONDS}s: {file}",
-            )
+            stub_gen.generate(str(file_path), stubs_dir)
 
-        return self._parse_output(proc.stdout, proc.stderr)
+            cmd = [
+                str(self._binary),
+                f"--checks={checks_arg}",
+                str(file_path),
+                "--",  # 컴파일 옵션 구분자
+                f"-I{stubs_dir}",
+                "-std=c99",
+            ]
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=_TIMEOUT_SECONDS,
+                )
+            except FileNotFoundError:
+                raise ToolExecutionError(
+                    "clang_tidy_runner",
+                    f"binary not found: {self._binary}",
+                )
+            except subprocess.TimeoutExpired:
+                raise ToolExecutionError(
+                    "clang_tidy_runner",
+                    f"timeout after {_TIMEOUT_SECONDS}s: {file}",
+                )
+
+            return self._parse_output(proc.stdout, proc.stderr)
+        finally:
+            # 2. 분석 종료 후 반드시 정리
+            stub_gen.cleanup(stubs_dir)
 
     @staticmethod
     def _find_binary() -> Path | None:
