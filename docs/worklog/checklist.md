@@ -153,6 +153,25 @@
   - [x] T26.3: Analyzer Agent에 추론 로그 추가
   - [x] T26.4: CLI 출력 통합
   - [x] T26.5: 단위 테스트
+- [x] T27: clang-tidy 헤더 누락 시 Heuristic/2-Pass fallback
+  - [x] T27.1: clang-tidy 결과에서 헤더 에러 필터링
+  - [x] T27.2: 추론 로그 추가
+  - [x] T27.3: 단위 테스트
+- [x] T28: clang-tidy Level 1 저가치 경고 필터링 (이슈 #002 확장)
+  - [x] T28.1: Level 1/Level 2 분류 로직 구현
+  - [x] T28.2: 이슈 #002 로그 업데이트
+  - [x] T28.3: 추론 로그 개선
+  - [x] T28.4: 단위 테스트
+- [x] T29: C 분석 이슈 후처리 중복 제거
+  - [x] T29.1: `_deduplicate_issues()` 구현
+  - [x] T29.2: 이슈 로그 작성
+  - [x] T29.3: 단위 테스트
+- [ ] T30: Pro*C Heuristic Scanner (2-Pass)
+  - [x] T30.1: ProCHeuristicScanner Tool 구현
+  - [x] T30.2: ProCAnalyzerAgent에 Scanner 연동
+  - [x] T30.3: Pro*C 프롬프트 Few-shot 추가
+  - [x] T30.4: Scanner 단위 테스트
+  - [x] T30.5: Agent 통합 테스트
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [ ] T15.2: E2E 테스트

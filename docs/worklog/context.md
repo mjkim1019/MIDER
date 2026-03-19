@@ -221,3 +221,30 @@
 | 2026-03-17 | XMLAnalyzerAgent 상세 추론 로그 | 파서→경로선택→프롬프트→LLM→후처리 전 과정 시각화 |
 | 2026-03-17 | 리뷰 반영: reporter reason elif 분기 | CRITICAL+HIGH 동시 시 중복 차단 문구 방지 (M2) |
 | 2026-03-17 | 리뷰 반영: context scan 로그에 파일명 추가 | 어떤 파일의 scan 결과인지 식별 가능 (L2) |
+
+## T27 설계 결정 (clang-tidy 헤더 누락 fallback)
+- **문제**: clang-tidy가 실행은 되지만 헤더 에러(fatal error: file not found)만 발생 → 유의미한 경고 0개인데 Error-Focused 경로 진입 → LLM에 쓸모없는 에러만 전달
+- **해결**: `_run_clang_tidy()`에서 헤더 관련 에러를 필터링, 유의미한 경고만 남김. 0건이면 None 반환 → Heuristic/2-Pass fallback
+- **헤더 에러 판정 기준**: severity="error" + 메시지에 `file not found`, `unknown type name`, `use of undeclared identifier`, `no such file or directory` 포함
+- **clang-diagnostic-error 과도한 일반화 방지**: check 이름만으로 판정하지 않고 반드시 메시지 키워드 확인 (구문 에러 `expected ';'` 등은 유의미하므로 필터링 방지)
+- **유의미 경고 + 헤더 에러 혼재 시**: 유의미 경고만 남기고 Error-Focused 유지 (이슈 #002 방안 1의 축소 적용)
+
+| 2026-03-17 | `_is_header_error()` + `_run_clang_tidy()` 헤더 에러 필터링 | 헤더 에러만 있으면 Error-Focused가 무의미 → Heuristic/2-Pass fallback (이슈 #006) |
+| 2026-03-17 | 리뷰 반영: clang-diagnostic-error 메시지 키워드 확인 필수 | 구문 에러(expected ';')도 clang-diagnostic-error이므로 check만으로 판정하면 유의미 에러 필터링됨 |
+| 2026-03-17 | 리뷰 반영: dead entry `'included' file not found` 제거, `no such file or directory` 추가 | 실제 clang 메시지와 매칭되지 않는 키워드 정리 |
+
+## T28 설계 결정 (clang-tidy Level 1 저가치 필터링)
+- **문제**: T27에서 헤더 에러만 필터링했으나, Level 1(bugprone-*) 44건이 "유의미"로 통과 → Error-Focused에서 LLM이 44건을 개별 이슈로 번역 (285초, 94K tokens)
+- **실제 사례**: 2932줄 C 파일, clang-tidy 45건 중 헤더 에러 1건 제거 → 44건 Level 1 → 48개 이슈 중 45건이 노이즈
+- **해결**: 헤더 에러가 1건이라도 있으면 Level 1도 저가치로 분류. `clang-analyzer-*`(Level 2)만 유의미
+- **Level 2 판정 기준**: check 접두사가 `clang-analyzer-` (데이터 흐름 분석, AST 완성 필요)
+- **Level 1 판정 기준**: `bugprone-*`, `cert-*`, `misc-*` 등 나머지 (텍스트/구문 패턴)
+- **헤더 에러 없을 때**: 기존 동작 유지 (Level 1 포함 — AST 완성 시 Level 1도 유의미)
+
+## T30 설계 결정 (Pro*C Heuristic Scanner)
+- **목적**: 실제 장애 유발 패턴 3+1종을 regex로 사전 스캔 → LLM에 집중 분석 요청
+- **아키텍처**: C의 CHeuristicScanner + 2-Pass 전략을 Pro*C에 적용
+- **패턴 4종**: FORMAT_STRUCT(%s에 구조체), MEMSET_SIZEOF_MISMATCH, LOOP_INIT_MISSING, FCLOSE_MISSING
+- **Scanner 위치**: `mider/tools/static_analysis/proc_heuristic_scanner.py`
+- **연동**: ProCAnalyzerAgent에서 Scanner 결과 > 0이면 Error-Focused 강제 진입
+- **프롬프트**: 장애 사례 few-shot으로 LLM 판정 정확도 향상

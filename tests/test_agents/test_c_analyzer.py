@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from mider.agents.c_analyzer import CAnalyzerAgent
+from mider.agents.c_analyzer import CAnalyzerAgent, _deduplicate_issues
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.base_tool import ToolResult
 
@@ -489,6 +489,206 @@ class TestTwoPassPath:
         validated = AnalysisResult.model_validate(result)
         assert len(validated.issues) == 2
         assert validated.agent == "CAnalyzerAgent"
+
+
+class TestHeaderErrorFallback:
+    """헤더 에러 필터링 + fallback 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_header_errors_only_triggers_fallback(self, agent, c_file):
+        """헤더 에러만 있으면 Heuristic fallback (Error-Focused 아님)."""
+        clang_result = ToolResult(
+            success=True,
+            data={
+                "warnings": [
+                    {
+                        "check": "clang-diagnostic-error",
+                        "message": "'pfmcom.h' file not found",
+                        "line": 3, "column": 10, "severity": "error",
+                        "file": c_file,
+                    },
+                    {
+                        "check": "clang-diagnostic-error",
+                        "message": "unknown type name 'ctx_t'",
+                        "line": 50, "column": 1, "severity": "error",
+                        "file": c_file,
+                    },
+                ],
+                "total_warnings": 2,
+            },
+        )
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.return_value = clang_result
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(task_id="task_1", file=c_file, language="c")
+
+        # LLM 호출됨 (Heuristic 경로)
+        agent._llm_client.chat.assert_called_once()
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        # Error-Focused 프롬프트에만 있는 clang-tidy 키워드가 없어야 함
+        assert "clang-diagnostic-error" not in prompt
+        assert "pfmcom.h" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_level2_warnings_with_header_errors(self, agent, c_file):
+        """헤더 에러 + Level 2(clang-analyzer) → Level 2만 Error-Focused."""
+        clang_result = ToolResult(
+            success=True,
+            data={
+                "warnings": [
+                    {
+                        "check": "clang-diagnostic-error",
+                        "message": "'pfmcom.h' file not found",
+                        "line": 3, "column": 10, "severity": "error",
+                        "file": c_file,
+                    },
+                    {
+                        "check": "clang-analyzer-core.uninitialized.Assign",
+                        "message": "uninitialized variable",
+                        "line": 20, "column": 5, "severity": "warning",
+                        "file": c_file,
+                    },
+                ],
+                "total_warnings": 2,
+            },
+        )
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.return_value = clang_result
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(task_id="task_1", file=c_file, language="c")
+
+        # Error-Focused 프롬프트에 Level 2 경고만 포함
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        assert "clang-analyzer-core.uninitialized.Assign" in prompt
+        # 헤더 에러는 제외됨
+        assert "pfmcom.h" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_level1_only_with_header_errors_triggers_fallback(
+        self, agent, c_file,
+    ):
+        """헤더 에러 + Level 1(bugprone)만 → Heuristic fallback (Level 1 저가치)."""
+        clang_result = ToolResult(
+            success=True,
+            data={
+                "warnings": [
+                    {
+                        "check": "clang-diagnostic-error",
+                        "message": "'pfmcom.h' file not found",
+                        "line": 3, "column": 10, "severity": "error",
+                        "file": c_file,
+                    },
+                    {
+                        "check": "bugprone-branch-clone",
+                        "message": "repeated branch in conditional",
+                        "line": 20, "column": 5, "severity": "warning",
+                        "file": c_file,
+                    },
+                ],
+                "total_warnings": 2,
+            },
+        )
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.return_value = clang_result
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(task_id="task_1", file=c_file, language="c")
+
+        # Heuristic fallback: Level 1은 저가치, 프롬프트에 bugprone 없어야 함
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        assert "bugprone-branch-clone" not in prompt
+        assert "pfmcom.h" not in prompt
+
+
+class TestDeduplicateIssues:
+    """이슈 후처리 중복 제거 테스트."""
+
+    def test_strncpy_issues_merged(self):
+        """strncpy 관련 이슈 5건 → 대표 1건 병합."""
+        issues = [
+            {"title": "strncpy 사용 후 널 종료 미보장", "severity": "high",
+             "category": "memory_safety", "description": "함수 A"},
+            {"title": "strncpy 널 종료 미보장으로 오버리드", "severity": "critical",
+             "category": "memory_safety", "description": "함수 B"},
+            {"title": "strncpy 사용 시 널 종료 보장되지 않음", "severity": "medium",
+             "category": "memory_safety", "description": "함수 C"},
+            {"title": "1바이트 필드에 strncpy 사용", "severity": "high",
+             "category": "memory_safety", "description": "함수 D"},
+            {"title": "strlcpy 대신 strncpy 사용", "severity": "low",
+             "category": "memory_safety", "description": "함수 E"},
+        ]
+        result = _deduplicate_issues(issues)
+        strncpy_issues = [i for i in result if "strncpy" in i["title"].lower()
+                          or "널 종료" in i["title"]]
+        assert len(strncpy_issues) == 1
+        assert strncpy_issues[0]["severity"] == "critical"  # 최고 severity
+        assert "외 4곳" in strncpy_issues[0]["description"]
+
+    def test_thread_safety_removed(self):
+        """스레드 안전성 이슈 → 전부 제거."""
+        issues = [
+            {"title": "전역 변수 동기화 부재", "severity": "medium",
+             "category": "performance", "description": "스레드"},
+            {"title": "경쟁 상태 위험", "severity": "medium",
+             "category": "performance", "description": "race"},
+            {"title": "svc_cnt 미초기화", "severity": "critical",
+             "category": "memory_safety", "description": "실제 버그"},
+        ]
+        result = _deduplicate_issues(issues)
+        assert len(result) == 1
+        assert result[0]["title"] == "svc_cnt 미초기화"
+
+    def test_different_issues_not_merged(self):
+        """서로 다른 이슈는 병합하지 않음."""
+        issues = [
+            {"title": "svc_cnt 미초기화", "severity": "critical",
+             "category": "memory_safety", "description": "버그1"},
+            {"title": "memcpy 크기 불일치", "severity": "medium",
+             "category": "memory_safety", "description": "버그2"},
+            {"title": "mpfm_long2strn 반환값 미확인", "severity": "high",
+             "category": "error_handling", "description": "버그3"},
+        ]
+        result = _deduplicate_issues(issues)
+        assert len(result) == 3
+
+    def test_same_variable_merged(self):
+        """동일 변수 + 동일 카테고리 이슈 병합."""
+        issues = [
+            {"title": "svc_cnt 미초기화로 OOB", "severity": "critical",
+             "category": "memory_safety", "description": "배열 접근"},
+            {"title": "svc_cnt 경계 미검사 인덱싱", "severity": "high",
+             "category": "memory_safety", "description": "배열 쓰기"},
+        ]
+        result = _deduplicate_issues(issues)
+        svc_issues = [i for i in result if "svc_cnt" in i["title"]]
+        assert len(svc_issues) == 1
+        assert svc_issues[0]["severity"] == "critical"
+
+    def test_empty_issues(self):
+        """빈 이슈 리스트."""
+        assert _deduplicate_issues([]) == []
+
+    def test_severity_ordering(self):
+        """결과가 severity 내림차순으로 정렬."""
+        issues = [
+            {"title": "낮은 이슈", "severity": "low",
+             "category": "code_quality", "description": "a"},
+            {"title": "높은 이슈", "severity": "critical",
+             "category": "memory_safety", "description": "b"},
+            {"title": "중간 이슈", "severity": "medium",
+             "category": "data_integrity", "description": "c"},
+        ]
+        result = _deduplicate_issues(issues)
+        severities = [i["severity"] for i in result]
+        assert severities == ["critical", "medium", "low"]
 
 
 class TestAgentInit:

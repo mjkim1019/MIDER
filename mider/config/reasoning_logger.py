@@ -12,7 +12,9 @@ Rich Console 기반 컬러 dot 로그로 CLI에 실시간 출력한다.
   green   — 최종 결과
 """
 
-from typing import Any
+import time
+from contextlib import contextmanager
+from typing import Any, Generator
 
 from rich.console import Console
 
@@ -58,39 +60,66 @@ class ReasoningLogger:
     # ──────────────────────────────────────────────
 
     def scan(self, message: str) -> None:
-        """입력 데이터 / 스캔 결과 (cyan)."""
-        self._dot("cyan", message)
+        """입력 데이터 / 스캔 결과 (dot 없이 dim 텍스트)."""
+        self._print(f"    [grey70]{message}[/grey70]")
 
     def detect(self, message: str) -> None:
-        """탐지된 문제 / 경고 (red)."""
-        self._dot("red", message)
+        """탐지된 문제 / 경고 (red dot + dim 내용)."""
+        self._dot_styled("red", message)
 
     def decision(self, message: str, reason: str | None = None) -> None:
-        """의사결정 (yellow) + 선택적 근거 라인.
+        """의사결정 (yellow dot + bold 키워드 + dim 내용).
 
         Args:
-            message: 결정 내용 (예: "Error-Focused path")
+            message: 결정 내용 (예: "Decision: Error-Focused path")
             reason: 근거 (예: "duplicate_ids=1건, parse_errors=0건")
         """
-        self._dot("yellow", message)
+        self._dot_styled("yellow", message)
         if reason:
-            self._print(f"     [dim]∵ {reason}[/dim]")
+            self._print(f"     [grey70]∵ {reason}[/grey70]")
+
+    def step(self, message: str) -> None:
+        """중요 단계 표시 (white dot + bold 흰색 전체).
+
+        Pass 1/2, 주요 처리 단계 등에 사용.
+        """
+        if not self._verbose:
+            return
+        self._print(f"  [white]●[/white] [bold white]{message}[/bold white]")
 
     def prompt(self, message: str) -> None:
-        """프롬프트 구성 등 내부 처리 (blue)."""
-        self._dot("blue", message)
+        """프롬프트 구성 등 내부 처리 (blue dot + grey70 내용)."""
+        self._dot_styled("blue", message)
 
     def process(self, message: str) -> None:
-        """파싱, 검증 등 내부 처리 (blue)."""
-        self._dot("blue", message)
+        """파싱, 검증 등 내부 처리 (blue dot + grey70 내용)."""
+        self._dot_styled("blue", message)
 
     def llm_request(self, message: str) -> None:
-        """LLM 호출 시작 (magenta)."""
-        self._dot("magenta", message)
+        """LLM 호출 시작 (magenta dot + dim 내용)."""
+        self._dot_styled("magenta", message)
 
     def llm_response(self, message: str) -> None:
-        """LLM 응답 수신 (magenta)."""
-        self._dot("magenta", message)
+        """LLM 응답 수신 (magenta dot + dim 내용)."""
+        self._dot_styled("magenta", message)
+
+    @contextmanager
+    def spinner(self, message: str) -> Generator[None, None, None]:
+        """LLM 호출 시작/완료를 표시한다.
+
+        verbose=False이면 아무것도 하지 않는다.
+        시작 시 dot 로그, 완료 시 경과 시간 로그를 출력한다.
+        (Rich Live spinner는 logging과 출력이 겹쳐 제거)
+        """
+        if not self._verbose:
+            yield
+            return
+
+        start = time.time()
+        self._dot_styled("magenta", message)
+        yield
+        elapsed = time.time() - start
+        self._print(f"    [grey70]  └ {elapsed:.1f}초 완료[/grey70]")
 
     def result(
         self,
@@ -103,7 +132,7 @@ class ReasoningLogger:
             message: 결과 요약 (예: "3 issues, 14.5초")
             issues: 이슈 딕셔너리 리스트 (severity, issue_id, title 포함)
         """
-        self._dot("green", message)
+        self._dot_styled("green", message)
         if issues:
             for issue in issues:
                 severity = issue.get("severity", "").upper()
@@ -111,18 +140,29 @@ class ReasoningLogger:
                 title = issue.get("title", "")
                 color = _severity_color(severity)
                 self._print(
-                    f"     [{color}][{severity}][/{color}] {issue_id} {title}"
+                    f"     [{color}][{severity}][/{color}] [grey70]{issue_id} {title}[/grey70]"
                 )
 
     # ──────────────────────────────────────────────
     # 내부 유틸
     # ──────────────────────────────────────────────
 
-    def _dot(self, color: str, message: str) -> None:
-        """컬러 dot + 메시지를 출력한다."""
+    def _dot_styled(self, color: str, message: str) -> None:
+        """컬러 dot + 키워드(bold) + 내용(dim)을 출력한다.
+
+        메시지에서 ':'가 있으면 앞부분을 bold 키워드, 뒷부분을 dim으로 분리.
+        예: "Decision: Error-Focused path" → "Decision:" bold + "Error-Focused path" dim
+        ':'가 없으면 전체를 dim으로 출력.
+        """
         if not self._verbose:
             return
-        self._print(f"  [{color}]●[/{color}] {message}")
+        if ": " in message:
+            keyword, content = message.split(": ", 1)
+            self._print(
+                f"  [{color}]●[/{color}] [bold]{keyword}:[/bold] [grey70]{content}[/grey70]"
+            )
+        else:
+            self._print(f"  [{color}]●[/{color}] [grey70]{message}[/grey70]")
 
     def _print(self, text: str) -> None:
         """Rich Console로 출력한다."""

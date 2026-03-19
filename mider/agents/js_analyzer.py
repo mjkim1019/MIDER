@@ -7,6 +7,7 @@ JavaScript 파일의 장애 유발 패턴을 탐지한다.
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from mider.agents.base_agent import BaseAgent
@@ -79,9 +80,19 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             # Step 1: 파일 읽기
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
+            line_count = len(file_content.splitlines())
+            self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄)")
 
             # Step 2: ESLint 정적분석
             eslint_data = self._run_eslint(file)
+            if eslint_data:
+                err_count = len(eslint_data.get("errors", []))
+                warn_count = len(eslint_data.get("warnings", []))
+                self.rl.scan(f"ESLint: errors={err_count}, warnings={warn_count}")
+                self.rl.decision("Decision: Error-Focused path",
+                                 reason=f"ESLint errors={err_count}, warnings={warn_count}")
+            else:
+                self.rl.decision("Decision: Heuristic path", reason="ESLint 경고 없음")
 
             # Step 3: LLM 분석
             prompt, messages = self._build_messages(

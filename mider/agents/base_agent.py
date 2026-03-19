@@ -62,7 +62,9 @@ class BaseAgent(ABC):
         messages: list[dict[str, str]],
         json_mode: bool = True,
     ) -> str:
-        """LLM API 호출 (재시도 + fallback 포함).
+        """LLM API 호출 (재시도 + fallback + spinner 포함).
+
+        verbose 모드이면 LLM 호출 중 spinner 애니메이션을 표시한다.
 
         Args:
             messages: OpenAI 형식 메시지 리스트
@@ -75,15 +77,17 @@ class BaseAgent(ABC):
             Exception: 모든 재시도 및 fallback 실패 시
         """
         last_error: Optional[Exception] = None
+        agent_name = type(self).__name__
 
         for attempt in range(self.max_retries):
             try:
-                response = await self.llm_client.chat(
-                    model=self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    json_mode=json_mode,
-                )
+                with self.rl.spinner(f"{agent_name}: {self.model} 분석 중..."):
+                    response = await self.llm_client.chat(
+                        model=self.model,
+                        messages=messages,
+                        temperature=self.temperature,
+                        json_mode=json_mode,
+                    )
                 return response
             except Exception as e:
                 last_error = e
@@ -101,12 +105,15 @@ class BaseAgent(ABC):
                         f"Fallback 모델로 전환: {self.model} → {self.fallback_model}"
                     )
                     try:
-                        response = await self.llm_client.chat(
-                            model=self.fallback_model,
-                            messages=messages,
-                            temperature=self.temperature,
-                            json_mode=json_mode,
-                        )
+                        with self.rl.spinner(
+                            f"{agent_name}: {self.fallback_model} fallback 분석 중..."
+                        ):
+                            response = await self.llm_client.chat(
+                                model=self.fallback_model,
+                                messages=messages,
+                                temperature=self.temperature,
+                                json_mode=json_mode,
+                            )
                         return response
                     except Exception as fallback_error:
                         logger.error(f"Fallback 모델도 실패: {fallback_error}")
