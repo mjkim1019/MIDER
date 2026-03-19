@@ -90,3 +90,15 @@ def get_mini_model() -> str:
     settings = _load_settings()
     llm = settings.get("llm", {})
     return llm.get("mini_model", "gpt-5-mini")
+
+
+def get_stub_extra_types() -> list[str]:
+    """clang-tidy 분석용 가짜 헤더(stub)에 추가할 커스텀 타입/매크로를 반환한다.
+
+    Returns:
+        extra_types 문자열 리스트
+    """
+    settings = _load_settings()
+    static_analysis = settings.get("static_analysis", {})
+    clang_tidy = static_analysis.get("clang_tidy", {})
+    return clang_tidy.get("stub_extra_types", [])
