@@ -44,6 +44,7 @@ OrchestratorAgent
 | | ESLintRunner | `tools/static_analysis/eslint_runner.py` | ESLint 실행 |
 | | ClangTidyRunner | `tools/static_analysis/clang_tidy_runner.py` | clang-tidy 실행 (homebrew 자동 탐색) |
 | | ProcRunner | `tools/static_analysis/proc_runner.py` | Oracle proc 실행 |
+| | StubHeaderGenerator | `tools/static_analysis/stub_header_generator.py` | clang-tidy용 stub 헤더 자동 생성 |
 | | CHeuristicScanner | `tools/static_analysis/c_heuristic_scanner.py` | C 위험 패턴 regex 6종 |
 | | ProCHeuristicScanner | `tools/static_analysis/proc_heuristic_scanner.py` | Pro*C 위험 패턴 regex |
 | | SQLSyntaxChecker | `tools/static_analysis/sql_syntax_checker.py` | sqlparse 문법 검증 |
@@ -124,9 +125,12 @@ class TokenOptimizer:
 
 ```
 경로 A: clang-tidy 있음
+  → StubHeaderGenerator: #include 파싱 → stub 헤더 생성 → -I stubs/ 전달
+  → clang-tidy 실행 (stub 덕분에 Level 2 데이터 흐름 분석 가능)
   → clang-tidy + CHeuristicScanner 합산 (_merge_warnings, 중복 제거)
   → structure_summary + error_functions 추출
   → gpt-5 호출 (c_analyzer_error_focused.txt)
+  → 분석 후 stubs/ 디렉토리 자동 삭제
 
 경로 B: clang-tidy 없음 AND >500줄
   Pass 1: CHeuristicScanner → 함수별 패턴 요약 → gpt-5-mini 선별
@@ -285,3 +289,4 @@ class DeploymentChecklist(BaseModel):  # deployment-checklist.json (5개 섹션)
 | 006 | clang-tidy 헤더 에러 fallback | 헤더 에러 시 전체 분석 실패 | Heuristic 경로로 자동 fallback |
 | 007 | C 중복 이슈 | clang-tidy + Heuristic 중복 탐지 | _merge_warnings로 중복 제거 |
 | 008 | Pro*C fclose 탐지 갭 | fclose 누락 패턴 미탐지 | ProCHeuristicScanner 패턴 추가 |
+| 009 | clang-tidy stub 헤더 자동 생성 | 헤더 에러 필터링만으로는 Level 2 분석 활용 불가 | StubHeaderGenerator로 공통 타입 stub 헤더 생성 → -I 플래그 전달 |
