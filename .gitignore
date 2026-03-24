@@ -37,3 +37,6 @@ tests/fixtures/*
 # log
 *.log
 err.txt
+
+# 기타 자료
+docs/발표자료/*
