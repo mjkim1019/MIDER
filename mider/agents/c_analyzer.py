@@ -383,6 +383,7 @@ class CAnalyzerAgent(BaseAgent):
         findings = scanner_findings or []
 
         if not findings and not clang_data:
+            # >500줄이라도 분석 단서 0개이면 mini 모델 호출이 무의미 → Heuristic fallback
             logger.info(f"C [{filename}] Scanner/clang 모두 없음 → Heuristic fallback")
             return await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
@@ -560,7 +561,6 @@ class CAnalyzerAgent(BaseAgent):
         if not error_blocks:
             return []
 
-        func_block = error_blocks[0]
         error_functions_str = "\n\n".join(
             f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
             for block in error_blocks
@@ -573,7 +573,10 @@ class CAnalyzerAgent(BaseAgent):
         if clang_data:
             clang_for_func = [
                 w for w in clang_data.get("warnings", [])
-                if func_block.line_start <= w.get("line", 0) <= func_block.line_end
+                if any(
+                    block.line_start <= w.get("line", 0) <= block.line_end
+                    for block in error_blocks
+                )
             ]
             if clang_for_func:
                 func_warnings_str += f"\n\n### clang-tidy 경고 ({len(clang_for_func)}건)"
@@ -820,7 +823,7 @@ class CAnalyzerAgent(BaseAgent):
         if clang_data:
             # Error-Focused 경로: clang 경고 + scanner findings 병합
             warnings_str = json.dumps(
-                clang_data["warnings"], ensure_ascii=False, indent=2,
+                clang_data.get("warnings", []), ensure_ascii=False, indent=2,
             )
             # scanner findings도 추가
             if findings:

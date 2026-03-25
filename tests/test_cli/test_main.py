@@ -234,7 +234,7 @@ class TestWriteOutputFiles:
             "checklist": {"total_checks": 0, "items": []},
             "summary": {"issue_summary": {}},
         }
-        write_output_files(output_dir, result)
+        write_output_files(output_dir, result, ["/app/test.c"])
         assert (tmp_path / "reports" / "sub").exists()
 
     def test_writes_three_files(self, tmp_path: Path):
@@ -245,11 +245,11 @@ class TestWriteOutputFiles:
             "checklist": {"total_checks": 0},
             "summary": {"issue_summary": {}},
         }
-        write_output_files(output_dir, result)
+        write_output_files(output_dir, result, ["/app/test.c"])
 
-        assert (tmp_path / "issue-list.json").exists()
-        assert (tmp_path / "checklist.json").exists()
-        assert (tmp_path / "summary.json").exists()
+        assert list(tmp_path.glob("*issue-list.json"))
+        assert list(tmp_path.glob("*checklist.json"))
+        assert list(tmp_path.glob("*summary.json"))
 
     def test_json_content_valid(self, tmp_path: Path):
         """출력 JSON이 유효하다."""
@@ -259,11 +259,11 @@ class TestWriteOutputFiles:
             "checklist": {"total_checks": 1},
             "summary": {"risk": "LOW"},
         }
-        write_output_files(output_dir, result)
+        write_output_files(output_dir, result, ["/app/test.c"])
 
-        content = json.loads(
-            (tmp_path / "issue-list.json").read_text(encoding="utf-8")
-        )
+        issue_files = list(tmp_path.glob("*issue-list.json"))
+        assert issue_files
+        content = json.loads(issue_files[0].read_text(encoding="utf-8"))
         assert content["total_issues"] == 3
         assert len(content["issues"]) == 1
 
@@ -275,9 +275,11 @@ class TestWriteOutputFiles:
             "checklist": {},
             "summary": {},
         }
-        write_output_files(output_dir, result)
+        write_output_files(output_dir, result, ["/app/test.c"])
 
-        raw = (tmp_path / "issue-list.json").read_text(encoding="utf-8")
+        issue_files = list(tmp_path.glob("*issue-list.json"))
+        assert issue_files
+        raw = issue_files[0].read_text(encoding="utf-8")
         assert "한국어 테스트" in raw
         assert "\\u" not in raw
 
@@ -385,7 +387,7 @@ class TestPrintSummary:
                 "blocking_issues": [],
             },
         }
-        print_summary(console, summary, "./output")
+        print_summary(console, summary, "./output", ["/app/test.c"])
         calls_str = str(console.print.call_args_list)
         assert "가능" in calls_str
 
@@ -402,7 +404,7 @@ class TestPrintSummary:
                 "blocking_issues": ["C-001", "C-002"],
             },
         }
-        print_summary(console, summary, "./output")
+        print_summary(console, summary, "./output", ["/app/test.c"])
         calls_str = str(console.print.call_args_list)
         assert "불가" in calls_str
 
@@ -462,7 +464,7 @@ class TestRunAnalysis:
             )
 
         assert exit_code == EXIT_OK
-        assert (tmp_path / "issue-list.json").exists()
+        assert list(tmp_path.glob("*issue-list.json"))
 
     @pytest.mark.asyncio
     async def test_returns_exit_critical(self, tmp_path: Path):
