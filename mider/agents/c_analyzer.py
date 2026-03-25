@@ -264,12 +264,17 @@ class CAnalyzerAgent(BaseAgent):
             clang_data = self._run_clang_tidy(file)
 
             # Step 3: 분석 경로 선택
+            filename = Path(file).name
             tokens_estimate = 0
             if not clang_data and line_count > 500:
                 # 2-Pass 전략: clang-tidy 없고 대형 파일
                 self.rl.decision(
                     "Decision: 2-Pass 전략",
                     reason=f"clang-tidy 없음 + {line_count}줄(>500)",
+                )
+                logger.info(
+                    f"C [{filename}] 경로: 2-Pass | "
+                    f"clang-tidy 없음, {line_count}줄(>500)"
                 )
                 issues = await self._run_two_pass(
                     file=file,
@@ -284,10 +289,18 @@ class CAnalyzerAgent(BaseAgent):
                         "Decision: Error-Focused path",
                         reason=f"clang-tidy {w_count}건 유의미 경고",
                     )
+                    logger.info(
+                        f"C [{filename}] 경로: Error-Focused | "
+                        f"clang-tidy {w_count}건 유의미 경고"
+                    )
                 else:
                     self.rl.decision(
                         "Decision: Heuristic path",
                         reason=f"clang-tidy 없음 + {line_count}줄(≤500) → 전체 코드 LLM 검증",
+                    )
+                    logger.info(
+                        f"C [{filename}] 경로: Heuristic | "
+                        f"clang-tidy 없음, {line_count}줄(≤500)"
                     )
                 prompt, messages = self._build_messages(
                     file=file,

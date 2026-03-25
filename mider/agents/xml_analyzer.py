@@ -121,6 +121,7 @@ class XMLAnalyzerAgent(BaseAgent):
                 or js_validation.get("missing_handlers")
             )
 
+            filename = Path(file).name
             dup_count = len(parse_data.get("duplicate_ids", []))
             miss_count = len(missing)
             err_count = len(parse_data.get("parse_errors", []))
@@ -131,10 +132,18 @@ class XMLAnalyzerAgent(BaseAgent):
                            f"missing_handlers={miss_count}건, "
                            f"parse_errors={err_count}건",
                 )
+                logger.info(
+                    f"XML [{filename}] 경로: Error-Focused | "
+                    f"dup_ids={dup_count}, missing_handlers={miss_count}, "
+                    f"parse_errors={err_count}"
+                )
             else:
                 self.rl.decision(
                     "Decision: Heuristic path",
                     reason="정적 오류 없음 → 구조 전체 검증",
+                )
+                logger.info(
+                    f"XML [{filename}] 경로: Heuristic | 정적 오류 없음"
                 )
 
             prompt, messages = self._build_messages(

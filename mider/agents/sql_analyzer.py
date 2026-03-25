@@ -140,12 +140,19 @@ class SQLAnalyzerAgent(BaseAgent):
                     self.rl.detect(f"Explain Plan: {len(tuning_points)}건 튜닝 포인트")
 
             # Step 5: LLM 분석
+            filename = Path(file).name
             has_errors = bool(syntax_errors or (explain_plan_data and explain_plan_data.get("tuning_points")))
             if has_errors:
+                tuning_count = len((explain_plan_data or {}).get("tuning_points", []))
                 self.rl.decision("Decision: Error-Focused path",
                                  reason=f"syntax errors={len(syntax_errors)}, explain plan={bool(explain_plan_data)}")
+                logger.info(
+                    f"SQL [{filename}] 경로: Error-Focused | "
+                    f"syntax errors={len(syntax_errors)}, 튜닝포인트={tuning_count}"
+                )
             else:
                 self.rl.decision("Decision: Heuristic path", reason="문법 에러 없음")
+                logger.info(f"SQL [{filename}] 경로: Heuristic | 문법 에러 없음")
 
             prompt, messages = self._build_messages(
                 file=file,

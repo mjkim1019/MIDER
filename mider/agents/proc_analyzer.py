@@ -129,13 +129,19 @@ class ProCAnalyzerAgent(BaseAgent):
                 reasons.append("SQLCA 미검사")
             if has_scanner_findings:
                 reasons.append(f"Scanner {len(scanner_findings)}건")
+            filename = Path(file).name
             if use_error_focused:
                 self.rl.decision(
                     "Decision: Error-Focused path",
                     reason=", ".join(reasons),
                 )
+                logger.info(
+                    f"ProC [{filename}] 경로: Error-Focused | "
+                    f"{', '.join(reasons)}"
+                )
             else:
                 self.rl.decision("Decision: Heuristic path", reason="정적 오류 없음")
+                logger.info(f"ProC [{filename}] 경로: Heuristic | 정적 오류 없음")
 
             # Step 5: LLM 분석
             prompt, messages = self._build_messages(
