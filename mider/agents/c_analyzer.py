@@ -367,11 +367,23 @@ class CAnalyzerAgent(BaseAgent):
         Pass 2: 선별된 함수를 각각 개별 primary 모델 호출로 심층 분석
         """
         # Pass 1-a: Heuristic Pre-Scanner (regex, 비용 0)
+        filename = Path(file).name
         scan_result = self._heuristic_scanner.execute(file=file)
         findings = scan_result.data.get("findings", [])
 
+        if findings:
+            # 패턴별 집계
+            pattern_counts: dict[str, int] = {}
+            for f in findings:
+                pid = f.get("pattern_id", "?")
+                pattern_counts[pid] = pattern_counts.get(pid, 0) + 1
+            pattern_str = ", ".join(f"{k}={v}" for k, v in pattern_counts.items())
+            logger.info(
+                f"C [{filename}] Scanner: {len(findings)}건 ({pattern_str})"
+            )
+
         if not findings:
-            logger.info(f"Pre-Scanner: 위험 패턴 없음 → 기존 Heuristic 분석: {file}")
+            logger.info(f"C [{filename}] Scanner: 위험 패턴 없음 → Heuristic fallback")
             return await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
             )

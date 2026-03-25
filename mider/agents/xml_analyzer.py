@@ -100,10 +100,20 @@ class XMLAnalyzerAgent(BaseAgent):
                     f"— {' × '.join(dup.get('tags', []))}"
                 )
 
+            # 도구 실행 결과 표준 로그
+            _fn = Path(file).name
+            logger.info(
+                f"XML [{_fn}] parse: "
+                f"dataList={len(data_lists)}, "
+                f"events={len(parse_data.get('events', []))}, "
+                f"dup_ids={len(parse_data.get('duplicate_ids', []))}"
+            )
+
             # Step 2: JS 교차 검증
             js_validation = self._validate_js_handlers(file, parse_data)
             js_file = js_validation.get("js_file")
             missing = js_validation.get("missing_handlers", [])
+            total_events = len(parse_data.get("events", []))
             if js_file:
                 if missing:
                     self.rl.detect(
@@ -111,8 +121,13 @@ class XMLAnalyzerAgent(BaseAgent):
                     )
                 else:
                     self.rl.scan(f"JS검증: 핸들러 검증 통과 ({js_file})")
+                logger.info(
+                    f"XML [{_fn}] JS검증: "
+                    f"missing={len(missing)}/{total_events} 핸들러"
+                )
             else:
                 self.rl.decision("JS검증: 대응 JS 파일 없음 — 핸들러 교차검증 불가")
+                logger.info(f"XML [{_fn}] JS검증: 대응 JS 파일 없음")
 
             # Step 3: Error-Focused / Heuristic 분기
             has_errors = (

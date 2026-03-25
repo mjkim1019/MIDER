@@ -112,6 +112,17 @@ class ProCAnalyzerAgent(BaseAgent):
                         f"{f['description'][:80]}"
                     )
 
+            # 도구 실행 결과 표준 로그
+            _fn = Path(file).name
+            missing_sqlca = sum(
+                1 for b in sql_blocks if not b.get("has_sqlca_check", True)
+            )
+            logger.info(
+                f"ProC [{_fn}] 도구: proc에러={len(proc_errors or [])}, "
+                f"SQL블록={len(sql_blocks)}(SQLCA미검사={missing_sqlca}), "
+                f"Scanner={len(scanner_findings or [])}건"
+            )
+
             # Step 4: Error-Focused / Heuristic 판정
             has_proc_errors = bool(proc_errors)
             has_missing_sqlca = any(

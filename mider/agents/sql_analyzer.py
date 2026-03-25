@@ -139,6 +139,14 @@ class SQLAnalyzerAgent(BaseAgent):
                 if tuning_points:
                     self.rl.detect(f"Explain Plan: {len(tuning_points)}건 튜닝 포인트")
 
+            # 도구 실행 결과 표준 로그
+            _fn = Path(file).name
+            _tp_count = len((explain_plan_data or {}).get("tuning_points", []))
+            logger.info(
+                f"SQL [{_fn}] 도구: 문법에러={len(syntax_errors)}, "
+                f"패턴={len(static_patterns)}, 튜닝포인트={_tp_count}"
+            )
+
             # Step 5: LLM 분석
             filename = Path(file).name
             has_errors = bool(syntax_errors or (explain_plan_data and explain_plan_data.get("tuning_points")))
