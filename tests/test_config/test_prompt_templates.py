@@ -67,6 +67,7 @@ PROMPT_VARIABLES = {
     "proc_analyzer_error_focused": {
         "proc_errors": '[{"line": 1}]',
         "sql_blocks": '[{"sql": "SELECT 1"}]',
+        "scanner_findings": "없음",
         "file_path": "/app/test.pc",
         "structure_summary": "[파일 정보] 1줄, 언어: proc",
         "error_functions": "EXEC SQL SELECT 1;",
@@ -100,6 +101,7 @@ PROMPT_VARIABLES = {
         "total_functions": "10",
         "total_findings": "5",
         "function_findings_summary": "### 함수: foo (2개 패턴)",
+        "all_functions_summary": "[L1-L30] int foo(...) — 30줄",
     },
     "xml_analyzer_error_focused": {
         "file_path": "/app/screen.xml",

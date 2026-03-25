@@ -18,9 +18,9 @@
 ### 변경 후 C 분석 흐름
 ```
 모든 파일: CHeuristicScanner 실행 (regex 6종)
-  ├ clang-tidy 있음 → Error-Focused (clang 경고 + regex findings 병합)
-  ├ ≤500줄 + clang 없음 → Heuristic (전체 코드 + regex findings)
-  └ >500줄 + clang 없음 → 2-Pass (전체 함수 시그니처 + regex → 선별 → 함수별 LLM)
+  ├ >500줄 → 2-Pass (clang 경고 + regex → 전체 함수 시그니처 → 선별 → 함수별 LLM)
+  ├ ≤500줄 + clang 있음 → Error-Focused (clang 경고 + regex findings 병합)
+  └ ≤500줄 + clang 없음 → Heuristic (전체 코드 + regex findings)
 ```
 
 ### Subtask
@@ -340,7 +340,7 @@ pytest `caplog` fixture로 로그 메시지 출력 검증:
 | Task | 의존성 | 상태 |
 |------|--------|------|
 | T1~T30 | - | ✅ 완료 |
-| **T31** | **T20, T21** | **대기** — CAnalyzer 통합 개선 |
+| **T31** | **T20, T21** | **진행 중** — CAnalyzer 통합 개선 |
 | **T33** | **없음** | **대기** — ProC 함수별 청킹 |
 | **T36** | **없음** | **다음** — Agent 표준 로그 개선 |
 | T32 | T31 | 대기 — JS 긴 파일 전략 |

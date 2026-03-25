@@ -427,6 +427,65 @@ def _extract_globals(
     return globals_list
 
 
+def build_all_functions_summary(
+    file_content: str,
+    language: str,
+) -> str:
+    """전체 함수의 시그니처 + 위치 + 줄 수 요약을 생성한다.
+
+    2-Pass 분석의 Pass 1에서 LLM이 전체 함수 목록을 파악하여
+    regex 미히트 함수도 선별할 수 있도록 전체 함수 정보를 제공한다.
+
+    Args:
+        file_content: 파일 전체 내용
+        language: 파일 언어 ("c", "proc", "javascript")
+
+    Returns:
+        함수 요약 문자열. 예:
+        [L142-L268] int c400_get_rcv(...) — 127줄
+    """
+    lines = file_content.splitlines()
+    boundaries = find_function_boundaries(lines, language)
+
+    if not boundaries:
+        return "(함수 없음)"
+
+    # 함수 시그니처 추출 (선언 라인에서)
+    func_sig_pattern = re.compile(
+        r"^(?!\s*(?:if|else|for|while|switch|return|#|typedef|struct|union|enum)\b)"
+        r"\s*((?:static\s+|extern\s+|inline\s+)*"
+        r"(?:void|int|char|long|short|unsigned|float|double|size_t|ssize_t|\w+_t|\w+)\s*\*?\s+"
+        r"\w+\s*\([^;{]*\))"
+    ) if language in ("c", "proc") else re.compile(
+        r"^\s*(.+)"
+    )
+
+    parts: list[str] = []
+    for start, end in boundaries:
+        line_count = end - start + 1
+        idx = start - 1  # 1-based → 0-based
+        sig_line = lines[idx].strip()
+
+        # C/ProC: 2줄 선언 합치기
+        if language in ("c", "proc"):
+            m = func_sig_pattern.match(lines[idx])
+            if not m and idx + 1 < len(lines):
+                sig_line = lines[idx].rstrip() + " " + lines[idx + 1].lstrip()
+                sig_line = sig_line.strip()
+            elif m:
+                sig_line = m.group(1).strip()
+
+        # 긴 시그니처 축약: 파라미터를 "..."으로
+        if len(sig_line) > 80:
+            paren_start = sig_line.find("(")
+            if paren_start > 0:
+                sig_line = sig_line[:paren_start] + "(...)"
+
+        parts.append(f"[L{start}-L{end}] {sig_line} — {line_count}줄")
+
+    return "\n".join(parts)
+
+
 def optimize_file_content(
     file_content: str,
     file_context: dict | None,

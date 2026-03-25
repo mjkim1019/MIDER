@@ -120,10 +120,10 @@
   - [x] T21.2: 함수별 프롬프트 최적화
   - [x] T21.3: asyncio.gather 병렬 호출
   - [x] T21.4: 단위 테스트
-- [ ] T22: clang-tidy + Heuristic 하이브리드 분석
-  - [ ] T22.1: Error-Focused 경로에 Heuristic Scanner 추가
-  - [ ] T22.2: 합산 로직 구현 (`_merge_warnings`)
-  - [ ] T22.3: 단위 테스트
+- [x] T22: clang-tidy + Heuristic 하이브리드 분석 (T31에 흡수)
+  - [x] T22.1: Error-Focused 경로에 Heuristic Scanner 추가 → T31.2+T31.3
+  - [x] T22.2: 합산 로직 구현 → T31.3 (scanner_findings 병합)
+  - [x] T22.3: 단위 테스트 → T31.6
 - [x] T19: Proframe XML 지원
   - [x] T19.1: XML 파서/분석 도구
   - [x] T19.2: XMLAnalyzerAgent 구현
@@ -172,13 +172,13 @@
   - [x] T30.3: Pro*C 프롬프트 Few-shot 추가
   - [x] T30.4: Scanner 단위 테스트
   - [x] T30.5: Agent 통합 테스트
-- [ ] T31: CAnalyzer 통합 개선 (T22 흡수)
-  - [ ] T31.1: build_all_functions_summary() 구현 (token_optimizer.py)
-  - [ ] T31.2: CHeuristicScanner 항상 실행 (c_analyzer.py)
-  - [ ] T31.3: Error-Focused에 regex 결과 병합 (c_analyzer.py + 프롬프트)
-  - [ ] T31.4: Heuristic(≤500줄)에 regex 결과 추가 (c_analyzer.py + 프롬프트)
-  - [ ] T31.5: 2-Pass 프롬프트에 전체 함수 시그니처 (c_prescan_fewshot.txt)
-  - [ ] T31.6: 단위 테스트
+- [x] T31: CAnalyzer 통합 개선 (T22 흡수)
+  - [x] T31.1: build_all_functions_summary() 구현 (token_optimizer.py)
+  - [x] T31.2: Scanner 항상 실행 + 라우팅 변경 (>500→2-Pass, ≤500+clang→EF, ≤500→Heuristic)
+  - [x] T31.3: Error-Focused에 scanner findings 병합 (≤500줄+clang)
+  - [x] T31.4: Heuristic(≤500줄)에 scanner findings 추가
+  - [x] T31.5: 2-Pass에 clang 데이터 + all_functions_summary 통합 (>500줄)
+  - [x] T31.6: 단위 테스트 (6개 추가, 기존 27개 호환)
 - [ ] T32: JS 긴 파일 전략 설계 (검토)
   - [ ] T32.1: 대안 비교 분석 (2-Pass vs 함수 청킹 vs ESLint 강제)
   - [ ] T32.2: 설계 결정 문서

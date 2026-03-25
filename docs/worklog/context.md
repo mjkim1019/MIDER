@@ -264,6 +264,14 @@
 | 2026-03-25 | 리뷰: `_tp_count`/`tuning_count` 중복 → `tuning_count` 1회로 통합 (sql) | 리뷰 반영 — 동일 expression 중복 계산 제거 |
 | 2026-03-25 | 리뷰: 루프 변수 `f` → `finding` (c_analyzer Scanner 집계) | 리뷰 반영 — f-string 접두사와 혼동 방지 |
 
+| 2026-03-25 | T31 구현: `build_all_functions_summary()` 추가 (token_optimizer.py) | 2-Pass Pass 1에서 LLM이 전체 함수 목록을 파악하여 regex 미히트 함수도 선별 가능 |
+| 2026-03-25 | T31 구현: Scanner를 `run()` 시작부에서 항상 실행 | 모든 경로(Error-Focused, Heuristic, 2-Pass)에서 regex 결과 확보 |
+| 2026-03-25 | T31 구현: >500줄 → 항상 2-Pass (clang 유무 무관) | clang-tidy 있어도 대형 파일에서 Error-Focused만 하면 clang 미탐지 영역 누락 |
+| 2026-03-25 | T31 구현: Error-Focused/Heuristic에 scanner_findings 병합 | clang 경고만으로 놓치는 UNINIT_VAR, UNSAFE_FUNC 등을 regex가 보충 |
+| 2026-03-25 | T31 구현: 2-Pass에 clang 경고 통합 (Pass 1 선별 + Pass 2 함수별 전달) | 대형 파일에서 clang + scanner 양쪽 정보를 LLM에 전달하여 정밀도 향상 |
+| 2026-03-25 | T31: Level 1(bugprone) 저가치 필터링 제거 | StubHeaderGenerator가 기본 타입을 제공하므로 Level 1도 신뢰 가능 → 헤더 에러만 제거, 나머지 유지 |
+| 2026-03-25 | T31: `_is_level2_warning()` + `_LEVEL2_CHECK_PREFIX` 제거 | Level 1/2 구분 로직이 더 이상 필요 없음 — dead code 정리 |
+
 ## T32~T35 설계 검토 사항
 - **JS 긴 파일**: 2-Pass 도입 vs 함수 청킹 vs ESLint 강제 — 검토 후 결정
 - **ProC 함수별 청킹**: 전체 코드 전송 + 함수별 개별 LLM 호출 — EXEC SQL 블록 컨텍스트 공유 방식 검토 필요
