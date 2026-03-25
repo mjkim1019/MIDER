@@ -259,6 +259,11 @@
 - **추가 토큰 비용**: regex findings ~10줄, 함수 시그니처 ~40줄 → gpt-5-mini 비용 무시 가능
 - **중복 제거 (Error-Focused)**: clang-tidy 경고와 regex findings 동일 라인(±2) + 동일 카테고리 → clang-tidy 우선
 
+| 2026-03-25 | 5개 Analyzer에 분석 경로/도구 결과/후처리 표준 logger.info 추가 | ReasoningLogger(verbose=True만)에만 있던 정보를 표준 로그에도 출력 — 로그 파일에서 에이전트별 동작 차이 확인 가능 |
+| 2026-03-25 | 리뷰: `_fn`/`filename` 이중 선언 → `filename` 1회로 통합 (proc/sql/xml) | 리뷰 반영 — 같은 메서드 내 동일 값 중복 계산 제거 |
+| 2026-03-25 | 리뷰: `_tp_count`/`tuning_count` 중복 → `tuning_count` 1회로 통합 (sql) | 리뷰 반영 — 동일 expression 중복 계산 제거 |
+| 2026-03-25 | 리뷰: 루프 변수 `f` → `finding` (c_analyzer Scanner 집계) | 리뷰 반영 — f-string 접두사와 혼동 방지 |
+
 ## T32~T35 설계 검토 사항
 - **JS 긴 파일**: 2-Pass 도입 vs 함수 청킹 vs ESLint 강제 — 검토 후 결정
 - **ProC 함수별 청킹**: 전체 코드 전송 + 함수별 개별 LLM 호출 — EXEC SQL 블록 컨텍스트 공유 방식 검토 필요
