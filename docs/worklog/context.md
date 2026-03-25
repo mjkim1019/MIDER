@@ -272,6 +272,8 @@
 | 2026-03-25 | T31: Level 1(bugprone) 저가치 필터링 제거 | StubHeaderGenerator가 기본 타입을 제공하므로 Level 1도 신뢰 가능 → 헤더 에러만 제거, 나머지 유지 |
 | 2026-03-25 | T31: `_is_level2_warning()` + `_LEVEL2_CHECK_PREFIX` 제거 | Level 1/2 구분 로직이 더 이상 필요 없음 — dead code 정리 |
 
+| 2026-03-25 | c_prescan_fewshot.txt few-shot 예시를 실제 장애 사례로 교체 (placeholder → 실제) | 사용자 제공 장애 데이터 기반 — UNINIT_VAR(루프 미초기화), BOUNDED_FUNC(memset sizeof 불일치), FORMAT_STRING(%s에 long 전달) 위험 3건 + 안전 2건 |
+
 ## T32~T35 설계 검토 사항
 - **JS 긴 파일**: 2-Pass 도입 vs 함수 청킹 vs ESLint 강제 — 검토 후 결정
 - **ProC 함수별 청킹**: 전체 코드 전송 + 함수별 개별 LLM 호출 — EXEC SQL 블록 컨텍스트 공유 방식 검토 필요

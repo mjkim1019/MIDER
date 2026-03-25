@@ -45,6 +45,7 @@
 #### T31.5: 2-Pass 프롬프트에 전체 함수 시그니처 전달 → `mider/config/prompts/c_prescan_fewshot.txt`
 - `{all_functions_summary}` 변수 추가 (전체 함수 목록)
 - regex 미히트 함수도 선별 가능한 few-shot 예시 추가
+- ✅ few-shot 예시를 실제 장애 사례로 교체 완료 (위험 3건 + 안전 2건)
 
 #### T31.6: 단위 테스트
 - `build_all_functions_summary()` 출력 검증
