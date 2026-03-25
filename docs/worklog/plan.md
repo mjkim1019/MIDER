@@ -1,56 +1,133 @@
 # 작업 계획서
 
 ## 개요
-Pro*C 전용 Heuristic Scanner + 2-Pass 전략 — 실제 장애 유발 패턴 3종(포맷 문자열 타입 불일치, memset sizeof 불일치, 루프 초기화 누락)을 regex로 사전 스캔하고 LLM에 집중 분석 요청.
+언어별 LLM 전달 전략 통합 개선 — CAnalyzer 모든 경로에 regex 히트 추가, JS/ProC/XML 개선 설계, 주석 처리 전략 검토
 
-## 실제 장애 사례 (탐지 대상)
+## 배경 (현재 문제점)
+1. **CAnalyzer**: clang-tidy 있으면 regex 안 돌림, ≤500줄이면 regex 안 돌림 → 탐지 누락
+2. **JS**: >500줄이면 head 200 + tail 100만 전달 → 중간 코드 누락, 2-Pass 없음
+3. **ProC**: >500줄이면 head+tail만 전달 → 중간 코드 누락, 함수별 청킹 없음
+4. **XML**: 정적분석 도구 없이 파싱 결과만 → 코드 원본 미전달
+5. **공통**: 주석이 그대로 포함되어 토큰 낭비 (3~20%)
 
-| 패턴 | 파일 | 장애 | 현재 탐지 |
-|------|------|------|-----------|
-| `%s`에 구조체 전달 | zordbs0401882.pc:1174 | Core Dump + 문자 미발송 | ✗ |
-| memset sizeof 불일치 | zordms03s0200.c:272 | 구조체 일부만 초기화 → 이전 데이터 잔류 | ✗ |
-| 루프 내 초기화 누락 | zinvbreps8030.pc:2915 | 이전 데이터 누적 → 금액 오표기 | ✗ |
-| fclose 누락 | zordbs0401549.pc:238 | 파일 핸들 릭 | ✗ (이슈 #008) |
+---
 
-## 진행 예정 Task
+## 구현 Task
 
-### T30: Pro*C Heuristic Scanner 구현
+### T31: CAnalyzer 통합 개선 (T22 흡수)
 
-#### T30.1: ProCHeuristicScanner Tool → 대상: `mider/tools/static_analysis/proc_heuristic_scanner.py`
-- `CHeuristicScanner` 구조 재사용 (BaseTool 상속)
-- 패턴 4종:
-  1. **FORMAT_STRUCT**: `PFM_DSP/printf`의 `%s`에 배열 인덱스만 전달 (`.멤버` 접근 없음)
-     - regex: `(PFM_DSP|PFM_ERR|printf|sprintf)\s*\(.*%s.*,\s*\w+\.\w+\.\w+\[\d+\]\s*[,)]`
-  2. **MEMSET_SIZEOF_MISMATCH**: memset 변수명과 sizeof 타입명의 핵심 부분 불일치
-     - regex: `memset\s*\(&?\s*(\w+)\s*,.*sizeof\s*\((\w+)\)`
-     - 검증: 변수명에서 추출한 핵심 이름 ≠ sizeof 타입에서 추출한 핵심 이름
-  3. **LOOP_INIT_MISSING**: while/for 루프 내 구조체 사용하지만 INIT2VCHAR/memset 없음
-     - 루프 시작~끝 범위에서 구조체 쓰기는 있지만 초기화 호출 없음
-  4. **FCLOSE_MISSING**: fopen이 있지만 대응 fclose 없음
-     - 전체 파일에서 fopen 호출 수 > fclose 호출 수
+**목표**: 모든 경로(Error-Focused/Heuristic/2-Pass)에서 CHeuristicScanner를 항상 실행하고, 전체 함수 시그니처를 Pass 1에 전달
 
-#### T30.2: ProCAnalyzerAgent에 Scanner 연동 → 대상: `mider/agents/proc_analyzer.py`
-- Scanner 결과를 Error-Focused 프롬프트에 전달
-- Scanner findings > 0이면 Error-Focused 경로 강제 진입
-- 추론 로그: Scanner 결과 표시
+#### T31.1: build_all_functions_summary() 구현 → `mider/tools/utility/token_optimizer.py`
+- 전체 함수의 시그니처 + 위치 + 줄 수 요약 생성
+- 출력: `[L142-L268] int c400_get_rcv(...) — 127줄`
+- `find_function_boundaries()` + `_extract_function_signatures()` 조합
 
-#### T30.3: Pro*C 프롬프트에 장애 사례 Few-shot 추가 → 대상: `mider/config/prompts/proc_analyzer_error_focused.txt`
-- 3개 장애 사례를 few-shot 예시로 추가
-- Scanner가 전달한 의심 위치를 LLM이 판정하도록 유도
+#### T31.2: CHeuristicScanner 항상 실행 → `mider/agents/c_analyzer.py`
+- `run()` 시작부에서 항상 `_heuristic_scanner.execute()` 호출
+- clang-tidy 유무, 파일 크기와 무관하게 regex 결과 확보
 
-#### T30.4: 단위 테스트 → 대상: `tests/test_tools/test_proc_heuristic_scanner.py`
-- 각 패턴별 탐지/미탐지 테스트
-- 실제 장애 코드 패턴으로 검증
+#### T31.3: Error-Focused 경로에 regex 결과 병합 (기존 T22 흡수) → `mider/agents/c_analyzer.py`
+- clang-tidy 경고 + regex findings를 함께 LLM에 전달
+- `c_analyzer_error_focused.txt` 프롬프트에 `{scanner_findings}` 변수 추가
+- 중복 제거: 같은 라인(±2) + 같은 카테고리 → clang-tidy 우선
 
-#### T30.5: 통합 테스트 → 대상: `tests/test_agents/test_proc_analyzer.py`
-- Scanner 결과가 Error-Focused 경로로 유도되는지 확인
-- Scanner + LLM 결과 합산 확인
+#### T31.4: Heuristic 경로(≤500줄)에 regex 결과 추가 → `mider/agents/c_analyzer.py`
+- 전체 코드 + regex findings를 함께 전달
+- `c_analyzer_heuristic.txt` 프롬프트에 `{scanner_findings}` 변수 추가
+
+#### T31.5: 2-Pass 프롬프트에 전체 함수 시그니처 전달 → `mider/config/prompts/c_prescan_fewshot.txt`
+- `{all_functions_summary}` 변수 추가 (전체 함수 목록)
+- regex 미히트 함수도 선별 가능한 few-shot 예시 추가
+- findings 0건이어도 함수 수 기반 2-Pass 진입
+
+#### T31.6: 단위 테스트
+- `build_all_functions_summary()` 출력 검증
+- 모든 경로에서 scanner_findings 포함 확인
+- regex 미히트 함수 선별 시나리오
+
+---
+
+## 설계 검토 Task (구현 전 검토 필요)
+
+### T32: JS 긴 파일 전략 설계 (검토)
+
+**현재 문제**: >500줄이면 head 200 + tail 100만 전달 → 중간 코드 통째로 누락
+
+#### T32.1: 대안 비교 분석
+- **안 A**: C와 동일한 2-Pass 도입 (ESLint 없을 때)
+  - 장점: 검증된 패턴 재사용
+  - 단점: JS용 regex 패턴 세트 새로 만들어야 함 (XSS, 이벤트 리스너 누수 등)
+- **안 B**: 함수 청킹 (모든 함수를 개별 LLM 호출)
+  - 장점: 누락 없음
+  - 단점: LLM 호출 수 증가, 비용 상승
+- **안 C**: ESLint 항상 실행 강제 → Error-Focused 경로만 사용
+  - 장점: 구현 간단
+  - 단점: ESLint 바이너리 폐쇄망 배포 필요 (이미 포함)
+
+#### T32.2: 설계 결정 문서 작성 → `docs/worklog/context.md`
+
+### T33: ProC 함수별 청킹 설계 (검토)
+
+**사용자 요청**: proc 에러 조건/줄 수와 무관하게 전체 코드 전송. 함수별 청킹해서 개별 LLM 호출.
+
+#### T33.1: ProC 코드 구조 특성 분석
+- EXEC SQL 블록이 함수 내부에 산재 → 함수 단위 청킹이 적합한지 확인
+- C의 2-Pass와 다른 점: SQL 블록 컨텍스트가 함수 간에 공유될 수 있음
+- 함수별 청킹 시 SQLCA 검사 누락 탐지가 가능한지 확인
+
+#### T33.2: 전체 코드 전송 방식 설계
+- 모든 파일: 구조 요약 + 함수별 개별 LLM 호출
+- SQL 블록은 항상 컨텍스트로 첨부
+- ProCHeuristicScanner 결과도 함수별로 분배
+
+#### T33.3: 설계 결정 문서 작성 → `docs/worklog/context.md`
+
+### T34: XML 분석 강화 검토
+
+**조사 결과**:
+- ESLint → 부적합 (HTML/JS용, WebSquare 커스텀 네임스페이스 미지원)
+- lxml + XSD → 가능하나 WebSquare XSD 스키마 필요 (확보 여부 미확인)
+- 현실적 대안: 파싱 데이터 + 전체 코드 함께 전달
+
+#### T34.1: 전체 코드 전달 효과 검토
+- 현재: 파싱 결과(data_lists, events, component_ids)만 → LLM이 코드 원본 못 봄
+- 개선: 파싱 결과 + XML 원본도 함께 전달 → LLM이 바인딩/속성 오류 직접 확인
+- 토큰 비용 추정 (일반적 WebSquare XML 크기 기준)
+
+#### T34.2: `<script>` 태그 추출 추가 (이슈 #005)
+- XML 내 CDATA 인라인 JS 추출 → 실제 버그 발생 지점
+- ESLint로 인라인 JS 린팅 가능 여부 확인
+
+#### T34.3: 설계 결정 문서 작성 → `docs/worklog/context.md`
+
+### T35: 주석 처리 전략 검토
+
+**조사 결과**:
+- 토큰 절감: 3~20% (파일별 편차)
+- 라인번호 깨짐: **CRITICAL** — 제거하면 LLM이 보고하는 line_start가 원본과 불일치
+- 유용한 주석 유실: 비즈니스 로직 설명, TODO, 비활성화 코드
+
+#### T35.1: 전략 비교
+| 전략 | 토큰 절감 | 라인번호 | 컨텍스트 보존 | 구현 난이도 |
+|------|-----------|----------|--------------|------------|
+| 현행 (유지) | 0% | ✅ 정확 | ✅ 완전 | 없음 |
+| 전체 제거 + 라인 매핑 | 3~20% | ⚠️ 매핑 필요 | ❌ 유실 | 높음 |
+| 선택적 제거 (헤더만) | 1~5% | ✅ 정확 (빈줄 대체) | ✅ 대부분 보존 | 중간 |
+| 주석 → 1줄 요약 압축 | 5~15% | ✅ 정확 | ⚠️ 부분 보존 | 중간 |
+
+#### T35.2: 설계 결정 문서 작성 → `docs/worklog/context.md`
 
 ---
 
 ## 일정 요약
-| Task | 의존성 | 상태 |
-|------|--------|------|
-| T1~T29, T19 | - | ✅ 완료 |
-| T30 | T29 | **다음** — Pro*C Heuristic Scanner |
-| T15 | T30 | 대기 (마지막) |
+
+| Task | 유형 | 의존성 | 상태 |
+|------|------|--------|------|
+| T1~T30 | - | - | ✅ 완료 |
+| **T31** | **구현** | T20, T21 | **다음** — CAnalyzer 통합 개선 |
+| T32 | 설계 검토 | T31 | 대기 — JS 긴 파일 전략 |
+| T33 | 설계 검토 | T31 | 대기 — ProC 함수별 청킹 |
+| T34 | 설계 검토 | - | 대기 — XML 분석 강화 |
+| T35 | 설계 검토 | - | 대기 — 주석 처리 전략 |
+| T15 | 구현 | T31~T35 | 대기 (마지막) — Integration Test |

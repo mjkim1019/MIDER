@@ -248,3 +248,19 @@
 - **Scanner 위치**: `mider/tools/static_analysis/proc_heuristic_scanner.py`
 - **연동**: ProCAnalyzerAgent에서 Scanner 결과 > 0이면 Error-Focused 강제 진입
 - **프롬프트**: 장애 사례 few-shot으로 LLM 판정 정확도 향상
+
+## T31 설계 결정 (CAnalyzer 통합 개선, T22 흡수)
+- **문제 1 (2-Pass 블라인드 스팟)**: regex 히트 함수만 Pass 1에 전달 → 미히트 함수의 결함 누락
+- **문제 2 (경로 분리)**: clang-tidy 있으면 regex 안 돌림, ≤500줄이면 regex 안 돌림 → 탐지 기회 상실
+- **해결**: CHeuristicScanner를 **모든 경로에서 항상 실행**, 결과를 각 경로별 프롬프트에 추가 전달
+  - Error-Focused: clang-tidy 경고 + regex findings 병합 (기존 T22 흡수)
+  - Heuristic (≤500줄): 전체 코드 + regex findings
+  - 2-Pass (>500줄): 전체 함수 시그니처 + regex findings → gpt-5-mini 선별
+- **추가 토큰 비용**: regex findings ~10줄, 함수 시그니처 ~40줄 → gpt-5-mini 비용 무시 가능
+- **중복 제거 (Error-Focused)**: clang-tidy 경고와 regex findings 동일 라인(±2) + 동일 카테고리 → clang-tidy 우선
+
+## T32~T35 설계 검토 사항
+- **JS 긴 파일**: 2-Pass 도입 vs 함수 청킹 vs ESLint 강제 — 검토 후 결정
+- **ProC 함수별 청킹**: 전체 코드 전송 + 함수별 개별 LLM 호출 — EXEC SQL 블록 컨텍스트 공유 방식 검토 필요
+- **XML 정적분석**: ESLint 부적합 확인, lxml+XSD는 스키마 필요 — 파싱 데이터 + 전체 코드 전달이 현실적
+- **주석 처리**: 제거 시 라인번호 깨짐 CRITICAL, 3~20% 토큰 절감 — 선택적 제거(헤더 주석만) 또는 현행 유지 권장

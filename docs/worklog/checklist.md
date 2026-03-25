@@ -172,6 +172,27 @@
   - [x] T30.3: Pro*C 프롬프트 Few-shot 추가
   - [x] T30.4: Scanner 단위 테스트
   - [x] T30.5: Agent 통합 테스트
+- [ ] T31: CAnalyzer 통합 개선 (T22 흡수)
+  - [ ] T31.1: build_all_functions_summary() 구현 (token_optimizer.py)
+  - [ ] T31.2: CHeuristicScanner 항상 실행 (c_analyzer.py)
+  - [ ] T31.3: Error-Focused에 regex 결과 병합 (c_analyzer.py + 프롬프트)
+  - [ ] T31.4: Heuristic(≤500줄)에 regex 결과 추가 (c_analyzer.py + 프롬프트)
+  - [ ] T31.5: 2-Pass 프롬프트에 전체 함수 시그니처 (c_prescan_fewshot.txt)
+  - [ ] T31.6: 단위 테스트
+- [ ] T32: JS 긴 파일 전략 설계 (검토)
+  - [ ] T32.1: 대안 비교 분석 (2-Pass vs 함수 청킹 vs ESLint 강제)
+  - [ ] T32.2: 설계 결정 문서
+- [ ] T33: ProC 함수별 청킹 설계 (검토)
+  - [ ] T33.1: ProC 코드 구조 분석 (EXEC SQL 블록, 함수 분포)
+  - [ ] T33.2: 전체 코드 전송 + 함수별 청킹 설계
+  - [ ] T33.3: 설계 결정 문서
+- [ ] T34: XML 분석 강화 검토
+  - [ ] T34.1: 전체 코드 전달 효과 검토
+  - [ ] T34.2: script 태그 추출 (이슈 #005)
+  - [ ] T34.3: 설계 결정 문서
+- [ ] T35: 주석 처리 전략 검토
+  - [ ] T35.1: 전략 비교 (현행유지 vs 선택적 제거 vs 압축)
+  - [ ] T35.2: 설계 결정 문서
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [ ] T15.2: E2E 테스트
