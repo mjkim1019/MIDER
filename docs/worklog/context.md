@@ -274,8 +274,20 @@
 
 | 2026-03-25 | c_prescan_fewshot.txt few-shot 예시를 실제 장애 사례로 교체 (placeholder → 실제) | 사용자 제공 장애 데이터 기반 — UNINIT_VAR(루프 미초기화), BOUNDED_FUNC(memset sizeof 불일치), FORMAT_STRING(%s에 long 전달) 위험 3건 + 안전 2건 |
 
+## T33 설계 결정 (ProC 함수별 청킹 + 커서 맵 + 2-Pass)
+- **문제 1 (Error-Focused 사각지대)**: 에러 없는 함수의 로직 결함 누락 — Error-Focused는 에러 함수만 LLM에 전달
+- **문제 2 (Heuristic 중간 누락)**: >500줄 파일에서 head 200 + tail 100만 전달 → 중간 코드 분석 불가 (8000줄이면 96% 누락)
+- **문제 3 (커서 크로스레퍼런스)**: DECLARE→OPEN은 b10, FETCH는 b20에 분산 → 함수별 분석 시 CLOSE 누락을 못 잡음
+- **문제 4 (비용)**: 7958줄/111함수를 전부 gpt-4o로 호출하면 비용/시간 과다
+- **해결**: 함수별 청킹 + 커서 라이프사이클 맵 + 2-Pass 선별
+  - 커서 맵: regex로 DECLARE/OPEN/FETCH/CLOSE 위치+함수 추적 (비용 0)
+  - 2-Pass: mini로 위험 함수 선별 → primary로 개별 함수 분석
+  - C analyzer의 `_run_two_pass()` + `_analyze_single_function()` 패턴 재사용
+- **전략 비교 (호출 그래프 기반 그룹핑 기각)**: 그룹이 커지면 Issue #003 "대형 함수 압도" 문제 재발. b10(1204줄)+b20(144줄)+b30(138줄) 그룹 = 1486줄 → 소형 함수 누락 위험
+- **함수별 청킹의 장점**: 평균 72줄/함수(sample_inv 기준), 개별 LLM attention 분산 없음
+- **진행률 로그**: 25% 단위 4회 출력 — 111함수 개별 로그는 과다, 사용자가 진행 상황 확인 가능
+
 ## T32~T35 설계 검토 사항
 - **JS 긴 파일**: 2-Pass 도입 vs 함수 청킹 vs ESLint 강제 — 검토 후 결정
-- **ProC 함수별 청킹**: 전체 코드 전송 + 함수별 개별 LLM 호출 — EXEC SQL 블록 컨텍스트 공유 방식 검토 필요
 - **XML 정적분석**: ESLint 부적합 확인, lxml+XSD는 스키마 필요 — 파싱 데이터 + 전체 코드 전달이 현실적
 - **주석 처리**: 제거 시 라인번호 깨짐 CRITICAL, 3~20% 토큰 절감 — 선택적 제거(헤더 주석만) 또는 현행 유지 권장
