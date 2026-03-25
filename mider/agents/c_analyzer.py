@@ -507,9 +507,14 @@ class CAnalyzerAgent(BaseAgent):
         before_count = len(all_issues)
         all_issues = _deduplicate_issues(all_issues)
         if before_count != len(all_issues):
+            removed = before_count - len(all_issues)
             self.rl.process(
                 f"Dedup: {before_count}건 → {len(all_issues)}건 "
-                f"({before_count - len(all_issues)}건 중복/노이즈 제거)"
+                f"({removed}건 중복/노이즈 제거)"
+            )
+            logger.info(
+                f"C [{filename}] Dedup: {before_count}건 → "
+                f"{len(all_issues)}건 ({removed}건 제거)"
             )
 
         # issue_id 재번호 (C-001부터 순차)

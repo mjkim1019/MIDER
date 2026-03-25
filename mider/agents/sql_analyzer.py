@@ -191,6 +191,12 @@ class SQLAnalyzerAgent(BaseAgent):
             )
             issues = self._merge_issues(llm_issues, static_issues)
 
+            if static_issues:
+                logger.info(
+                    f"SQL [{filename}] 병합: LLM {len(llm_issues)}건 + "
+                    f"정적 {len(static_issues)}건 → 최종 {len(issues)}건"
+                )
+
             # Step 6: AnalysisResult 생성
             elapsed = time.time() - start_time
             tokens_estimate = (len(prompt) + len(response)) // 4
