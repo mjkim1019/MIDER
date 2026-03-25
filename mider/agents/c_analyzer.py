@@ -374,8 +374,8 @@ class CAnalyzerAgent(BaseAgent):
         if findings:
             # 패턴별 집계
             pattern_counts: dict[str, int] = {}
-            for f in findings:
-                pid = f.get("pattern_id", "?")
+            for finding in findings:
+                pid = finding.get("pattern_id", "?")
                 pattern_counts[pid] = pattern_counts.get(pid, 0) + 1
             pattern_str = ", ".join(f"{k}={v}" for k, v in pattern_counts.items())
             logger.info(

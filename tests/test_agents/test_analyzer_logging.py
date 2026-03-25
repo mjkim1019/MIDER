@@ -156,8 +156,8 @@ class TestCAnalyzerLogging:
         assert len(path_logs) >= 1
         assert "Error-Focused" in path_logs[0].message
 
-    def test_dedup_logged(self, caplog):
-        """dedup 후 제거된 건수가 로그에 출력된다."""
+    def test_dedup_removes_noise_issues(self, caplog):
+        """dedup이 스레드 안전성 등 노이즈 이슈를 제거한다."""
         issues = [
             _make_issue(issue_id="C-001", title="스레드 안전성 문제"),  # 제거 대상
             _make_issue(issue_id="C-002", title="strcpy 버퍼 오버플로우"),

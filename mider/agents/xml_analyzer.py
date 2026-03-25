@@ -76,6 +76,7 @@ class XMLAnalyzerAgent(BaseAgent):
             # Step 1: XML 파싱
             parse_result = self._xml_parser.execute(file=file)
             parse_data = parse_result.data
+            filename = Path(file).name
 
             # 파싱 결과 로그
             data_lists = parse_data.get("data_lists", [])
@@ -101,9 +102,8 @@ class XMLAnalyzerAgent(BaseAgent):
                 )
 
             # 도구 실행 결과 표준 로그
-            _fn = Path(file).name
             logger.info(
-                f"XML [{_fn}] parse: "
+                f"XML [{filename}] parse: "
                 f"dataList={len(data_lists)}, "
                 f"events={len(parse_data.get('events', []))}, "
                 f"dup_ids={len(parse_data.get('duplicate_ids', []))}"
@@ -122,12 +122,12 @@ class XMLAnalyzerAgent(BaseAgent):
                 else:
                     self.rl.scan(f"JS검증: 핸들러 검증 통과 ({js_file})")
                 logger.info(
-                    f"XML [{_fn}] JS검증: "
+                    f"XML [{filename}] JS검증: "
                     f"missing={len(missing)}/{total_events} 핸들러"
                 )
             else:
                 self.rl.decision("JS검증: 대응 JS 파일 없음 — 핸들러 교차검증 불가")
-                logger.info(f"XML [{_fn}] JS검증: 대응 JS 파일 없음")
+                logger.info(f"XML [{filename}] JS검증: 대응 JS 파일 없음")
 
             # Step 3: Error-Focused / Heuristic 분기
             has_errors = (
@@ -136,7 +136,6 @@ class XMLAnalyzerAgent(BaseAgent):
                 or js_validation.get("missing_handlers")
             )
 
-            filename = Path(file).name
             dup_count = len(parse_data.get("duplicate_ids", []))
             miss_count = len(missing)
             err_count = len(parse_data.get("parse_errors", []))

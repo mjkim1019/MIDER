@@ -86,7 +86,8 @@ class ProCAnalyzerAgent(BaseAgent):
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
             line_count = len(file_content.splitlines())
-            self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄)")
+            filename = Path(file).name
+            self.rl.scan(f"File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄)")
 
             # Step 2: proc 프리컴파일러 실행
             proc_errors = self._run_proc(file)
@@ -113,12 +114,11 @@ class ProCAnalyzerAgent(BaseAgent):
                     )
 
             # 도구 실행 결과 표준 로그
-            _fn = Path(file).name
             missing_sqlca = sum(
                 1 for b in sql_blocks if not b.get("has_sqlca_check", True)
             )
             logger.info(
-                f"ProC [{_fn}] 도구: proc에러={len(proc_errors or [])}, "
+                f"ProC [{filename}] 도구: proc에러={len(proc_errors or [])}, "
                 f"SQL블록={len(sql_blocks)}(SQLCA미검사={missing_sqlca}), "
                 f"Scanner={len(scanner_findings or [])}건"
             )
@@ -140,7 +140,6 @@ class ProCAnalyzerAgent(BaseAgent):
                 reasons.append("SQLCA 미검사")
             if has_scanner_findings:
                 reasons.append(f"Scanner {len(scanner_findings)}건")
-            filename = Path(file).name
             if use_error_focused:
                 self.rl.decision(
                     "Decision: Error-Focused path",
