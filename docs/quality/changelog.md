@@ -738,3 +738,6 @@
 - `2026-03-25 19:05:12` [feat/T36-agent-logging-improvement] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_cli/test_main.py`
 - `2026-03-25 19:05:19` [feat/T36-agent-logging-improvement] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_cli/test_main.py`
 - `2026-03-25 19:15:02` [feat/T36-agent-logging-improvement] **Write**: `/Users/a11401/Documents/2026/Mider/docs/architecture/c_analysis_pipeline.md`
+- `2026-03-26 19:07:16` [feat/T36-agent-logging-improvement] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/report/04_테스트_고도화.md`
+- `2026-03-26 19:07:47` [feat/T36-agent-logging-improvement] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/report/04_테스트_고도화.md`
+- `2026-03-26 19:08:38` [feat/T36-agent-logging-improvement] **Write**: `/Users/a11401/Documents/2026/Mider/docs/report/기술_문제_해결_과정.md`
