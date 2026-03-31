@@ -62,27 +62,27 @@ class TestJSAnalyzerLogging:
     """JS Analyzer 로그 검증."""
 
     @pytest.mark.asyncio
-    async def test_heuristic_path_logged(self, js_agent, js_file, caplog):
-        """ESLint 없을 때 Heuristic 경로가 표준 로그에 출력된다."""
+    async def test_no_eslint_logged(self, js_agent, js_file, caplog):
+        """ESLint 결과 없을 때 로그에 '없음'이 출력된다."""
         js_agent._llm_client.chat.return_value = _make_llm_response()
 
         with caplog.at_level(logging.INFO, logger="mider.agents.js_analyzer"):
             await js_agent.run(task_id="t1", file=js_file)
 
-        path_logs = [r for r in caplog.records if "경로:" in r.message]
-        assert len(path_logs) >= 1
-        assert "Heuristic" in path_logs[0].message
-        assert "app.js" in path_logs[0].message
+        eslint_logs = [r for r in caplog.records if "ESLint:" in r.message]
+        assert len(eslint_logs) >= 1
+        assert "없음" in eslint_logs[0].message
+        assert "app.js" in eslint_logs[0].message
 
     @pytest.mark.asyncio
-    async def test_error_focused_path_logged(self, js_agent, js_file, caplog):
-        """ESLint 결과 있을 때 Error-Focused 경로가 표준 로그에 출력된다."""
+    async def test_eslint_results_logged(self, js_agent, js_file, caplog):
+        """ESLint 결과 있을 때 건수가 로그에 출력된다."""
         js_agent._eslint_runner = MagicMock()
         js_agent._eslint_runner.execute.return_value = ToolResult(
             success=True,
             data={
-                "errors": [{"line": 1, "message": "err", "ruleId": "no-var", "severity": "error"}],
-                "warnings": [],
+                "errors": [{"line": 1, "message": "err", "rule": "no-redeclare"}],
+                "warnings": [{"line": 2, "message": "warn", "rule": "no-shadow"}],
             },
         )
         js_agent._llm_client.chat.return_value = _make_llm_response()
@@ -90,10 +90,10 @@ class TestJSAnalyzerLogging:
         with caplog.at_level(logging.INFO, logger="mider.agents.js_analyzer"):
             await js_agent.run(task_id="t1", file=js_file)
 
-        path_logs = [r for r in caplog.records if "경로:" in r.message]
-        assert len(path_logs) >= 1
-        assert "Error-Focused" in path_logs[0].message
-        assert "errors=1" in path_logs[0].message
+        eslint_logs = [r for r in caplog.records if "ESLint:" in r.message]
+        assert len(eslint_logs) >= 1
+        assert "errors=1" in eslint_logs[0].message
+        assert "warnings=1" in eslint_logs[0].message
 
 
 # ──────────────────────────────────────────────
