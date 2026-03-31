@@ -307,6 +307,15 @@
 - **Pass 1 역할 변경**: 위험 함수 "선별" → 위험 함수 "태깅" (전체 분석하되 중점 표시)
 - **기존 유틸 재사용**: 글로벌 컨텍스트, 커서 맵, SQL 함수 매핑, Pass 1 프롬프트
 
+| 2026-03-31 | T33 재설계: proc_analyzer.txt 통합 프롬프트 (error_focused+heuristic 2개→1개) | 전체 코드 전달이므로 분기 불필요 |
+| 2026-03-31 | T33 재설계: classify_proc_functions 함수 패턴 분류기 | 계층형/디스패치형/유틸/보일러플레이트 자동 분류 |
+| 2026-03-31 | T33 재설계: _decide_delivery_mode (100K 토큰 기준 분기) | 128K 한계에서 프롬프트+응답 여유분 확보 |
+| 2026-03-31 | T33 재설계: _run_single_call — 전체 코드 단일 호출 | Scanner 한계 해결: LLM이 전체 코드에서 직접 버그 탐지 |
+| 2026-03-31 | T33 재설계: _run_grouped_call — 스마트 그룹핑 | 대형 파일(>100K tok) Lost-in-the-Middle 최소화 |
+| 2026-03-31 | T33 리뷰: json.loads에 try-except 추가 3곳 | LLM 응답 파싱 실패 시 graceful degradation (CRITICAL) |
+| 2026-03-31 | T33 리뷰: 진행률 카운터에 asyncio.Lock 추가 | 병렬 태스크 간 중복 마일스톤 로그 방지 (CRITICAL) |
+| 2026-03-31 | T33 리뷰: proc_analyzer_function.txt 삭제 | 미사용 dead code (HIGH) |
+
 | 2026-03-31 | T34 구현: XMLParser에 extract_inline_scripts + ScriptBlock + js_line_to_xml_line | 인라인 JS(파일의 78%)를 추출하여 분석 가능하게 |
 | 2026-03-31 | T34 구현: build_datalist_summary (45K→1.5K 토큰, 97% 절감) | dataList 전체 JSON은 토큰 낭비, 이름+컬럼수 요약으로 충분 |
 | 2026-03-31 | T34 구현: XML Analyzer 재구조화 — 인라인 JS를 JS Analyzer에 위임 | JS 분석 파이프라인(ESLint + Few-Shot) 재사용, 코드 중복 방지 |
