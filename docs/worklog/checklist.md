@@ -120,10 +120,10 @@
   - [x] T21.2: 함수별 프롬프트 최적화
   - [x] T21.3: asyncio.gather 병렬 호출
   - [x] T21.4: 단위 테스트
-- [ ] T22: clang-tidy + Heuristic 하이브리드 분석
-  - [ ] T22.1: Error-Focused 경로에 Heuristic Scanner 추가
-  - [ ] T22.2: 합산 로직 구현 (`_merge_warnings`)
-  - [ ] T22.3: 단위 테스트
+- [x] T22: clang-tidy + Heuristic 하이브리드 분석 (T31에 흡수)
+  - [x] T22.1: Error-Focused 경로에 Heuristic Scanner 추가 → T31.2+T31.3
+  - [x] T22.2: 합산 로직 구현 → T31.3 (scanner_findings 병합)
+  - [x] T22.3: 단위 테스트 → T31.6
 - [x] T19: Proframe XML 지원
   - [x] T19.1: XML 파서/분석 도구
   - [x] T19.2: XMLAnalyzerAgent 구현
@@ -166,12 +166,41 @@
   - [x] T29.1: `_deduplicate_issues()` 구현
   - [x] T29.2: 이슈 로그 작성
   - [x] T29.3: 단위 테스트
-- [ ] T30: Pro*C Heuristic Scanner (2-Pass)
+- [x] T30: Pro*C Heuristic Scanner (2-Pass)
   - [x] T30.1: ProCHeuristicScanner Tool 구현
   - [x] T30.2: ProCAnalyzerAgent에 Scanner 연동
   - [x] T30.3: Pro*C 프롬프트 Few-shot 추가
   - [x] T30.4: Scanner 단위 테스트
   - [x] T30.5: Agent 통합 테스트
+- [x] T31: CAnalyzer 통합 개선 (T22 흡수)
+  - [x] T31.1: build_all_functions_summary() 구현 (token_optimizer.py)
+  - [x] T31.2: Scanner 항상 실행 + 라우팅 변경 (>500→2-Pass, ≤500+clang→EF, ≤500→Heuristic)
+  - [x] T31.3: Error-Focused에 scanner findings 병합 (≤500줄+clang)
+  - [x] T31.4: Heuristic(≤500줄)에 scanner findings 추가
+  - [x] T31.5: 2-Pass에 clang 데이터 + all_functions_summary 통합 (>500줄)
+  - [x] T31.6: 단위 테스트 (6개 추가, 기존 27개 호환)
+- [ ] T32: JS 긴 파일 전략 설계 (검토)
+  - [ ] T32.1: 대안 비교 분석 (2-Pass vs 함수 청킹 vs ESLint 강제)
+  - [ ] T32.2: 설계 결정 문서
+- [ ] T33: ProC 함수별 청킹 — 2-Pass 선별 + 커서 맵
+  - [ ] T33.1: 글로벌 컨텍스트 추출 (`extract_proc_global_context`) → token_optimizer.py
+  - [ ] T33.2: SQL 블록 함수 매핑 + 커서 라이프사이클 맵 → sql_extractor.py, token_optimizer.py
+  - [ ] T33.3: 함수별 청킹 분석 (`_run_function_chunked`) → proc_analyzer.py
+  - [ ] T33.4: 함수별 분석 프롬프트 → proc_analyzer_function.txt (신규)
+  - [ ] T33.5: Pass 1 선별 프롬프트 → proc_prescan.txt (신규)
+  - [ ] T33.6: 단위 테스트 (global context, cursor map, sql mapping, E2E, 진행률 로그)
+- [x] T36: Agent 표준 로그 개선 — 언어별 동작 차이 가시화
+  - [x] T36.1: 분석 경로 선택 로그 추가 (5개 Analyzer)
+  - [x] T36.2: 도구 실행 결과 로그 추가 (5개 Analyzer)
+  - [x] T36.3: 후처리 로그 추가 (C dedup, SQL merge)
+  - [x] T36.4: 단위 테스트 (caplog 검증)
+- [ ] T34: XML 분석 강화 검토
+  - [ ] T34.1: 전체 코드 전달 효과 검토
+  - [ ] T34.2: script 태그 추출 (이슈 #005)
+  - [ ] T34.3: 설계 결정 문서
+- [ ] T35: 주석 처리 전략 검토
+  - [ ] T35.1: 전략 비교 (현행유지 vs 선택적 제거 vs 압축)
+  - [ ] T35.2: 설계 결정 문서
 - [ ] T15: Integration Test
   - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [ ] T15.2: E2E 테스트

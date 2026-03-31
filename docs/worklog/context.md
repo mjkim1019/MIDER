@@ -248,3 +248,46 @@
 - **Scanner 위치**: `mider/tools/static_analysis/proc_heuristic_scanner.py`
 - **연동**: ProCAnalyzerAgent에서 Scanner 결과 > 0이면 Error-Focused 강제 진입
 - **프롬프트**: 장애 사례 few-shot으로 LLM 판정 정확도 향상
+
+## T31 설계 결정 (CAnalyzer 통합 개선, T22 흡수)
+- **문제 1 (2-Pass 블라인드 스팟)**: regex 히트 함수만 Pass 1에 전달 → 미히트 함수의 결함 누락
+- **문제 2 (경로 분리)**: clang-tidy 있으면 regex 안 돌림, ≤500줄이면 regex 안 돌림 → 탐지 기회 상실
+- **해결**: CHeuristicScanner를 **모든 경로에서 항상 실행**, 결과를 각 경로별 프롬프트에 추가 전달
+  - Error-Focused: clang-tidy 경고 + regex findings 병합 (기존 T22 흡수)
+  - Heuristic (≤500줄): 전체 코드 + regex findings
+  - 2-Pass (>500줄): 전체 함수 시그니처 + regex findings → gpt-5-mini 선별
+- **추가 토큰 비용**: regex findings ~10줄, 함수 시그니처 ~40줄 → gpt-5-mini 비용 무시 가능
+- **중복 제거 (Error-Focused)**: clang-tidy 경고와 regex findings 동일 라인(±2) + 동일 카테고리 → clang-tidy 우선
+
+| 2026-03-25 | 5개 Analyzer에 분석 경로/도구 결과/후처리 표준 logger.info 추가 | ReasoningLogger(verbose=True만)에만 있던 정보를 표준 로그에도 출력 — 로그 파일에서 에이전트별 동작 차이 확인 가능 |
+| 2026-03-25 | 리뷰: `_fn`/`filename` 이중 선언 → `filename` 1회로 통합 (proc/sql/xml) | 리뷰 반영 — 같은 메서드 내 동일 값 중복 계산 제거 |
+| 2026-03-25 | 리뷰: `_tp_count`/`tuning_count` 중복 → `tuning_count` 1회로 통합 (sql) | 리뷰 반영 — 동일 expression 중복 계산 제거 |
+| 2026-03-25 | 리뷰: 루프 변수 `f` → `finding` (c_analyzer Scanner 집계) | 리뷰 반영 — f-string 접두사와 혼동 방지 |
+
+| 2026-03-25 | T31 구현: `build_all_functions_summary()` 추가 (token_optimizer.py) | 2-Pass Pass 1에서 LLM이 전체 함수 목록을 파악하여 regex 미히트 함수도 선별 가능 |
+| 2026-03-25 | T31 구현: Scanner를 `run()` 시작부에서 항상 실행 | 모든 경로(Error-Focused, Heuristic, 2-Pass)에서 regex 결과 확보 |
+| 2026-03-25 | T31 구현: >500줄 → 항상 2-Pass (clang 유무 무관) | clang-tidy 있어도 대형 파일에서 Error-Focused만 하면 clang 미탐지 영역 누락 |
+| 2026-03-25 | T31 구현: Error-Focused/Heuristic에 scanner_findings 병합 | clang 경고만으로 놓치는 UNINIT_VAR, UNSAFE_FUNC 등을 regex가 보충 |
+| 2026-03-25 | T31 구현: 2-Pass에 clang 경고 통합 (Pass 1 선별 + Pass 2 함수별 전달) | 대형 파일에서 clang + scanner 양쪽 정보를 LLM에 전달하여 정밀도 향상 |
+| 2026-03-25 | T31: Level 1(bugprone) 저가치 필터링 제거 | StubHeaderGenerator가 기본 타입을 제공하므로 Level 1도 신뢰 가능 → 헤더 에러만 제거, 나머지 유지 |
+| 2026-03-25 | T31: `_is_level2_warning()` + `_LEVEL2_CHECK_PREFIX` 제거 | Level 1/2 구분 로직이 더 이상 필요 없음 — dead code 정리 |
+
+| 2026-03-25 | c_prescan_fewshot.txt few-shot 예시를 실제 장애 사례로 교체 (placeholder → 실제) | 사용자 제공 장애 데이터 기반 — UNINIT_VAR(루프 미초기화), BOUNDED_FUNC(memset sizeof 불일치), FORMAT_STRING(%s에 long 전달) 위험 3건 + 안전 2건 |
+
+## T33 설계 결정 (ProC 함수별 청킹 + 커서 맵 + 2-Pass)
+- **문제 1 (Error-Focused 사각지대)**: 에러 없는 함수의 로직 결함 누락 — Error-Focused는 에러 함수만 LLM에 전달
+- **문제 2 (Heuristic 중간 누락)**: >500줄 파일에서 head 200 + tail 100만 전달 → 중간 코드 분석 불가 (8000줄이면 96% 누락)
+- **문제 3 (커서 크로스레퍼런스)**: DECLARE→OPEN은 b10, FETCH는 b20에 분산 → 함수별 분석 시 CLOSE 누락을 못 잡음
+- **문제 4 (비용)**: 7958줄/111함수를 전부 gpt-4o로 호출하면 비용/시간 과다
+- **해결**: 함수별 청킹 + 커서 라이프사이클 맵 + 2-Pass 선별
+  - 커서 맵: regex로 DECLARE/OPEN/FETCH/CLOSE 위치+함수 추적 (비용 0)
+  - 2-Pass: mini로 위험 함수 선별 → primary로 개별 함수 분석
+  - C analyzer의 `_run_two_pass()` + `_analyze_single_function()` 패턴 재사용
+- **전략 비교 (호출 그래프 기반 그룹핑 기각)**: 그룹이 커지면 Issue #003 "대형 함수 압도" 문제 재발. b10(1204줄)+b20(144줄)+b30(138줄) 그룹 = 1486줄 → 소형 함수 누락 위험
+- **함수별 청킹의 장점**: 평균 72줄/함수(sample_inv 기준), 개별 LLM attention 분산 없음
+- **진행률 로그**: 25% 단위 4회 출력 — 111함수 개별 로그는 과다, 사용자가 진행 상황 확인 가능
+
+## T32~T35 설계 검토 사항
+- **JS 긴 파일**: 2-Pass 도입 vs 함수 청킹 vs ESLint 강제 — 검토 후 결정
+- **XML 정적분석**: ESLint 부적합 확인, lxml+XSD는 스키마 필요 — 파싱 데이터 + 전체 코드 전달이 현실적
+- **주석 처리**: 제거 시 라인번호 깨짐 CRITICAL, 3~20% 토큰 절감 — 선택적 제거(헤더 주석만) 또는 현행 유지 권장

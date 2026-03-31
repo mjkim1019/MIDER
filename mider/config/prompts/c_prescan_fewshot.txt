@@ -6,36 +6,44 @@
 파일: {file_path}
 총 {total_functions}개 함수, {total_findings}개 위험 패턴 탐지
 
-## 함수별 위험 패턴 요약
+## 전체 함수 목록 (시그니처 + 위치)
+{all_functions_summary}
+
+## 함수별 위험 패턴 요약 (Scanner + clang-tidy)
 {function_findings_summary}
 
-## 판단 기준 (Few-Shot 예시)
+## 판단 기준 (Few-Shot 예시 — 실제 장애 사례 기반)
 
 ### 예시 1: 위험 — 심층 분석 필요
-함수: c400_get_rcv_chgreq_possible
+함수: c400_get_svc_list
 탐지 패턴:
-- UNINIT_VAR: `long svc_cnt;` (초기화 없음)
-- BUFFER_INDEX: `currsvclist_s[svc_cnt]` (미초기화 변수로 배열 접근)
-판정: **위험** — 초기화되지 않은 변수를 배열 인덱스로 사용하면 미정의 동작(Undefined Behavior)이 발생합니다.
+- UNINIT_VAR: `long curcnt, ix;` (초기화 없음)
+- BUFFER_INDEX: `svclist[curcnt]` (미초기화 변수로 배열/루프 접근)
+판정: **위험** — 루프 제어 변수(curcnt, ix)가 초기화되지 않아 쓰레기 값으로 루프가 미실행되거나 비정상 반복됩니다. 올바른 코드는 `long curcnt = 0, ix = 0;`입니다. (실제 장애: 루프 미실행으로 데이터 누락)
 
 ### 예시 2: 위험 — 심층 분석 필요
-함수: c100_init
+함수: c100_abn_sale_proc
 탐지 패턴:
-- BOUNDED_FUNC: `strncpy(ctx->name, src, MAX_LEN);`
-- UNINIT_VAR: `char buffer;`
-판정: **위험** — strncpy는 null-terminator를 보장하지 않으며, 미초기화 버퍼가 있습니다.
+- BOUNDED_FUNC: `memset(&zord_abn_sale_spc_u0010_in, 0x00, sizeof(zord_abn_sale_spc_s0009_in_t));`
+판정: **위험** — memset 대상 변수명(u0010)과 sizeof 타입명(s0009)이 불일치합니다. 구조체 크기가 다르면 일부만 초기화되어 이전 트랜잭션 데이터가 잔류합니다. 변수명과 sizeof 타입의 숫자 부분이 다르면 반드시 의심하세요. (실제 장애: 이전 데이터 잔류로 오처리)
 
-### 예시 3: 안전 — 생략
-함수: z000_norm_exit_proc
+### 예시 3: 위험 — 심층 분석 필요
+함수: c200_auto_chrg_proc
 탐지 패턴:
-- BOUNDED_FUNC: `memset(&ctx, 0x00, sizeof(ctx));`
-판정: **안전** — memset의 sizeof 대상이 변수 자체이므로 크기 일치가 보장됩니다. 초기화 직후 사용하므로 문제없습니다.
+- BOUNDED_FUNC: `PFM_ERRS(" [%s] 자동선결제 인증요청이력이 존재하지 않습니다.", ctx->svc_mgmt_num);`
+판정: **위험** — svc_mgmt_num은 long형 변수인데 포맷 지정자가 %s(문자열)입니다. long 값을 문자열 포인터로 해석하면 잘못된 메모리 접근으로 Core Dump가 발생합니다. 올바른 포맷은 `%ld`입니다. PFM_ERRS, snprintf 등에서 포맷 지정자(%ld, %d, %s)와 인자 타입이 반드시 일치하는지 확인하세요. (실제 장애: Core Dump 발생)
 
 ### 예시 4: 안전 — 생략
 함수: a000_init_proc
 탐지 패턴:
-- UNINIT_VAR: `long rc;` (그러나 직후 `rc = some_function();`으로 대입)
-판정: **안전** — 선언 직후 함수 호출 결과로 초기화되므로 실제 위험 없습니다.
+- UNINIT_VAR: `long rc;` (그러나 직후 `rc = pfm_init(ctx);`로 대입)
+판정: **안전** — 선언 직후 함수 호출 결과로 초기화되므로 실제 위험 없습니다. ProFrame 코드에서 `long rc;` 후 즉시 대입하는 것은 표준 패턴입니다.
+
+### 예시 5: 안전 — 생략
+함수: z999_err_exit_proc
+탐지 패턴:
+- BOUNDED_FUNC: `memset(&ordsb0510010t04_ctx, 0x00, sizeof(ordsb0510010t04_ctx_t));`
+판정: **안전** — memset 대상 변수(ordsb0510010t04_ctx)와 sizeof 타입(ordsb0510010t04_ctx_t)의 숫자 부분이 동일하므로 크기 일치가 보장됩니다. 예시 2와 비교하여 숫자가 일치하는지 여부가 핵심 판별 기준입니다.
 
 ## 출력 형식
 반드시 아래 JSON으로 응답하세요:

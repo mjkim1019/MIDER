@@ -533,8 +533,8 @@ class TestHeaderErrorFallback:
         assert "pfmcom.h" not in prompt
 
     @pytest.mark.asyncio
-    async def test_level2_warnings_with_header_errors(self, agent, c_file):
-        """헤더 에러 + Level 2(clang-analyzer) → Level 2만 Error-Focused."""
+    async def test_non_header_warnings_kept_with_header_errors(self, agent, c_file):
+        """헤더 에러 + Level 1/2 경고 → 헤더 에러만 제외, 나머지 모두 Error-Focused."""
         clang_result = ToolResult(
             success=True,
             data={
@@ -551,8 +551,14 @@ class TestHeaderErrorFallback:
                         "line": 20, "column": 5, "severity": "warning",
                         "file": c_file,
                     },
+                    {
+                        "check": "bugprone-branch-clone",
+                        "message": "repeated branch in conditional",
+                        "line": 30, "column": 5, "severity": "warning",
+                        "file": c_file,
+                    },
                 ],
-                "total_warnings": 2,
+                "total_warnings": 3,
             },
         )
         agent._clang_tidy_runner = MagicMock()
@@ -561,19 +567,20 @@ class TestHeaderErrorFallback:
 
         await agent.run(task_id="task_1", file=c_file, language="c")
 
-        # Error-Focused 프롬프트에 Level 2 경고만 포함
+        # Error-Focused 프롬프트에 Level 1+2 경고 모두 포함
         call_args = agent._llm_client.chat.call_args
         messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
         prompt = messages[1]["content"]
         assert "clang-analyzer-core.uninitialized.Assign" in prompt
+        assert "bugprone-branch-clone" in prompt
         # 헤더 에러는 제외됨
         assert "pfmcom.h" not in prompt
 
     @pytest.mark.asyncio
-    async def test_level1_only_with_header_errors_triggers_fallback(
+    async def test_level1_only_with_header_errors_uses_error_focused(
         self, agent, c_file,
     ):
-        """헤더 에러 + Level 1(bugprone)만 → Heuristic fallback (Level 1 저가치)."""
+        """헤더 에러 + Level 1(bugprone)만 → Error-Focused (Level 1도 유의미)."""
         clang_result = ToolResult(
             success=True,
             data={
@@ -600,11 +607,12 @@ class TestHeaderErrorFallback:
 
         await agent.run(task_id="task_1", file=c_file, language="c")
 
-        # Heuristic fallback: Level 1은 저가치, 프롬프트에 bugprone 없어야 함
+        # Error-Focused: Level 1도 유의미, 프롬프트에 bugprone 포함
         call_args = agent._llm_client.chat.call_args
         messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
         prompt = messages[1]["content"]
-        assert "bugprone-branch-clone" not in prompt
+        assert "bugprone-branch-clone" in prompt
+        # 헤더 에러는 제외됨
         assert "pfmcom.h" not in prompt
 
 
@@ -689,6 +697,188 @@ class TestDeduplicateIssues:
         result = _deduplicate_issues(issues)
         severities = [i["severity"] for i in result]
         assert severities == ["critical", "medium", "low"]
+
+
+class TestBuildAllFunctionsSummary:
+    """build_all_functions_summary() 출력 검증."""
+
+    def test_c_functions_summary(self):
+        """C 파일의 함수 시그니처 + 위치 + 줄 수가 정확히 출력."""
+        from mider.tools.utility.token_optimizer import build_all_functions_summary
+
+        content = (
+            "int main(int argc, char **argv) {\n"
+            "    return 0;\n"
+            "}\n\n"
+            "void helper(char *buf) {\n"
+            "    buf[0] = 0;\n"
+            "}\n"
+        )
+        result = build_all_functions_summary(content, "c")
+        assert "main" in result
+        assert "helper" in result
+        assert "L1-L3" in result or "[L1-L3]" in result
+        # 줄 수 포함
+        assert "3줄" in result
+
+    def test_empty_file(self):
+        """함수 없는 파일 → '(함수 없음)'."""
+        from mider.tools.utility.token_optimizer import build_all_functions_summary
+
+        result = build_all_functions_summary("#include <stdio.h>\n", "c")
+        assert result == "(함수 없음)"
+
+
+class TestT31ScannerAlwaysRuns:
+    """T31: Scanner가 모든 경로에서 항상 실행되는지 검증."""
+
+    @pytest.mark.asyncio
+    async def test_large_file_with_clang_triggers_two_pass(self, tmp_path):
+        """>500줄 + clang-tidy 있음 → 2-Pass 경로 (Error-Focused 아님)."""
+        safe_funcs = []
+        for i in range(85):
+            safe_funcs.append(
+                f"int safe_{i}(int x) {{\n"
+                f"    int r = 0;\n    r = x + {i};\n    return r;\n}}\n\n"
+            )
+        dangerous = (
+            "void danger(char *p) {\n"
+            "    int x;\n    strcpy(p, \"hello\");\n}\n"
+        )
+        content = "#include <string.h>\n\n" + "".join(safe_funcs) + dangerous
+        f = tmp_path / "large_with_clang.c"
+        f.write_text(content)
+        assert len(content.splitlines()) > 500
+
+        agent = CAnalyzerAgent(model="gpt-4o")
+        agent._llm_client = AsyncMock()
+        # clang-tidy 성공 → 경고 1건
+        clang_result = ToolResult(success=True, data={
+            "warnings": [{
+                "check": "bugprone-branch-clone",
+                "message": "repeated branch",
+                "line": 20, "column": 5, "severity": "warning",
+                "file": str(f),
+            }],
+            "total_warnings": 1,
+        })
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.return_value = clang_result
+
+        # Pass 1 + Pass 2
+        pass1 = json.dumps({"risky_functions": [
+            {"function_name": "danger", "reason": "UNSAFE_FUNC"},
+        ]})
+        pass2 = json.dumps({"issues": [_make_issue()]})
+        agent._llm_client.chat.side_effect = [pass1, pass2]
+
+        result = await agent.run(task_id="task_1", file=str(f), language="c")
+
+        assert result["error"] is None
+        # Pass 1(mini) + Pass 2(1개 함수) = 2회 호출
+        assert agent._llm_client.chat.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_scanner_findings_in_error_focused_prompt(self, agent, c_file):
+        """≤500줄 + clang + scanner → Error-Focused 프롬프트에 scanner findings 포함."""
+        clang_result = ToolResult(success=True, data={
+            "warnings": [{
+                "check": "bugprone-sizeof-expression",
+                "message": "suspicious sizeof",
+                "line": 4, "column": 5, "severity": "warning",
+                "file": c_file,
+            }],
+        })
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.return_value = clang_result
+        # scanner가 findings 반환
+        scanner_result = ToolResult(success=True, data={
+            "findings": [{
+                "pattern_id": "UNINIT_VAR",
+                "line": 4,
+                "function": "main",
+                "description": "초기화 안 된 변수",
+                "content": "int count;",
+            }],
+        })
+        agent._heuristic_scanner = MagicMock()
+        agent._heuristic_scanner.execute.return_value = scanner_result
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(task_id="task_1", file=c_file, language="c")
+
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        # clang 경고와 scanner findings 모두 포함
+        assert "bugprone-sizeof-expression" in prompt
+        assert "UNINIT_VAR" in prompt
+
+    @pytest.mark.asyncio
+    async def test_scanner_findings_in_heuristic_prompt(self, agent, c_file):
+        """≤500줄 + clang 없음 + scanner → Heuristic 프롬프트에 scanner findings 포함."""
+        # clang-tidy 실패
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.side_effect = Exception("not found")
+        # scanner가 findings 반환
+        scanner_result = ToolResult(success=True, data={
+            "findings": [{
+                "pattern_id": "UNSAFE_FUNC",
+                "line": 5,
+                "function": "main",
+                "description": "경계 미검증 함수",
+                "content": "strcpy(buf, input);",
+            }],
+        })
+        agent._heuristic_scanner = MagicMock()
+        agent._heuristic_scanner.execute.return_value = scanner_result
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(task_id="task_1", file=c_file, language="c")
+
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        assert "UNSAFE_FUNC" in prompt
+        assert "strcpy(buf, input);" in prompt
+
+    @pytest.mark.asyncio
+    async def test_prescan_prompt_has_all_functions_summary(self, tmp_path):
+        """2-Pass Pass 1 프롬프트에 전체 함수 목록(all_functions_summary) 포함."""
+        safe_funcs = []
+        for i in range(85):
+            safe_funcs.append(
+                f"int safe_{i}(int x) {{\n"
+                f"    int r = 0;\n    r = x + {i};\n    return r;\n}}\n\n"
+            )
+        dangerous = (
+            "void target_func(char *p) {\n"
+            "    int x;\n    strcpy(p, \"hello\");\n}\n"
+        )
+        content = "#include <string.h>\n\n" + "".join(safe_funcs) + dangerous
+        f = tmp_path / "prescan_test.c"
+        f.write_text(content)
+
+        agent = CAnalyzerAgent(model="gpt-4o")
+        agent._llm_client = AsyncMock()
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.side_effect = Exception("not found")
+
+        pass1 = json.dumps({"risky_functions": [
+            {"function_name": "target_func", "reason": "test"},
+        ]})
+        pass2 = json.dumps({"issues": []})
+        agent._llm_client.chat.side_effect = [pass1, pass2]
+
+        await agent.run(task_id="task_1", file=str(f), language="c")
+
+        # Pass 1 호출의 프롬프트 확인
+        first_call = agent._llm_client.chat.call_args_list[0]
+        messages = first_call.kwargs.get("messages") or first_call[1].get("messages")
+        prescan_prompt = messages[1]["content"]
+        # 전체 함수 목록에 safe_0, target_func 등이 포함
+        assert "safe_0" in prescan_prompt
+        assert "target_func" in prescan_prompt
 
 
 class TestAgentInit:

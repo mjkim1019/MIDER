@@ -76,6 +76,7 @@ class XMLAnalyzerAgent(BaseAgent):
             # Step 1: XML 파싱
             parse_result = self._xml_parser.execute(file=file)
             parse_data = parse_result.data
+            filename = Path(file).name
 
             # 파싱 결과 로그
             data_lists = parse_data.get("data_lists", [])
@@ -100,10 +101,19 @@ class XMLAnalyzerAgent(BaseAgent):
                     f"— {' × '.join(dup.get('tags', []))}"
                 )
 
+            # 도구 실행 결과 표준 로그
+            logger.info(
+                f"XML [{filename}] parse: "
+                f"dataList={len(data_lists)}, "
+                f"events={len(parse_data.get('events', []))}, "
+                f"dup_ids={len(parse_data.get('duplicate_ids', []))}"
+            )
+
             # Step 2: JS 교차 검증
             js_validation = self._validate_js_handlers(file, parse_data)
             js_file = js_validation.get("js_file")
             missing = js_validation.get("missing_handlers", [])
+            total_events = len(parse_data.get("events", []))
             if js_file:
                 if missing:
                     self.rl.detect(
@@ -111,8 +121,13 @@ class XMLAnalyzerAgent(BaseAgent):
                     )
                 else:
                     self.rl.scan(f"JS검증: 핸들러 검증 통과 ({js_file})")
+                logger.info(
+                    f"XML [{filename}] JS검증: "
+                    f"missing={len(missing)}/{total_events} 핸들러"
+                )
             else:
                 self.rl.decision("JS검증: 대응 JS 파일 없음 — 핸들러 교차검증 불가")
+                logger.info(f"XML [{filename}] JS검증: 대응 JS 파일 없음")
 
             # Step 3: Error-Focused / Heuristic 분기
             has_errors = (
@@ -131,10 +146,18 @@ class XMLAnalyzerAgent(BaseAgent):
                            f"missing_handlers={miss_count}건, "
                            f"parse_errors={err_count}건",
                 )
+                logger.info(
+                    f"XML [{filename}] 경로: Error-Focused | "
+                    f"dup_ids={dup_count}, missing_handlers={miss_count}, "
+                    f"parse_errors={err_count}"
+                )
             else:
                 self.rl.decision(
                     "Decision: Heuristic path",
                     reason="정적 오류 없음 → 구조 전체 검증",
+                )
+                logger.info(
+                    f"XML [{filename}] 경로: Heuristic | 정적 오류 없음"
                 )
 
             prompt, messages = self._build_messages(

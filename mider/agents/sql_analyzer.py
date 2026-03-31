@@ -100,7 +100,8 @@ class SQLAnalyzerAgent(BaseAgent):
             line_count = read_result.data.get("line_count", 0)
             file_size = read_result.data.get("file_size", 0)
             token_estimate = len(file_content) // 4
-            self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄, ~{token_estimate:,} tokens)")
+            filename = Path(file).name
+            self.rl.scan(f"File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄, ~{token_estimate:,} tokens)")
 
             logger.info(
                 f"SQL 파일 크기: {file} → {line_count}줄, "
@@ -139,13 +140,25 @@ class SQLAnalyzerAgent(BaseAgent):
                 if tuning_points:
                     self.rl.detect(f"Explain Plan: {len(tuning_points)}건 튜닝 포인트")
 
+            # 도구 실행 결과 표준 로그
+            tuning_count = len((explain_plan_data or {}).get("tuning_points", []))
+            logger.info(
+                f"SQL [{filename}] 도구: 문법에러={len(syntax_errors)}, "
+                f"패턴={len(static_patterns)}, 튜닝포인트={tuning_count}"
+            )
+
             # Step 5: LLM 분석
             has_errors = bool(syntax_errors or (explain_plan_data and explain_plan_data.get("tuning_points")))
             if has_errors:
                 self.rl.decision("Decision: Error-Focused path",
                                  reason=f"syntax errors={len(syntax_errors)}, explain plan={bool(explain_plan_data)}")
+                logger.info(
+                    f"SQL [{filename}] 경로: Error-Focused | "
+                    f"syntax errors={len(syntax_errors)}, 튜닝포인트={tuning_count}"
+                )
             else:
                 self.rl.decision("Decision: Heuristic path", reason="문법 에러 없음")
+                logger.info(f"SQL [{filename}] 경로: Heuristic | 문법 에러 없음")
 
             prompt, messages = self._build_messages(
                 file=file,
@@ -175,6 +188,12 @@ class SQLAnalyzerAgent(BaseAgent):
                 explain_plan_data, file,
             )
             issues = self._merge_issues(llm_issues, static_issues)
+
+            if static_issues:
+                logger.info(
+                    f"SQL [{filename}] 병합: LLM {len(llm_issues)}건 + "
+                    f"정적 {len(static_issues)}건 → 최종 {len(issues)}건"
+                )
 
             # Step 6: AnalysisResult 생성
             elapsed = time.time() - start_time

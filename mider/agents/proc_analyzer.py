@@ -86,7 +86,8 @@ class ProCAnalyzerAgent(BaseAgent):
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
             line_count = len(file_content.splitlines())
-            self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄)")
+            filename = Path(file).name
+            self.rl.scan(f"File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄)")
 
             # Step 2: proc 프리컴파일러 실행
             proc_errors = self._run_proc(file)
@@ -112,6 +113,16 @@ class ProCAnalyzerAgent(BaseAgent):
                         f"{f['description'][:80]}"
                     )
 
+            # 도구 실행 결과 표준 로그
+            missing_sqlca = sum(
+                1 for b in sql_blocks if not b.get("has_sqlca_check", True)
+            )
+            logger.info(
+                f"ProC [{filename}] 도구: proc에러={len(proc_errors or [])}, "
+                f"SQL블록={len(sql_blocks)}(SQLCA미검사={missing_sqlca}), "
+                f"Scanner={len(scanner_findings or [])}건"
+            )
+
             # Step 4: Error-Focused / Heuristic 판정
             has_proc_errors = bool(proc_errors)
             has_missing_sqlca = any(
@@ -134,8 +145,13 @@ class ProCAnalyzerAgent(BaseAgent):
                     "Decision: Error-Focused path",
                     reason=", ".join(reasons),
                 )
+                logger.info(
+                    f"ProC [{filename}] 경로: Error-Focused | "
+                    f"{', '.join(reasons)}"
+                )
             else:
                 self.rl.decision("Decision: Heuristic path", reason="정적 오류 없음")
+                logger.info(f"ProC [{filename}] 경로: Heuristic | 정적 오류 없음")
 
             # Step 5: LLM 분석
             prompt, messages = self._build_messages(

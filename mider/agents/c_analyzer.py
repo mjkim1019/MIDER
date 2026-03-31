@@ -1,11 +1,12 @@
 """CAnalyzerAgent: Phase 2 - C 언어 분석.
 
-clang-tidy 정적분석 + LLM 심층분석을 결합하여
+clang-tidy 정적분석 + Heuristic Scanner(regex) + LLM 심층분석을 결합하여
 C 파일의 메모리 안전성 및 장애 유발 패턴을 탐지한다.
 
-clang-tidy 없고 대형 파일(>500줄)이면 2-Pass 전략:
-  Pass 1: Heuristic Pre-Scanner → mini 모델로 위험 함수 선별
-  Pass 2: 선별된 함수 → primary 모델로 심층 분석
+분석 경로:
+  >500줄 → 2-Pass (clang + scanner → mini 선별 → 함수별 LLM)
+  ≤500줄 + clang 있음 → Error-Focused (clang + scanner 병합 → 단일 LLM)
+  ≤500줄 + clang 없음 → Heuristic (전체 코드 + scanner → 단일 LLM)
 """
 
 import asyncio
@@ -27,6 +28,7 @@ from mider.tools.file_io.file_reader import FileReader
 from mider.tools.static_analysis.c_heuristic_scanner import CHeuristicScanner
 from mider.tools.static_analysis.clang_tidy_runner import ClangTidyRunner
 from mider.tools.utility.token_optimizer import (
+    build_all_functions_summary,
     build_structure_summary,
     extract_error_functions,
     optimize_file_content,
@@ -43,9 +45,6 @@ _HEADER_ERROR_KEYWORDS = frozenset({
     "no such file or directory",
 })
 
-# Level 2 체크 접두사 — 데이터 흐름 분석 (AST 완성 필요, 헤더 없으면 동작 불가)
-_LEVEL2_CHECK_PREFIX = "clang-analyzer-"
-
 
 def _is_header_error(warning: dict[str, Any]) -> bool:
     """clang-tidy 경고가 헤더 누락으로 인한 컴파일 에러인지 판정한다."""
@@ -54,15 +53,6 @@ def _is_header_error(warning: dict[str, Any]) -> bool:
     message = warning.get("message", "").lower()
     return any(kw in message for kw in _HEADER_ERROR_KEYWORDS)
 
-
-def _is_level2_warning(warning: dict[str, Any]) -> bool:
-    """clang-tidy Level 2(데이터 흐름 분석) 경고인지 판정한다.
-
-    Level 2: clang-analyzer-* — AST 완성이 필요, 헤더 없으면 동작 불가.
-    Level 1: bugprone-*, cert-*, misc-* 등 — 텍스트/구문 패턴, 헤더 없이도 동작.
-    """
-    check = warning.get("check", "")
-    return check.startswith(_LEVEL2_CHECK_PREFIX)
 
 
 # ──────────────────────────────────────────────
@@ -263,36 +253,69 @@ class CAnalyzerAgent(BaseAgent):
             # Step 2: clang-tidy 정적분석 (내부에서 추론 로그 출력)
             clang_data = self._run_clang_tidy(file)
 
-            # Step 3: 분석 경로 선택
+            # Step 3: Heuristic Scanner 항상 실행 (regex, 비용 0)
+            filename = Path(file).name
+            scan_result = self._heuristic_scanner.execute(file=file)
+            scanner_findings = scan_result.data.get("findings", [])
+            if scanner_findings:
+                pattern_counts: dict[str, int] = {}
+                for finding in scanner_findings:
+                    pid = finding.get("pattern_id", "?")
+                    pattern_counts[pid] = pattern_counts.get(pid, 0) + 1
+                pattern_str = ", ".join(f"{k}={v}" for k, v in pattern_counts.items())
+                logger.info(
+                    f"C [{filename}] Scanner: {len(scanner_findings)}건 ({pattern_str})"
+                )
+
+            # Step 4: 분석 경로 선택
             tokens_estimate = 0
-            if not clang_data and line_count > 500:
-                # 2-Pass 전략: clang-tidy 없고 대형 파일
+            if line_count > 500:
+                # 대형 파일 → 항상 2-Pass (clang 유무 무관)
+                clang_info = ""
+                if clang_data:
+                    w_count = len(clang_data.get("warnings", []))
+                    clang_info = f"clang-tidy {w_count}건 + "
                 self.rl.decision(
                     "Decision: 2-Pass 전략",
-                    reason=f"clang-tidy 없음 + {line_count}줄(>500)",
+                    reason=f"{clang_info}Scanner {len(scanner_findings)}건 + {line_count}줄(>500)",
+                )
+                logger.info(
+                    f"C [{filename}] 경로: 2-Pass | "
+                    f"{clang_info}Scanner {len(scanner_findings)}건, {line_count}줄(>500)"
                 )
                 issues = await self._run_two_pass(
                     file=file,
                     file_content=file_content,
                     file_context=file_context,
+                    clang_data=clang_data,
+                    scanner_findings=scanner_findings,
                 )
             else:
-                # 기존 경로: clang-tidy 있음 or 500줄 이하
+                # ≤500줄
                 if clang_data:
                     w_count = len(clang_data.get("warnings", []))
                     self.rl.decision(
                         "Decision: Error-Focused path",
-                        reason=f"clang-tidy {w_count}건 유의미 경고",
+                        reason=f"clang-tidy {w_count}건 + Scanner {len(scanner_findings)}건, {line_count}줄(≤500)",
+                    )
+                    logger.info(
+                        f"C [{filename}] 경로: Error-Focused | "
+                        f"clang-tidy {w_count}건, Scanner {len(scanner_findings)}건"
                     )
                 else:
                     self.rl.decision(
                         "Decision: Heuristic path",
-                        reason=f"clang-tidy 없음 + {line_count}줄(≤500) → 전체 코드 LLM 검증",
+                        reason=f"clang-tidy 없음 + Scanner {len(scanner_findings)}건, {line_count}줄(≤500)",
+                    )
+                    logger.info(
+                        f"C [{filename}] 경로: Heuristic | "
+                        f"clang-tidy 없음, Scanner {len(scanner_findings)}건, {line_count}줄(≤500)"
                     )
                 prompt, messages = self._build_messages(
                     file=file,
                     file_content=file_content,
                     clang_data=clang_data,
+                    scanner_findings=scanner_findings,
                     file_context=file_context,
                 )
 
@@ -347,18 +370,21 @@ class CAnalyzerAgent(BaseAgent):
         file: str,
         file_content: str,
         file_context: dict[str, Any] | None,
+        clang_data: dict[str, Any] | None = None,
+        scanner_findings: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
-        """2-Pass 분석: Pre-Scanner → LLM 선별 → 함수별 개별 심층 분석.
+        """2-Pass 분석: Scanner + clang → LLM 선별 → 함수별 개별 심층 분석.
 
-        Pass 1: regex 스캔 + mini 모델로 위험 함수 선별
+        Pass 1: scanner findings + clang warnings + all_functions_summary
+                → mini 모델로 위험 함수 선별
         Pass 2: 선별된 함수를 각각 개별 primary 모델 호출로 심층 분석
         """
-        # Pass 1-a: Heuristic Pre-Scanner (regex, 비용 0)
-        scan_result = self._heuristic_scanner.execute(file=file)
-        findings = scan_result.data.get("findings", [])
+        filename = Path(file).name
+        findings = scanner_findings or []
 
-        if not findings:
-            logger.info(f"Pre-Scanner: 위험 패턴 없음 → 기존 Heuristic 분석: {file}")
+        if not findings and not clang_data:
+            # >500줄이라도 분석 단서 0개이면 mini 모델 호출이 무의미 → Heuristic fallback
+            logger.info(f"C [{filename}] Scanner/clang 모두 없음 → Heuristic fallback")
             return await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
             )
@@ -369,13 +395,28 @@ class CAnalyzerAgent(BaseAgent):
         lines = file_content.splitlines()
         boundaries = find_function_boundaries(lines, "c")
 
+        # 전체 함수 시그니처 요약
+        all_funcs_summary = build_all_functions_summary(file_content, "c")
+
+        # clang-tidy 경고가 있으면 함수별 요약에 병합
+        clang_summary = ""
+        if clang_data:
+            clang_warnings = clang_data.get("warnings", [])
+            clang_summary = "\n\n## clang-tidy 경고\n"
+            for w in clang_warnings:
+                check = w.get("check", "?")
+                msg = w.get("message", "")
+                line = w.get("line", "?")
+                clang_summary += f"- L{line} [{check}] {msg}\n"
+
         # Pass 1-c: mini 모델로 위험 함수 선별
         prescan_prompt = load_prompt(
             "c_prescan_fewshot",
             file_path=file,
             total_functions=str(len(boundaries)),
             total_findings=str(len(findings)),
-            function_findings_summary=func_summary,
+            function_findings_summary=func_summary + clang_summary,
+            all_functions_summary=all_funcs_summary,
         )
 
         prescan_messages = [
@@ -455,6 +496,7 @@ class CAnalyzerAgent(BaseAgent):
                     func_name=func_name,
                     start_line=start_line,
                     findings=findings,
+                    clang_data=clang_data,
                     structure_summary=structure_summary,
                     file_context_str=file_context_str,
                 )
@@ -482,9 +524,14 @@ class CAnalyzerAgent(BaseAgent):
         before_count = len(all_issues)
         all_issues = _deduplicate_issues(all_issues)
         if before_count != len(all_issues):
+            removed = before_count - len(all_issues)
             self.rl.process(
                 f"Dedup: {before_count}건 → {len(all_issues)}건 "
-                f"({before_count - len(all_issues)}건 중복/노이즈 제거)"
+                f"({removed}건 중복/노이즈 제거)"
+            )
+            logger.info(
+                f"C [{filename}] Dedup: {before_count}건 → "
+                f"{len(all_issues)}건 ({removed}건 제거)"
             )
 
         # issue_id 재번호 (C-001부터 순차)
@@ -505,6 +552,7 @@ class CAnalyzerAgent(BaseAgent):
         func_name: str,
         start_line: int,
         findings: list[dict[str, Any]],
+        clang_data: dict[str, Any] | None = None,
         structure_summary: str,
         file_context_str: str,
     ) -> list[dict[str, Any]]:
@@ -518,7 +566,25 @@ class CAnalyzerAgent(BaseAgent):
             for block in error_blocks
         )
 
+        # Scanner findings + clang-tidy warnings 병합
         func_warnings_str = self._build_grouped_warnings(findings, [func_name])
+
+        # clang-tidy 경고 중 이 함수 범위에 해당하는 것 추가
+        if clang_data:
+            clang_for_func = [
+                w for w in clang_data.get("warnings", [])
+                if any(
+                    block.line_start <= w.get("line", 0) <= block.line_end
+                    for block in error_blocks
+                )
+            ]
+            if clang_for_func:
+                func_warnings_str += f"\n\n### clang-tidy 경고 ({len(clang_for_func)}건)"
+                for w in clang_for_func:
+                    func_warnings_str += (
+                        f"\n- L{w.get('line', '?')} [{w.get('check', '?')}] "
+                        f"{w.get('message', '')}"
+                    )
 
         prompt = load_prompt(
             "c_analyzer_error_focused",
@@ -711,33 +777,27 @@ class CAnalyzerAgent(BaseAgent):
                 )
                 return {"warnings": non_header} if non_header else None
 
-            # 헤더 에러 있음 → Level 1은 저가치, Level 2만 유의미
-            level2 = [w for w in non_header if _is_level2_warning(w)]
-            level1 = [w for w in non_header if not _is_level2_warning(w)]
-
-            self.rl.detect(
-                f"clang-tidy: 헤더 에러 {len(header_errors)}건 "
-                f"→ Level 1 저가치 {len(level1)}건 필터링"
-            )
-
-            if level2:
-                self.rl.scan(f"clang-tidy: Level 2 유의미 {len(level2)}건")
-                logger.info(
-                    f"clang-tidy: 헤더 에러 {len(header_errors)}건, "
-                    f"Level 1 저가치 {len(level1)}건 필터링, "
-                    f"Level 2 유의미 {len(level2)}건"
+            # 헤더 에러 있음 → 헤더 에러만 제거, Level 1+2 모두 유의미
+            # (stub 헤더가 기본 타입을 제공하므로 bugprone 등도 신뢰 가능)
+            if non_header:
+                self.rl.scan(
+                    f"clang-tidy: 헤더 에러 {len(header_errors)}건 제외, "
+                    f"유의미 경고 {len(non_header)}건"
                 )
-                return {"warnings": level2}
+                logger.info(
+                    f"clang-tidy: 헤더 에러 {len(header_errors)}건 제외, "
+                    f"유의미 경고 {len(non_header)}건"
+                )
+                return {"warnings": non_header}
 
-            # Level 2 = 0건 → Heuristic/2-Pass fallback
+            # 헤더 에러만 있고 실질 경고 0건 → fallback
             self.rl.decision(
                 "Decision: clang-tidy 유의미 경고 0건 → Heuristic/2-Pass fallback",
-                reason=f"헤더 누락({len(header_errors)}건)으로 clang-analyzer 미동작, "
-                       f"Level 1(bugprone 등) {len(level1)}건은 LLM 분석 가치 없음",
+                reason=f"헤더 에러 {len(header_errors)}건만 존재, 실질 경고 없음",
             )
             logger.info(
-                f"clang-tidy: 헤더 누락으로 clang-analyzer 미동작, "
-                f"Level 1 {len(level1)}건 저가치 → Heuristic/2-Pass fallback"
+                f"clang-tidy: 헤더 에러 {len(header_errors)}건만 존재 "
+                f"→ Heuristic/2-Pass fallback"
             )
             return None
         except Exception as e:
@@ -750,29 +810,43 @@ class CAnalyzerAgent(BaseAgent):
         file: str,
         file_content: str,
         clang_data: dict[str, Any] | None,
+        scanner_findings: list[dict[str, Any]] | None = None,
         file_context: dict[str, Any] | None,
     ) -> tuple[str, list[dict[str, str]]]:
-        """프롬프트 경로를 선택하고 LLM 메시지를 구성한다.
+        """프롬프트 경로를 선택하고 LLM 메시지를 구성한다 (≤500줄 전용).
 
         Returns:
             (prompt_text, messages) 튜플
         """
+        findings = scanner_findings or []
+
         if clang_data:
-            # Error-Focused 경로
-            clang_warnings_str = json.dumps(
-                clang_data["warnings"], ensure_ascii=False, indent=2,
+            # Error-Focused 경로: clang 경고 + scanner findings 병합
+            warnings_str = json.dumps(
+                clang_data.get("warnings", []), ensure_ascii=False, indent=2,
             )
+            # scanner findings도 추가
+            if findings:
+                scanner_section = "\n\n## Heuristic Scanner 탐지 결과\n"
+                for f in findings:
+                    scanner_section += (
+                        f"- L{f.get('line', '?')} [{f.get('pattern_id', '?')}] "
+                        f"{f.get('description', '')}: {f.get('content', '')[:80]}\n"
+                    )
+                warnings_str += scanner_section
+
             file_context_str = json.dumps(
                 file_context, ensure_ascii=False, indent=2,
             ) if file_context else "컨텍스트 정보 없음"
 
-            # 에러 라인 추출
-            error_lines = []
-            # 에러 라인 추출
-            error_lines = []
+            # 에러 라인 추출 (clang + scanner 모두)
+            error_lines: list[int] = []
             for item in clang_data.get("warnings", []):
                 if isinstance(item, dict) and "line" in item:
                     error_lines.append(item["line"])
+            for f in findings:
+                if "line" in f:
+                    error_lines.append(f["line"])
 
             # 토큰 최적화
             structure_summary = build_structure_summary(
@@ -790,17 +864,28 @@ class CAnalyzerAgent(BaseAgent):
 
             prompt = load_prompt(
                 "c_analyzer_error_focused",
-                clang_tidy_warnings=clang_warnings_str,
+                clang_tidy_warnings=warnings_str,
                 file_path=file,
                 structure_summary=structure_summary,
                 error_functions=error_functions_str,
                 file_context=file_context_str,
             )
         else:
-            # Heuristic 경로
+            # Heuristic 경로: scanner findings 포함
             file_content_optimized = optimize_file_content(
                 file_content, file_context, "c",
             )
+            # scanner findings가 있으면 코드 뒤에 추가
+            if findings:
+                scanner_section = "\n\n## Heuristic Scanner 사전 탐지 결과\n"
+                scanner_section += "아래 위치를 우선 검증하세요:\n"
+                for f in findings:
+                    scanner_section += (
+                        f"- L{f.get('line', '?')} [{f.get('pattern_id', '?')}] "
+                        f"{f.get('description', '')}: {f.get('content', '')[:80]}\n"
+                    )
+                file_content_optimized += scanner_section
+
             prompt = load_prompt(
                 "c_analyzer_heuristic",
                 file_path=file,

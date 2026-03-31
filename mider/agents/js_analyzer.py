@@ -85,14 +85,20 @@ class JavaScriptAnalyzerAgent(BaseAgent):
 
             # Step 2: ESLint 정적분석
             eslint_data = self._run_eslint(file)
+            filename = Path(file).name
             if eslint_data:
                 err_count = len(eslint_data.get("errors", []))
                 warn_count = len(eslint_data.get("warnings", []))
                 self.rl.scan(f"ESLint: errors={err_count}, warnings={warn_count}")
                 self.rl.decision("Decision: Error-Focused path",
                                  reason=f"ESLint errors={err_count}, warnings={warn_count}")
+                logger.info(
+                    f"JS [{filename}] 경로: Error-Focused | "
+                    f"ESLint errors={err_count}, warnings={warn_count}"
+                )
             else:
                 self.rl.decision("Decision: Heuristic path", reason="ESLint 경고 없음")
+                logger.info(f"JS [{filename}] 경로: Heuristic | ESLint 경고 없음")
 
             # Step 3: LLM 분석
             prompt, messages = self._build_messages(
