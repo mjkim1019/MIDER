@@ -486,6 +486,178 @@ def build_all_functions_summary(
     return "\n".join(parts)
 
 
+def extract_proc_global_context(file_content: str) -> str:
+    """Pro*C 파일에서 글로벌 컨텍스트를 추출한다.
+
+    추출 대상:
+    - EXEC SQL BEGIN/END DECLARE SECTION (호스트 변수)
+    - #include / EXEC SQL INCLUDE 목록
+    - typedef / struct 정의 (함수 밖)
+    - 함수 밖 전역 변수 선언
+
+    Args:
+        file_content: 파일 전체 내용
+
+    Returns:
+        글로벌 컨텍스트 문자열
+    """
+    lines = file_content.splitlines()
+    parts: list[str] = []
+
+    # 1. #include / EXEC SQL INCLUDE
+    includes: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#include"):
+            includes.append(stripped)
+        elif re.match(r"EXEC\s+SQL\s+INCLUDE\b", stripped, re.IGNORECASE):
+            includes.append(stripped.rstrip(";").strip() + ";")
+    if includes:
+        parts.append("\n".join(includes))
+
+    # 2. EXEC SQL BEGIN/END DECLARE SECTION 블록
+    declare_blocks: list[str] = []
+    in_declare = False
+    current_block: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"EXEC\s+SQL\s+BEGIN\s+DECLARE\s+SECTION", stripped, re.IGNORECASE):
+            in_declare = True
+            current_block = [stripped]
+            continue
+        if in_declare:
+            current_block.append(line.rstrip())
+            if re.match(r"EXEC\s+SQL\s+END\s+DECLARE\s+SECTION", stripped, re.IGNORECASE):
+                in_declare = False
+                declare_blocks.append("\n".join(current_block))
+                current_block = []
+    if declare_blocks:
+        parts.append("\n\n".join(declare_blocks))
+
+    # 3. typedef / struct 정의 (함수 밖 = 들여쓰기 없음)
+    typedef_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("typedef ") or re.match(r"^struct\s+\w+", stripped):
+            typedef_lines.append(stripped)
+    if typedef_lines:
+        parts.append("\n".join(typedef_lines[:20]))
+
+    # 4. 전역 변수 (함수 밖, 들여쓰기 없음)
+    boundaries = find_function_boundaries(lines, "proc")
+    func_ranges: set[int] = set()
+    for start, end in boundaries:
+        func_ranges.update(range(start, end + 1))
+
+    global_pattern = re.compile(
+        r"^(?:static\s+|extern\s+)?(?:const\s+)?"
+        r"(?:int|char|long|short|unsigned|float|double|size_t|\w+_t)\s+"
+        r"\w+\s*(?:=|;|\[)"
+    )
+    global_vars: list[str] = []
+    for i, line in enumerate(lines):
+        line_num = i + 1  # 1-based
+        if line_num in func_ranges:
+            continue
+        if global_pattern.match(line):
+            global_vars.append(line.rstrip())
+    if global_vars:
+        parts.append("\n".join(global_vars[:30]))
+
+    if not parts:
+        return "(글로벌 컨텍스트 없음)"
+
+    return "\n\n".join(parts)
+
+
+def build_cursor_lifecycle_map(file_content: str) -> str:
+    """Pro*C 파일에서 커서 라이프사이클 맵을 생성한다.
+
+    EXEC SQL 구문에서 커서명을 추적하여 DECLARE/OPEN/FETCH/CLOSE
+    위치와 함수명을 매핑한다.
+
+    Args:
+        file_content: 파일 전체 내용
+
+    Returns:
+        커서 라이프사이클 요약 문자열
+    """
+    lines = file_content.splitlines()
+    boundaries = find_function_boundaries(lines, "proc")
+
+    # 함수명 추출용 시그니처 패턴
+    func_sig_pattern = re.compile(
+        r"^(?!\s*(?:if|else|for|while|switch|return|#|typedef|struct|union|enum)\b)"
+        r"\s*(?:static\s+|extern\s+|inline\s+)*"
+        r"(?:void|int|char|long|short|unsigned|float|double|size_t|ssize_t|\w+_t|\w+)\s*\*?\s+"
+        r"(\w+)\s*\("
+    )
+
+    def _get_func_name(line_num: int) -> str:
+        """라인 번호에 해당하는 함수명을 반환한다."""
+        for start, end in boundaries:
+            if start <= line_num <= end:
+                idx = start - 1
+                m = func_sig_pattern.match(lines[idx])
+                if m:
+                    return m.group(1)
+                # 2줄 선언
+                if idx + 1 < len(lines):
+                    combined = lines[idx].rstrip() + " " + lines[idx + 1].lstrip()
+                    m = func_sig_pattern.match(combined)
+                    if m:
+                        return m.group(1)
+                return f"(L{start})"
+        return "(global)"
+
+    # 커서 이벤트 패턴
+    declare_pat = re.compile(
+        r"EXEC\s+SQL\s+DECLARE\s+(\w+)\s+CURSOR", re.IGNORECASE,
+    )
+    open_pat = re.compile(r"EXEC\s+SQL\s+OPEN\s+(\w+)", re.IGNORECASE)
+    fetch_pat = re.compile(r"EXEC\s+SQL\s+FETCH\s+(\w+)", re.IGNORECASE)
+    close_pat = re.compile(r"EXEC\s+SQL\s+CLOSE\s+(\w+)", re.IGNORECASE)
+
+    # cursor_name → {DECLARE: [...], OPEN: [...], FETCH: [...], CLOSE: [...]}
+    cursors: dict[str, dict[str, list[tuple[int, str]]]] = {}
+
+    for i, line in enumerate(lines):
+        line_num = i + 1
+
+        for pat, event in [
+            (declare_pat, "DECLARE"),
+            (open_pat, "OPEN"),
+            (fetch_pat, "FETCH"),
+            (close_pat, "CLOSE"),
+        ]:
+            m = pat.search(line)
+            if m:
+                cursor_name = m.group(1)
+                func_name = _get_func_name(line_num)
+                if cursor_name not in cursors:
+                    cursors[cursor_name] = {
+                        "DECLARE": [], "OPEN": [], "FETCH": [], "CLOSE": [],
+                    }
+                cursors[cursor_name][event].append((line_num, func_name))
+
+    if not cursors:
+        return "(커서 없음)"
+
+    parts: list[str] = []
+    for cursor_name, events in sorted(cursors.items()):
+        part_lines = [f"{cursor_name}:"]
+        for event in ["DECLARE", "OPEN", "FETCH", "CLOSE"]:
+            locations = events[event]
+            if locations:
+                loc_strs = [f"{func} (L{ln})" for ln, func in locations]
+                part_lines.append(f"  {event:7s} → {', '.join(loc_strs)}")
+            else:
+                part_lines.append(f"  {event:7s} → ⚠ 미발견")
+        parts.append("\n".join(part_lines))
+
+    return "\n\n".join(parts)
+
+
 def optimize_file_content(
     file_content: str,
     file_context: dict | None,
