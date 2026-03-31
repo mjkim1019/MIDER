@@ -194,10 +194,12 @@
   - [x] T36.2: 도구 실행 결과 로그 추가 (5개 Analyzer)
   - [x] T36.3: 후처리 로그 추가 (C dedup, SQL merge)
   - [x] T36.4: 단위 테스트 (caplog 검증)
-- [ ] T34: XML 분석 강화 검토
-  - [ ] T34.1: 전체 코드 전달 효과 검토
-  - [ ] T34.2: script 태그 추출 (이슈 #005)
-  - [ ] T34.3: 설계 결정 문서
+- [ ] T34: XML 분석 강화 — 인라인 JS 추출 + JS Analyzer 위임 + dataList 요약
+  - [x] T34.1: XMLParser에 `<script>` CDATA 추출 + 라인 오프셋 맵
+  - [ ] T34.2: dataList 요약 함수 (`build_datalist_summary`)
+  - [ ] T34.3: XML Analyzer 재구조화 (JS Analyzer 위임 + 라인 변환 + 병합)
+  - [ ] T34.4: XML 프롬프트 통합 (2개 → 1개)
+  - [ ] T34.5: 단위 테스트
 - [ ] T35: 주석 처리 전략 검토
   - [ ] T35.1: 전략 비교 (현행유지 vs 선택적 제거 vs 압축)
   - [ ] T35.2: 설계 결정 문서
