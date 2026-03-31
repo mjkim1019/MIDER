@@ -1,31 +1,44 @@
 {
   "env": {
     "browser": true,
-    "node": true,
     "es2021": true
   },
   "parserOptions": {
     "ecmaVersion": "latest",
-    "sourceType": "module"
+    "sourceType": "script"
+  },
+  "globals": {
+    "WebSquare": "readonly",
+    "ngmf": "readonly",
+    "ngmv": "readonly",
+    "scwin": "readonly",
+    "scvar": "readonly",
+    "GLV": "readonly",
+    "GLD": "readonly",
+    "afxf": "readonly",
+    "promise": "readonly"
   },
   "rules": {
-    "no-undef": "error",
-    "no-unused-vars": "warn",
-    "no-use-before-define": "error",
-    "no-redeclare": "error",
     "no-dupe-keys": "error",
+    "no-duplicate-case": "error",
     "no-unreachable": "error",
-    "no-constant-condition": "warn",
-    "no-empty": "warn",
+    "no-self-assign": "error",
+    "no-self-compare": "error",
+    "no-fallthrough": "error",
+    "use-isnan": "error",
+    "valid-typeof": "error",
+    "no-cond-assign": "error",
+    "no-constant-condition": "error",
+    "no-unsafe-finally": "error",
+    "no-loss-of-precision": "error",
+    "no-sparse-arrays": "error",
+    "array-callback-return": "error",
+    "no-redeclare": ["error", { "builtinGlobals": true }],
+    "no-shadow": "warn",
+    "no-return-assign": "error",
     "no-eval": "error",
     "no-implied-eval": "error",
     "no-new-func": "error",
-    "no-return-assign": "error",
-    "no-self-assign": "error",
-    "no-self-compare": "error",
-    "no-throw-literal": "error",
-    "eqeqeq": ["error", "always"],
-    "no-var": "warn",
-    "prefer-const": "warn"
+    "no-throw-literal": "error"
   }
 }

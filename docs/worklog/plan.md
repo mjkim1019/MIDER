@@ -421,6 +421,114 @@ pytest `caplog` fixture로 로그 메시지 출력 검증:
 
 ---
 
+## T32: JS 분석 단순화 — ESLint 번들 + 전체 코드 LLM 분석
+
+### 배경
+
+**현재 JS 분석 흐름:**
+```
+ESLint 결과 있음 → Error-Focused
+  → structure_summary + error_functions (에러 함수만 추출)
+  → 에러 없는 함수는 LLM이 못 봄
+
+ESLint 결과 없음 → Heuristic
+  → ≤500줄: 전체 코드
+  → >500줄: head 200 + tail 100 (중간 코드 누락)
+```
+
+**문제:**
+1. ESLint 번들이 없어 **항상 Heuristic 경로**로 빠짐
+2. Heuristic >500줄에서 **중간 코드 완전 누락** (4,496줄 파일 → 300줄만 전달)
+3. Error-Focused에서도 에러 함수만 추출하여 **비에러 함수 로직 결함 누락**
+4. `.eslintrc.json`이 WebSquare 환경에 맞지 않아 **오탐 905건** 발생
+
+**해결 방향:**
+- ESLint를 번들로 항상 실행 가능하게 만듦
+- `.eslintrc.json`을 장애 유발 패턴 중심으로 재구성 (905건 → 19건)
+- Error-Focused / Heuristic 이중 경로 제거 → **단일 경로** (전체 코드 + ESLint 결과)
+- head+tail 잘라보내기 제거 → **파일 전체 코드를 LLM에 전달**
+- ESLint가 못 잡는 패턴(이중 for문 변수 재사용 등)은 LLM이 전체 코드를 보고 분석
+
+### 변경 후 흐름
+
+```
+모든 JS 파일:
+  Step 1: ESLint 실행 (번들 보장)
+  Step 2: 단일 LLM 호출
+    전달:
+    ├─ 파일 전체 코드
+    ├─ ESLint 결과 (있으면)
+    └─ 파일 컨텍스트 (있으면)
+  Step 3: AnalysisResult 생성
+```
+
+- ESLint 실패해도 전체 코드를 LLM에 전달 (ESLint 결과 없이)
+- Heuristic 경로/프롬프트 제거
+- `optimize_file_content()`, `extract_error_functions()`, `build_structure_summary()` JS 경로에서 제거
+
+### Subtask
+
+#### T32.1: .eslintrc.json WebSquare 환경 최적화 (✅ 완료)
+- WebSquare 전역 객체 globals 등록 (ngmf, scwin, WebSquare 등 9종)
+- 노이즈 룰 제거 (eqeqeq, no-var, no-undef, prefer-const 등)
+- 장애 유발 룰 추가 (no-fallthrough, use-isnan, no-cond-assign 등 8종)
+- `no-shadow` 추가 (이중 스코프 변수 덮어쓰기)
+- 결과: 905건 → 19건 (전부 유의미)
+
+#### T32.2: ESLint 번들 + .gitignore → `mider/resources/binaries/`, `.gitignore`
+- `resources/binaries/`에 eslint npm 설치 (`npm install eslint@8`)
+- `.gitignore`에 `resources/binaries/node_modules/`, `resources/binaries/package*.json` 추가
+- ESLintRunner 코드 수정 불필요 (기존 `_find_eslint()` 첫 번째 candidate 매칭)
+
+#### T32.3: JS Analyzer 단일 경로 통합 → `mider/agents/js_analyzer.py`
+- Error-Focused / Heuristic 분기 제거
+- `_build_messages()` 단순화:
+  - 항상 파일 전체 코드 전달
+  - ESLint 결과가 있으면 함께 전달, 없으면 코드만 전달
+- `optimize_file_content`, `extract_error_functions`, `build_structure_summary` import 제거
+- 로그: `"JS [{f}] ESLint: {n}건"` 또는 `"JS [{f}] ESLint: 없음 (코드만 분석)"`
+
+#### T32.4: 프롬프트 통합 + Few-Shot → `mider/config/prompts/js_analyzer.txt` (신규)
+- `js_analyzer_error_focused.txt` + `js_analyzer_heuristic.txt` → `js_analyzer.txt` 하나로 통합
+- 프롬프트 구성:
+  - 파일 전체 코드 (`{file_content}`)
+  - ESLint 결과 (`{eslint_results}`) — 없으면 "ESLint 결과 없음"
+  - 파일 컨텍스트 (`{file_context}`) — 없으면 생략
+  - 분석 체크리스트 (기존 error_focused + heuristic 체크리스트 통합)
+  - **Few-Shot 예시**: ESLint가 못 잡는 실제 장애 패턴
+- 기존 2개 프롬프트 파일은 삭제
+
+**Few-Shot 예시 (ESLint 미탐지 패턴):**
+
+| 구분 | 패턴 | 판정 근거 |
+|------|------|----------|
+| 위험 1 | 이중 for문 변수 재사용 (`for(var i=0;...) { for(i=0;...) }`) | 외부 루프 `i` 덮어씀 → 외부 루프 1회만 실행되거나 무한루프. `var` 재선언 없이 할당만 하므로 ESLint `no-redeclare`/`no-shadow` 미탐지 |
+| 위험 2 | 비동기 콜백 내 루프 변수 참조 (`for(var i;...) { setTimeout(function(){ use(i) }) }`) | 클로저가 `i`를 공유 → 콜백 실행 시 `i`는 항상 최종값. 의도와 다른 동작 |
+| 위험 3 | API 응답 null 체크 누락 (`data.result.list.forEach(...)`) | 중첩 객체 접근 시 중간 값이 null/undefined면 TypeError 발생 |
+| 안전 1 | `let`으로 선언된 이중 for문 (`for(let i=0;...) { for(let i=0;...) }`) | 블록 스코프로 독립 — 외부 루프 영향 없음 |
+| 안전 2 | 옵셔널 체이닝 사용 (`data?.result?.list?.forEach(...)`) | null 안전 접근 |
+
+#### T32.5: 단위 테스트 업데이트 → `tests/test_agents/test_js_analyzer.py`
+- `TestErrorFocusedPath`, `TestHeuristicPath` 클래스 → `TestAnalysisPath` 하나로 통합
+- ESLint 있는 경우: 전체 코드 + ESLint 결과가 프롬프트에 포함되는지 확인
+- ESLint 없는 경우: 전체 코드만 프롬프트에 포함되는지 확인
+- ESLint 실패 시: 에러 없이 전체 코드만으로 분석 진행
+- 기존 TestBasicBehavior, TestLLMFailure, TestFileContext, TestAgentInit 유지
+
+---
+
+## 설계 결정 사항 (T32 추가)
+
+| 결정 | 이유 |
+|------|------|
+| Error-Focused/Heuristic 이중 경로 제거 → 단일 경로 | ESLint 번들로 항상 실행 가능, 경로 분기 불필요 |
+| 파일 전체 코드 LLM 전달 (head+tail 잘라보내기 제거) | 사용자 결정: 중간 코드 누락보다 전체 코드 전달이 분석 품질 우선 |
+| JS Heuristic Scanner 구현하지 않음 | ESLint 번들 확보 + LLM이 전체 코드를 보고 분석 가능 — C와 달리 정적분석 도구 안정 |
+| .eslintrc.json 장애 유발 패턴 중심 재구성 | WebSquare 환경 오탐 제거 (905건 → 19건), no-shadow 추가로 이중 스코프 변수 탐지 |
+| 프롬프트 2개 → 1개 통합 | 경로 분기가 없으므로 프롬프트도 단일화, 유지보수 단순화 |
+
+---
+
 ## 일정 요약
 
 | Task | 의존성 | 상태 |
@@ -429,7 +537,7 @@ pytest `caplog` fixture로 로그 메시지 출력 검증:
 | **T31** | **T20, T21** | **✅ 완료** — CAnalyzer 통합 개선 |
 | **T33** | **없음** | **다음** — ProC 함수별 청킹 |
 | **T36** | **없음** | **✅ 완료** — Agent 표준 로그 개선 |
-| T32 | T31 | 대기 — JS 긴 파일 전략 |
+| **T32** | **없음** | **다음** — JS 분석 단순화 (ESLint 번들 + 전체 코드 LLM) |
 | T34 | - | 대기 — XML 분석 강화 |
 | T35 | - | 대기 — 주석 처리 전략 |
 | T15 | T31~T36 | 대기 (마지막) — Integration Test |
