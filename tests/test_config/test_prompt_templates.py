@@ -138,7 +138,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 15, f"프롬프트 파일 수: {len(txt_files)} (기대: 15)"
+        assert len(txt_files) == 14, f"프롬프트 파일 수: {len(txt_files)} (기대: 14)"
 
 
 class TestPromptLoad:
