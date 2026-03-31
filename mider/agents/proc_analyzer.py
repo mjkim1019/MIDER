@@ -28,6 +28,7 @@ from mider.config.settings_loader import (
 )
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
+from mider.tools.static_analysis.c_heuristic_scanner import CHeuristicScanner
 from mider.tools.static_analysis.proc_heuristic_scanner import ProCHeuristicScanner
 from mider.tools.static_analysis.proc_runner import ProcRunner
 from mider.tools.utility.sql_extractor import SQLExtractor
@@ -85,6 +86,7 @@ class ProCAnalyzerAgent(BaseAgent):
         self._proc_runner = ProcRunner()
         self._sql_extractor = SQLExtractor()
         self._heuristic_scanner = ProCHeuristicScanner()
+        self._c_scanner = CHeuristicScanner()
 
     async def run(
         self,
@@ -119,7 +121,10 @@ class ProCAnalyzerAgent(BaseAgent):
                     f"([sky_blue2]{', '.join(sorted(sql_funcs)[:5])}[/sky_blue2])"
                 )
 
-            scanner_findings = self._run_heuristic_scanner(file)
+            # ProC Scanner (도메인 특화 4종) + C Scanner (범용 6종) 병합
+            proc_scanner_findings = self._run_heuristic_scanner(file)
+            c_scanner_findings = self._run_c_scanner(file)
+            scanner_findings = (proc_scanner_findings or []) + (c_scanner_findings or [])
             if scanner_findings:
                 for finding in scanner_findings:
                     self.rl.detect(
@@ -133,7 +138,8 @@ class ProCAnalyzerAgent(BaseAgent):
             logger.info(
                 f"ProC [{filename}] 도구: proc에러={len(proc_errors or [])}, "
                 f"SQL블록={len(sql_blocks)}(SQLCA미검사={missing_sqlca}), "
-                f"Scanner={len(scanner_findings or [])}건"
+                f"Scanner={len(scanner_findings)}건 "
+                f"(ProC={len(proc_scanner_findings or [])}, C={len(c_scanner_findings or [])})"
             )
 
             # 글로벌 컨텍스트 + 커서 맵
@@ -595,6 +601,15 @@ class ProCAnalyzerAgent(BaseAgent):
             return result.data.get("findings", [])
         except Exception as e:
             logger.warning(f"Pro*C Heuristic Scanner 실패: {e}")
+            return []
+
+    def _run_c_scanner(self, file: str) -> list[dict[str, Any]]:
+        """C Heuristic Scanner를 실행하여 범용 C 위험 패턴을 반환한다."""
+        try:
+            result = self._c_scanner.execute(file=file)
+            return result.data.get("findings", [])
+        except Exception as e:
+            logger.warning(f"C Heuristic Scanner 실패: {e}")
             return []
 
     # ──────────────────────────────────────────────
