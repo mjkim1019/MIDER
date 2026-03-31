@@ -18,6 +18,7 @@ ALL_PROMPTS = [
     "c_analyzer_heuristic",
     "proc_analyzer_error_focused",
     "proc_analyzer_heuristic",
+    "proc_analyzer",
     "sql_analyzer_error_focused",
     "sql_analyzer_heuristic",
     "reporter",
@@ -72,6 +73,16 @@ PROMPT_VARIABLES = {
         "sql_blocks": '[{"sql": "SELECT 1"}]',
         "file_path": "/app/test.pc",
         "file_content_optimized": "EXEC SQL SELECT 1;",
+    },
+    "proc_analyzer": {
+        "global_context": "(글로벌 컨텍스트)",
+        "cursor_lifecycle_map": "(커서 없음)",
+        "risky_functions_annotation": "(위험 함수 없음)",
+        "scanner_findings": "(없음)",
+        "proc_errors": "(없음)",
+        "sql_blocks": '[{"sql": "SELECT 1"}]',
+        "code": "void foo() { EXEC SQL SELECT 1; }",
+        "file_path": "/app/test.pc",
     },
     "sql_analyzer_error_focused": {
         "static_patterns": '[{"type": "full_table_scan"}]',
@@ -138,7 +149,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 15, f"프롬프트 파일 수: {len(txt_files)} (기대: 15)"
+        assert len(txt_files) == 16, f"프롬프트 파일 수: {len(txt_files)} (기대: 16)"
 
 
 class TestPromptLoad:

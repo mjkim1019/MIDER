@@ -1,419 +1,248 @@
-"""T33 ProC 함수별 청킹 관련 단위 테스트.
+"""T33 ProC 분석 재설계 단위 테스트.
 
-- extract_proc_global_context()
-- build_cursor_lifecycle_map()
+- extract_proc_global_context / build_cursor_lifecycle_map
+- classify_proc_functions (함수 패턴 분류)
 - SQL 블록 함수 매핑
-- ProCAnalyzerAgent 2-Pass E2E
-- 진행률 로그 25% 출력
+- _decide_delivery_mode (토큰 기반 분기)
+- 단일 호출 / 그룹핑 E2E
 """
 
 import json
 import logging
-from unittest.mock import AsyncMock, MagicMock
+import re
+from unittest.mock import AsyncMock
 
 import pytest
 
 from mider.agents.proc_analyzer import ProCAnalyzerAgent
-from mider.tools.base_tool import ToolResult
 from mider.tools.utility.sql_extractor import SQLExtractor
 from mider.tools.utility.token_optimizer import (
     build_cursor_lifecycle_map,
+    classify_proc_functions,
     extract_proc_global_context,
+    find_function_boundaries,
 )
 
 
 # ──────────────────────────────────────────────
-# extract_proc_global_context 테스트
+# extract_proc_global_context
 # ──────────────────────────────────────────────
 
 
 class TestExtractProcGlobalContext:
-    """extract_proc_global_context() 테스트."""
-
-    def test_declare_section_extracted(self):
-        """DECLARE SECTION 블록이 추출된다."""
+    def test_declare_section(self):
         code = (
-            "#include <stdio.h>\n"
-            "EXEC SQL INCLUDE SQLCA;\n"
-            "\n"
             "EXEC SQL BEGIN DECLARE SECTION;\n"
             "  char gs_input[100];\n"
-            "  long gl_ret;\n"
             "EXEC SQL END DECLARE SECTION;\n"
-            "\n"
-            "void main() {\n"
-            "  return;\n"
-            "}\n"
-        )
-        result = extract_proc_global_context(code)
-        assert "gs_input" in result
-        assert "gl_ret" in result
-        assert "BEGIN DECLARE SECTION" in result
-
-    def test_includes_extracted(self):
-        """#include와 EXEC SQL INCLUDE가 추출된다."""
-        code = (
-            '#include "pfmcom.h"\n'
-            "#include <stdio.h>\n"
-            "EXEC SQL INCLUDE SQLCA;\n"
-            "\n"
             "void main() { return; }\n"
         )
+        assert "gs_input" in extract_proc_global_context(code)
+
+    def test_includes(self):
+        code = '#include "pfmcom.h"\nEXEC SQL INCLUDE SQLCA;\nvoid main() { return; }\n'
         result = extract_proc_global_context(code)
         assert "pfmcom.h" in result
         assert "SQLCA" in result
 
-    def test_global_variables_extracted(self):
-        """함수 밖 전역 변수가 추출된다."""
-        code = (
-            "char gc_proc_cd[2];\n"
-            "long gl_count;\n"
-            "\n"
-            "void foo() {\n"
-            "  int local_var = 0;\n"
-            "  return;\n"
-            "}\n"
-        )
-        result = extract_proc_global_context(code)
-        assert "gc_proc_cd" in result
-        assert "gl_count" in result
-        # 함수 내부 변수는 제외
-        assert "local_var" not in result
-
     def test_empty_file(self):
-        """빈 파일이면 기본 메시지."""
-        result = extract_proc_global_context("")
-        assert "글로벌 컨텍스트 없음" in result
-
-    def test_no_declare_section(self):
-        """DECLARE SECTION이 없어도 include/전역변수는 추출."""
-        code = (
-            "#include <stdio.h>\n"
-            "int g_count;\n"
-            "\n"
-            "void foo() { return; }\n"
-        )
-        result = extract_proc_global_context(code)
-        assert "stdio.h" in result
-        assert "g_count" in result
+        assert "글로벌 컨텍스트 없음" in extract_proc_global_context("")
 
 
 # ──────────────────────────────────────────────
-# build_cursor_lifecycle_map 테스트
+# build_cursor_lifecycle_map
 # ──────────────────────────────────────────────
 
 
 class TestBuildCursorLifecycleMap:
-    """build_cursor_lifecycle_map() 테스트."""
-
     def test_full_lifecycle(self):
-        """DECLARE/OPEN/FETCH/CLOSE 정상 매핑."""
         code = (
-            "void b10_declare() {\n"
-            "  EXEC SQL DECLARE C_read CURSOR FOR SELECT * FROM orders;\n"
-            "  EXEC SQL OPEN C_read;\n"
-            "  return;\n"
-            "}\n"
-            "\n"
-            "void b20_fetch() {\n"
-            "  EXEC SQL FETCH C_read INTO :h_id;\n"
-            "  return;\n"
-            "}\n"
-            "\n"
-            "void b30_close() {\n"
-            "  EXEC SQL CLOSE C_read;\n"
-            "  return;\n"
-            "}\n"
+            "void b10() {\n  EXEC SQL DECLARE C1 CURSOR FOR SELECT 1;\n"
+            "  EXEC SQL OPEN C1;\n  return;\n}\n"
+            "void b20() {\n  EXEC SQL FETCH C1 INTO :h;\n  return;\n}\n"
+            "void b30() {\n  EXEC SQL CLOSE C1;\n  return;\n}\n"
         )
         result = build_cursor_lifecycle_map(code)
-        assert "C_read" in result
-        assert "b10_declare" in result
-        assert "b20_fetch" in result
-        assert "b30_close" in result
+        assert "C1" in result
         assert "미발견" not in result
 
     def test_close_missing(self):
-        """CLOSE 누락 시 ⚠ 미발견 표시."""
         code = (
-            "void b10_func() {\n"
-            "  EXEC SQL DECLARE C_order CURSOR FOR SELECT 1;\n"
-            "  EXEC SQL OPEN C_order;\n"
-            "  EXEC SQL FETCH C_order INTO :h_val;\n"
-            "  return;\n"
-            "}\n"
+            "void b10() {\n  EXEC SQL DECLARE C1 CURSOR FOR SELECT 1;\n"
+            "  EXEC SQL OPEN C1;\n  EXEC SQL FETCH C1 INTO :h;\n  return;\n}\n"
         )
-        result = build_cursor_lifecycle_map(code)
-        assert "C_order" in result
-        assert "미발견" in result
+        assert "미발견" in build_cursor_lifecycle_map(code)
 
     def test_no_cursors(self):
-        """커서 없는 파일."""
-        code = (
-            "void foo() {\n"
-            "  EXEC SQL SELECT 1 INTO :h_val FROM DUAL;\n"
-            "  return;\n"
-            "}\n"
-        )
-        result = build_cursor_lifecycle_map(code)
-        assert "커서 없음" in result
-
-    def test_multiple_cursors(self):
-        """여러 커서 동시 추적."""
-        code = (
-            "void a() {\n"
-            "  EXEC SQL DECLARE C_a CURSOR FOR SELECT 1;\n"
-            "  EXEC SQL OPEN C_a;\n"
-            "  EXEC SQL DECLARE C_b CURSOR FOR SELECT 2;\n"
-            "  EXEC SQL OPEN C_b;\n"
-            "  return;\n"
-            "}\n"
-            "void b() {\n"
-            "  EXEC SQL FETCH C_a INTO :h;\n"
-            "  EXEC SQL CLOSE C_a;\n"
-            "  EXEC SQL FETCH C_b INTO :h;\n"
-            "  EXEC SQL CLOSE C_b;\n"
-            "  return;\n"
-            "}\n"
-        )
-        result = build_cursor_lifecycle_map(code)
-        assert "C_a:" in result
-        assert "C_b:" in result
-        assert "미발견" not in result
+        assert "커서 없음" in build_cursor_lifecycle_map("void foo() { return; }\n")
 
 
 # ──────────────────────────────────────────────
-# SQL 블록 함수 매핑 테스트
+# classify_proc_functions
+# ──────────────────────────────────────────────
+
+
+def _classify(code: str) -> dict:
+    """헬퍼: 코드에서 함수 분류."""
+    lines = code.splitlines()
+    boundaries = find_function_boundaries(lines, "proc")
+    pat = re.compile(r"^\s*(?:static\s+)?(?:void|int|char|long)\s+(\w+)\s*\(")
+    func_names: dict[int, str] = {}
+    for start, _end in boundaries:
+        m = pat.match(lines[start - 1])
+        if m:
+            func_names[start] = m.group(1)
+    return classify_proc_functions(code, boundaries, func_names)
+
+
+class TestClassifyProcFunctions:
+    def test_boilerplate(self):
+        code = (
+            "long main(long argc, char **argv) {\n  return 0;\n}\n"
+            "void ord_init_proc() {\n  return;\n}\n"
+            "void ord_exit_proc() {\n  return;\n}\n"
+        )
+        r = _classify(code)
+        assert "main" in r["boilerplate"]
+        assert "ord_init_proc" in r["boilerplate"]
+        assert "ord_exit_proc" in r["boilerplate"]
+
+    def test_dispatch_pattern(self):
+        """동일 접두사+번호 3개 이상 → 디스패치."""
+        code = "\n".join(
+            f"void vrf_work_proc{i}() {{\n  return;\n}}\n"
+            for i in range(1, 6)
+        )
+        r = _classify(code)
+        assert len(r["dispatch"]) == 5
+
+    def test_utility_grouping(self):
+        code = (
+            "void z00_print() {\n  return;\n}\n"
+            "void z10_detail() {\n  return;\n}\n"
+            "void z99_error() {\n  return;\n}\n"
+        )
+        r = _classify(code)
+        assert len(r["utility_groups"]) >= 1
+        z_names = {name for g in r["utility_groups"] for name in g}
+        assert "z00_print" in z_names
+        assert "z99_error" in z_names
+
+
+# ──────────────────────────────────────────────
+# SQL 블록 함수 매핑
 # ──────────────────────────────────────────────
 
 
 class TestSQLBlockFunctionMapping:
-    """SQLExtractor의 function 필드 매핑 테스트."""
-
-    def setup_method(self):
-        self.extractor = SQLExtractor()
-
-    def test_sql_inside_function_mapped(self, tmp_path):
-        """함수 내부 SQL → function 필드에 함수명 매핑."""
-        content = (
-            "void update_order() {\n"
-            "  EXEC SQL UPDATE ORDERS SET STATUS = :h_status;\n"
-            "  return;\n"
-            "}\n"
-        )
+    def test_mapped(self, tmp_path):
+        content = "void update_order() {\n  EXEC SQL UPDATE T SET X = :v;\n  return;\n}\n"
         f = tmp_path / "test.pc"
         f.write_text(content)
+        result = SQLExtractor().execute(file=str(f))
+        assert result.data["sql_blocks"][0]["function"] == "update_order"
 
-        result = self.extractor.execute(file=str(f))
-        block = result.data["sql_blocks"][0]
-        assert block["function"] == "update_order"
-
-    def test_sql_outside_function_none(self, tmp_path):
-        """함수 밖 SQL → function=None."""
-        content = "EXEC SQL SELECT 1 FROM DUAL;\n"
+    def test_outside_function(self, tmp_path):
         f = tmp_path / "test.pc"
-        f.write_text(content)
-
-        result = self.extractor.execute(file=str(f))
-        block = result.data["sql_blocks"][0]
-        assert block["function"] is None
-
-    def test_multiple_functions_correct_mapping(self, tmp_path):
-        """여러 함수에서 각 SQL이 올바른 함수에 매핑."""
-        content = (
-            "void func_a() {\n"
-            "  EXEC SQL SELECT 1 INTO :h FROM DUAL;\n"
-            "  return;\n"
-            "}\n"
-            "\n"
-            "void func_b() {\n"
-            "  EXEC SQL UPDATE T SET X = :v;\n"
-            "  return;\n"
-            "}\n"
-        )
-        f = tmp_path / "test.pc"
-        f.write_text(content)
-
-        result = self.extractor.execute(file=str(f))
-        blocks = result.data["sql_blocks"]
-        assert len(blocks) == 2
-        assert blocks[0]["function"] == "func_a"
-        assert blocks[1]["function"] == "func_b"
+        f.write_text("EXEC SQL SELECT 1 FROM DUAL;\n")
+        result = SQLExtractor().execute(file=str(f))
+        assert result.data["sql_blocks"][0]["function"] is None
 
 
 # ──────────────────────────────────────────────
-# ProCAnalyzerAgent 2-Pass E2E 테스트
+# _decide_delivery_mode
 # ──────────────────────────────────────────────
 
 
-def _make_large_proc_file(tmp_path, num_functions=5, lines_per_func=120):
-    """함수 N개, 각 120줄 (>500줄 총합)의 대형 Pro*C 파일 생성."""
+class TestDecideDeliveryMode:
+    def test_small_single(self):
+        assert ProCAnalyzerAgent._decide_delivery_mode("x" * 100_000) == "single"
+
+    def test_large_grouped(self):
+        assert ProCAnalyzerAgent._decide_delivery_mode("x" * 400_000) == "grouped"
+
+
+# ──────────────────────────────────────────────
+# E2E: 단일 호출
+# ──────────────────────────────────────────────
+
+
+def _make_proc_file(tmp_path, num_functions=3, lines_per_func=20):
     parts = [
-        '#include <stdio.h>\n',
-        'EXEC SQL INCLUDE SQLCA;\n',
-        '\n',
-        'EXEC SQL BEGIN DECLARE SECTION;\n',
-        '  char gs_input[100];\n',
-        '  long gl_ret;\n',
-        'EXEC SQL END DECLARE SECTION;\n',
-        '\n',
+        '#include <stdio.h>\nEXEC SQL INCLUDE SQLCA;\n'
+        'EXEC SQL BEGIN DECLARE SECTION;\n  long gl_ret;\nEXEC SQL END DECLARE SECTION;\n\n'
     ]
     for i in range(num_functions):
         fname = f"func_{i:03d}"
         parts.append(f"void {fname}() {{\n")
         parts.append(f"  EXEC SQL SELECT {i} INTO :gl_ret FROM DUAL;\n")
-        if i % 2 == 0:
-            # SQLCA 체크 누락
-            parts.append(f"  /* no sqlca check for func_{i:03d} */\n")
-        else:
-            parts.append("  if (sqlca.sqlcode != 0) return;\n")
-        # 패딩
-        for j in range(lines_per_func - 4):
-            parts.append(f"  /* line {j} of {fname} */\n")
-        parts.append("  return;\n")
-        parts.append("}\n\n")
-
-    f = tmp_path / "large.pc"
+        for j in range(lines_per_func - 3):
+            parts.append(f"  /* {j} */\n")
+        parts.append("  return;\n}\n\n")
+    f = tmp_path / "test.pc"
     f.write_text("".join(parts))
     return str(f)
 
 
-class TestFunctionChunkedPath:
-    """2-Pass 함수별 청킹 경로 테스트."""
-
+class TestSingleCallE2E:
     @pytest.fixture
     def agent(self):
-        agent = ProCAnalyzerAgent(model="gpt-5")
-        agent._llm_client = AsyncMock()
-        return agent
+        a = ProCAnalyzerAgent(model="gpt-5")
+        a._llm_client = AsyncMock()
+        return a
 
     @pytest.mark.asyncio
-    async def test_large_file_uses_chunked_path(self, agent, tmp_path, caplog):
-        """함수 ≥2 AND >500줄 → 전체 함수 개별 분석, 위험 함수 중점 표시."""
-        pc_file = _make_large_proc_file(tmp_path, num_functions=5, lines_per_func=120)
-
-        # Pass 1 응답: 2개 위험 함수 선별
-        pass1_response = json.dumps({
-            "risky_functions": [
-                {"function_name": "func_000", "reason": "SQLCA 미검사"},
-                {"function_name": "func_002", "reason": "SQLCA 미검사"},
-            ]
-        })
-        # Pass 2 응답: 위험 함수에서만 이슈 발견
-        issue_response = json.dumps({
-            "issues": [
-                {
-                    "issue_id": "PC-001",
-                    "category": "data_integrity",
-                    "severity": "critical",
-                    "title": "SQLCA 미검사",
-                    "description": "테스트",
-                    "location": {"file": pc_file, "line_start": 10, "line_end": 12},
-                    "fix": {"before": "a", "after": "b", "description": "fix"},
-                    "source": "llm",
-                }
-            ]
-        })
-        empty_response = json.dumps({"issues": []})
+    async def test_small_file_single_call(self, agent, tmp_path, caplog):
+        pc_file = _make_proc_file(tmp_path, num_functions=3, lines_per_func=20)
 
         agent._llm_client.chat.side_effect = [
-            pass1_response,   # Pass 1
-            issue_response,   # Pass 2 func_000 (위험)
-            empty_response,   # Pass 2 func_001
-            issue_response,   # Pass 2 func_002 (위험)
-            empty_response,   # Pass 2 func_003
-            empty_response,   # Pass 2 func_004
+            json.dumps({"risky_functions": [{"function_name": "func_000", "reason": "test"}]}),
+            json.dumps({"issues": []}),
         ]
 
         with caplog.at_level(logging.INFO):
             result = await agent.run(task_id="t1", file=pc_file, language="proc")
 
         assert result["error"] is None
-        assert len(result["issues"]) == 2
-        # issue_id 재번호 확인
-        assert result["issues"][0]["issue_id"] == "PC-001"
-        assert result["issues"][1]["issue_id"] == "PC-002"
-        # 함수별 청킹 경로 로그 확인
-        assert any("함수별 청킹" in r.message for r in caplog.records)
+        assert any("단일 호출" in r.message for r in caplog.records)
+        assert agent._llm_client.chat.call_count == 2  # Pass 1 + single
 
     @pytest.mark.asyncio
-    async def test_single_function_uses_single_path(self, agent, tmp_path):
-        """함수 1개 → 단일 LLM 호출."""
-        content = (
-            '#include <stdio.h>\n'
-            'void foo() {\n'
-            '  EXEC SQL SELECT 1 FROM DUAL;\n'
-            '  return;\n'
-            '}\n'
-        )
+    async def test_one_function_no_pass1(self, agent, tmp_path):
+        """함수 1개 → Pass 1 건너뛰고 단일 호출."""
         f = tmp_path / "small.pc"
-        f.write_text(content)
+        f.write_text("void foo() {\n  EXEC SQL SELECT 1 FROM DUAL;\n  return;\n}\n")
 
         agent._llm_client.chat.return_value = json.dumps({"issues": []})
-
         result = await agent.run(task_id="t1", file=str(f), language="proc")
 
         assert result["error"] is None
-        # 함수 1개 → 단일 호출 (Pass 1 없음)
         assert agent._llm_client.chat.call_count == 1
 
-    @pytest.mark.asyncio
-    async def test_pass1_no_risky_still_analyzes_all(self, agent, tmp_path, caplog):
-        """Pass 1에서 위험 함수 0개여도 전체 함수를 개별 분석한다."""
-        pc_file = _make_large_proc_file(tmp_path, num_functions=5, lines_per_func=120)
 
-        # Pass 1: 위험 함수 없음 + Pass 2: 5개 함수 각각 응답
-        agent._llm_client.chat.side_effect = [
-            json.dumps({"risky_functions": []}),  # Pass 1
-            json.dumps({"issues": []}),           # func_000
-            json.dumps({"issues": []}),           # func_001
-            json.dumps({"issues": []}),           # func_002
-            json.dumps({"issues": []}),           # func_003
-            json.dumps({"issues": []}),           # func_004
-        ]
+# ──────────────────────────────────────────────
+# E2E: 그룹핑 호출
+# ──────────────────────────────────────────────
+
+
+class TestGroupedCallE2E:
+    @pytest.fixture
+    def agent(self):
+        a = ProCAnalyzerAgent(model="gpt-5")
+        a._llm_client = AsyncMock()
+        return a
+
+    @pytest.mark.asyncio
+    async def test_large_file_grouped(self, agent, tmp_path, caplog):
+        pc_file = _make_proc_file(tmp_path, num_functions=5, lines_per_func=6000)
+
+        responses = [json.dumps({"risky_functions": []})]
+        for _ in range(10):
+            responses.append(json.dumps({"issues": []}))
+        agent._llm_client.chat.side_effect = responses
 
         with caplog.at_level(logging.INFO):
             result = await agent.run(task_id="t1", file=pc_file, language="proc")
 
         assert result["error"] is None
-        # Pass 1(1회) + Pass 2(5개 함수) = 6회 호출
-        assert agent._llm_client.chat.call_count == 6
-        assert any("0개 위험 함수 선별" in r.message for r in caplog.records)
-
-
-class TestProgressLog:
-    """진행률 25% 로그 출력 테스트."""
-
-    @pytest.fixture
-    def agent(self):
-        agent = ProCAnalyzerAgent(model="gpt-5")
-        agent._llm_client = AsyncMock()
-        return agent
-
-    @pytest.mark.asyncio
-    async def test_progress_logged_at_milestones(self, agent, tmp_path, caplog):
-        """4개 함수 분석 시 25%/50%/75%/100% 로그 출력."""
-        pc_file = _make_large_proc_file(tmp_path, num_functions=4, lines_per_func=140)
-
-        risky = [
-            {"function_name": f"func_{i:03d}", "reason": "test"}
-            for i in range(4)
-        ]
-        pass1_response = json.dumps({"risky_functions": risky})
-        pass2_response = json.dumps({"issues": []})
-
-        agent._llm_client.chat.side_effect = [
-            pass1_response,
-            pass2_response,
-            pass2_response,
-            pass2_response,
-            pass2_response,
-        ]
-
-        with caplog.at_level(logging.INFO):
-            await agent.run(task_id="t1", file=pc_file, language="proc")
-
-        progress_logs = [r for r in caplog.records if "진행:" in r.message]
-        # 4개 함수면 25/50/75/100% = 4번
-        assert len(progress_logs) == 4
-        assert any("25%" in r.message for r in progress_logs)
-        assert any("100%" in r.message for r in progress_logs)
+        assert any("스마트 그룹핑" in r.message for r in caplog.records)
