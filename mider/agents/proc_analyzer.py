@@ -284,7 +284,10 @@ class ProCAnalyzerAgent(BaseAgent):
             self.model = original_model
             self.fallback_model = original_fallback
 
-        prescan_result = json.loads(prescan_response)
+        try:
+            prescan_result = json.loads(prescan_response)
+        except (json.JSONDecodeError, TypeError):
+            prescan_result = {"risky_functions": []}
         if not isinstance(prescan_result, dict):
             prescan_result = {"risky_functions": []}
 
@@ -371,7 +374,10 @@ class ProCAnalyzerAgent(BaseAgent):
         ]
 
         response = await self.call_llm(messages, json_mode=True)
-        llm_result = json.loads(response)
+        try:
+            llm_result = json.loads(response)
+        except (json.JSONDecodeError, TypeError):
+            return []
         if not isinstance(llm_result, dict):
             return []
         return llm_result.get("issues", [])
@@ -444,6 +450,7 @@ class ProCAnalyzerAgent(BaseAgent):
 
         # 병렬 LLM 호출
         sem = asyncio.Semaphore(_MAX_CONCURRENT_LLM)
+        progress_lock = asyncio.Lock()
         total_groups = len(groups)
         done_count = 0
         next_milestone = 25
@@ -478,16 +485,20 @@ class ProCAnalyzerAgent(BaseAgent):
                 ]
 
                 response = await self.call_llm(messages, json_mode=True)
-                llm_result = json.loads(response)
+                try:
+                    llm_result = json.loads(response)
+                except (json.JSONDecodeError, TypeError):
+                    llm_result = {"issues": []}
 
-                done_count += 1
-                pct = (done_count * 100) // total_groups
-                while pct >= next_milestone:
-                    logger.info(
-                        f"ProC [{filename}] 진행: {next_milestone}% "
-                        f"({done_count}/{total_groups} 그룹)"
-                    )
-                    next_milestone += 25
+                async with progress_lock:
+                    done_count += 1
+                    pct = (done_count * 100) // total_groups
+                    while pct >= next_milestone:
+                        logger.info(
+                            f"ProC [{filename}] 진행: {next_milestone}% "
+                            f"({done_count}/{total_groups} 그룹)"
+                        )
+                        next_milestone += 25
 
                 if not isinstance(llm_result, dict):
                     return []

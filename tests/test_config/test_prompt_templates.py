@@ -24,7 +24,6 @@ ALL_PROMPTS = [
     "reporter",
     "c_prescan_fewshot",
     "xml_analyzer",
-    "proc_analyzer_function",
     "proc_prescan",
 ]
 
@@ -118,16 +117,6 @@ PROMPT_VARIABLES = {
         "events": "[]",
         "js_file": "없음",
     },
-    "proc_analyzer_function": {
-        "global_context": "(글로벌 컨텍스트)",
-        "cursor_lifecycle_map": "(커서 맵)",
-        "structure_summary": "(구조 요약)",
-        "function_code": "void test() {}",
-        "function_sql_blocks": "없음",
-        "function_scanner_findings": "없음",
-        "function_proc_errors": "없음",
-        "file_path": "/app/test.pc",
-    },
     "proc_prescan": {
         "file_path": "/app/test.pc",
         "total_functions": "10",
@@ -149,7 +138,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 16, f"프롬프트 파일 수: {len(txt_files)} (기대: 16)"
+        assert len(txt_files) == 15, f"프롬프트 파일 수: {len(txt_files)} (기대: 15)"
 
 
 class TestPromptLoad:
