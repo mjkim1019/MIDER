@@ -166,7 +166,7 @@
   - [x] T29.1: `_deduplicate_issues()` 구현
   - [x] T29.2: 이슈 로그 작성
   - [x] T29.3: 단위 테스트
-- [ ] T30: Pro*C Heuristic Scanner (2-Pass)
+- [x] T30: Pro*C Heuristic Scanner (2-Pass)
   - [x] T30.1: ProCHeuristicScanner Tool 구현
   - [x] T30.2: ProCAnalyzerAgent에 Scanner 연동
   - [x] T30.3: Pro*C 프롬프트 Few-shot 추가
@@ -189,7 +189,7 @@
   - [ ] T33.4: 함수별 분석 프롬프트 → proc_analyzer_function.txt (신규)
   - [ ] T33.5: Pass 1 선별 프롬프트 → proc_prescan.txt (신규)
   - [ ] T33.6: 단위 테스트 (global context, cursor map, sql mapping, E2E, 진행률 로그)
-- [ ] T36: Agent 표준 로그 개선 — 언어별 동작 차이 가시화
+- [x] T36: Agent 표준 로그 개선 — 언어별 동작 차이 가시화
   - [x] T36.1: 분석 경로 선택 로그 추가 (5개 Analyzer)
   - [x] T36.2: 도구 실행 결과 로그 추가 (5개 Analyzer)
   - [x] T36.3: 후처리 로그 추가 (C dedup, SQL merge)
