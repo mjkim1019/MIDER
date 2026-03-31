@@ -23,8 +23,7 @@ ALL_PROMPTS = [
     "sql_analyzer_heuristic",
     "reporter",
     "c_prescan_fewshot",
-    "xml_analyzer_error_focused",
-    "xml_analyzer_heuristic",
+    "xml_analyzer",
     "proc_analyzer_function",
     "proc_prescan",
 ]
@@ -105,20 +104,13 @@ PROMPT_VARIABLES = {
         "function_findings_summary": "### 함수: foo (2개 패턴)",
         "all_functions_summary": "[L1-L30] int foo(...) — 30줄",
     },
-    "xml_analyzer_error_focused": {
+    "xml_analyzer": {
         "file_path": "/app/screen.xml",
         "parse_errors": "[]",
         "duplicate_ids": "[]",
         "missing_handlers": "[]",
-        "data_lists": "[]",
+        "datalist_summary": "[dataList 요약] 없음",
         "events": "[]",
-        "js_file": "없음",
-    },
-    "xml_analyzer_heuristic": {
-        "file_path": "/app/screen.xml",
-        "data_lists": "[]",
-        "events": "[]",
-        "component_ids": "[]",
         "js_file": "없음",
     },
     "proc_analyzer_function": {
@@ -152,7 +144,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 17, f"프롬프트 파일 수: {len(txt_files)} (기대: 17)"
+        assert len(txt_files) == 16, f"프롬프트 파일 수: {len(txt_files)} (기대: 16)"
 
 
 class TestPromptLoad:
