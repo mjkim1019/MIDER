@@ -306,6 +306,12 @@
 - **Few-Shot 구성**: 위험 3건(var 이중루프 재사용, 클로저 루프변수 공유, null 체크 누락) + 안전 2건(let 블록스코프, 옵셔널 체이닝) — 위험/안전 대비로 오탐 억제
 - **프롬프트 통합**: `js_analyzer_error_focused.txt` + `js_analyzer_heuristic.txt` → `js_analyzer.txt` 단일화
 
+| 2026-03-31 | T32 구현: .eslintrc.json WebSquare 환경 최적화 (905건→19건) | no-undef/eqeqeq/no-var 오탐 제거, no-shadow/no-fallthrough 등 장애 패턴 추가 |
+| 2026-03-31 | T32 구현: JS Analyzer Error-Focused/Heuristic 이중 경로 → 단일 경로 | 전체 코드 전달이 head+tail 잘라보내기보다 분석 품질 우선 (사용자 결정) |
+| 2026-03-31 | T32 구현: 프롬프트 2개→1개 통합 + Few-Shot 5건 | var 이중루프 재사용 등 ESLint 미탐지 패턴을 LLM이 잡도록 교정 |
+| 2026-03-31 | T32 리뷰: test_analyzer_logging.py `"logic"` → `"code_quality"` | Issue 스키마에 없는 category 값 수정 (HIGH) |
+| 2026-03-31 | T32 리뷰: js_analyzer.txt 첫 줄 중복 제거 | 시스템 메시지와 프롬프트 첫 줄 동일 → 토큰 낭비 (MEDIUM) |
+
 ## T32~T35 설계 검토 사항
 - **XML 정적분석**: ESLint 부적합 확인, lxml+XSD는 스키마 필요 — 파싱 데이터 + 전체 코드 전달이 현실적
 - **주석 처리**: 제거 시 라인번호 깨짐 CRITICAL, 3~20% 토큰 절감 — 선택적 제거(헤더 주석만) 또는 현행 유지 권장
