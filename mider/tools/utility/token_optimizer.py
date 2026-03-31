@@ -534,20 +534,22 @@ def extract_proc_global_context(file_content: str) -> str:
     if declare_blocks:
         parts.append("\n\n".join(declare_blocks))
 
-    # 3. typedef / struct 정의 (함수 밖 = 들여쓰기 없음)
+    # 함수 경계 계산 (3, 4번 공통)
+    boundaries = find_function_boundaries(lines, "proc")
+    func_ranges: set[int] = set()
+    for start, end in boundaries:
+        func_ranges.update(range(start, end + 1))
+
+    # 3. typedef / struct 정의 (함수 밖)
     typedef_lines: list[str] = []
-    for line in lines:
+    for i, line in enumerate(lines):
+        if (i + 1) in func_ranges:
+            continue
         stripped = line.strip()
         if stripped.startswith("typedef ") or re.match(r"^struct\s+\w+", stripped):
             typedef_lines.append(stripped)
     if typedef_lines:
         parts.append("\n".join(typedef_lines[:20]))
-
-    # 4. 전역 변수 (함수 밖, 들여쓰기 없음)
-    boundaries = find_function_boundaries(lines, "proc")
-    func_ranges: set[int] = set()
-    for start, end in boundaries:
-        func_ranges.update(range(start, end + 1))
 
     global_pattern = re.compile(
         r"^(?:static\s+|extern\s+)?(?:const\s+)?"

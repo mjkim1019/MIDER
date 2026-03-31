@@ -11,6 +11,7 @@ Pro*C 파일의 데이터 무결성 위협 패턴을 탐지한다.
 import asyncio
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 _MAX_CONCURRENT_LLM = 3
 
 # 함수 시그니처에서 함수명 추출
-_FUNC_NAME_PATTERN = __import__("re").compile(
+_FUNC_NAME_PATTERN = re.compile(
     r"^(?!\s*(?:if|else|for|while|switch|return|#|typedef|struct|union|enum)\b)"
     r"\s*(?:static\s+|extern\s+|inline\s+)*"
     r"(?:void|int|char|long|short|unsigned|float|double|size_t|ssize_t|\w+_t|\w+)\s*\*?\s+"
@@ -360,7 +361,7 @@ class ProCAnalyzerAgent(BaseAgent):
 
         # ── Pass 2: 함수별 개별 LLM 호출 ──
         func_start_lines = self._map_function_boundaries(
-            risky_functions, lines, boundaries, func_names,
+            risky_functions, boundaries, func_names,
         )
 
         sem = asyncio.Semaphore(_MAX_CONCURRENT_LLM)
@@ -393,7 +394,7 @@ class ProCAnalyzerAgent(BaseAgent):
                 )
                 done_count += 1
                 pct = (done_count * 100) // total_funcs
-                if pct >= next_milestone:
+                while pct >= next_milestone:
                     logger.info(
                         f"ProC [{filename}] 진행: {next_milestone}% "
                         f"({done_count}/{total_funcs} 함수)"
@@ -697,7 +698,6 @@ class ProCAnalyzerAgent(BaseAgent):
     @staticmethod
     def _map_function_boundaries(
         risky_functions: list[str],
-        lines: list[str],
         boundaries: list[tuple[int, int]],
         func_names: dict[int, str],
     ) -> dict[str, int]:
