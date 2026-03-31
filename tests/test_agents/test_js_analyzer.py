@@ -72,7 +72,6 @@ class TestBasicBehavior:
     async def test_run_returns_analysis_result(self, agent, js_file):
         """run()이 AnalysisResult 형식을 반환한다."""
         agent._llm_client.chat.return_value = _make_llm_response()
-        # ESLint 바이너리 없으므로 Heuristic 경로
         result = await agent.run(
             task_id="task_1", file=js_file, language="javascript",
         )
@@ -137,16 +136,16 @@ class TestBasicBehavior:
         assert validated.task_id == "task_1"
 
 
-class TestErrorFocusedPath:
-    """Error-Focused 경로 테스트."""
+class TestAnalysisPath:
+    """단일 분석 경로 테스트."""
 
     @pytest.mark.asyncio
-    async def test_eslint_errors_trigger_error_focused(self, agent, js_file):
-        """ESLint 에러가 있으면 Error-Focused 프롬프트 사용."""
+    async def test_eslint_results_included_in_prompt(self, agent, js_file):
+        """ESLint 결과가 있으면 프롬프트에 포함된다."""
         eslint_result = ToolResult(
             success=True,
             data={
-                "errors": [{"rule": "no-undef", "message": "test", "line": 1}],
+                "errors": [{"rule": "no-redeclare", "message": "'i' is already defined.", "line": 10}],
                 "warnings": [],
                 "total_errors": 1,
                 "total_warnings": 0,
@@ -160,27 +159,15 @@ class TestErrorFocusedPath:
             task_id="task_1", file=js_file, language="javascript",
         )
 
-        # LLM이 호출됨
         agent._llm_client.chat.assert_called_once()
         call_args = agent._llm_client.chat.call_args
-        prompt = call_args.kwargs.get("messages", call_args[1]["messages"] if len(call_args) > 1 else call_args[0][1])[1]["content"]
-        # Error-Focused 프롬프트에는 ESLint 결과가 포함됨
-        assert "no-undef" in prompt
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        assert "no-redeclare" in prompt
 
     @pytest.mark.asyncio
-    async def test_eslint_warnings_trigger_error_focused(self, agent, js_file):
-        """ESLint 경고만 있어도 Error-Focused 경로."""
-        eslint_result = ToolResult(
-            success=True,
-            data={
-                "errors": [],
-                "warnings": [{"rule": "no-unused-vars", "message": "test", "line": 1}],
-                "total_errors": 0,
-                "total_warnings": 1,
-            },
-        )
-        agent._eslint_runner = MagicMock()
-        agent._eslint_runner.execute.return_value = eslint_result
+    async def test_full_code_always_in_prompt(self, agent, js_file):
+        """ESLint 결과 유무와 관계없이 파일 전체 코드가 프롬프트에 포함된다."""
         agent._llm_client.chat.return_value = _make_llm_response()
 
         await agent.run(
@@ -188,14 +175,16 @@ class TestErrorFocusedPath:
         )
 
         agent._llm_client.chat.assert_called_once()
-
-
-class TestHeuristicPath:
-    """Heuristic 경로 테스트."""
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        # 파일 전체 코드가 포함되어야 함
+        assert "el.innerHTML = userInput;" in prompt
+        assert "console.log('done');" in prompt
 
     @pytest.mark.asyncio
-    async def test_no_eslint_errors_trigger_heuristic(self, agent, js_file):
-        """ESLint 에러 없으면 Heuristic 프롬프트 사용."""
+    async def test_no_eslint_still_analyzes(self, agent, js_file):
+        """ESLint 에러 없어도 전체 코드 분석이 진행된다."""
         eslint_result = ToolResult(
             success=True,
             data={
@@ -207,15 +196,21 @@ class TestHeuristicPath:
         agent._eslint_runner.execute.return_value = eslint_result
         agent._llm_client.chat.return_value = _make_llm_response()
 
-        await agent.run(
+        result = await agent.run(
             task_id="task_1", file=js_file, language="javascript",
         )
 
+        assert result["error"] is None
         agent._llm_client.chat.assert_called_once()
+        # ESLint 결과 없음 표시 확인
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        assert "ESLint 결과 없음" in prompt
 
     @pytest.mark.asyncio
-    async def test_eslint_failure_fallback_to_heuristic(self, agent, js_file):
-        """ESLint 실행 실패 시 Heuristic으로 전환."""
+    async def test_eslint_failure_still_analyzes(self, agent, js_file):
+        """ESLint 실행 실패해도 전체 코드 분석이 진행된다."""
         agent._eslint_runner = MagicMock()
         agent._eslint_runner.execute.side_effect = Exception("binary not found")
         agent._llm_client.chat.return_value = _make_llm_response()
@@ -226,6 +221,26 @@ class TestHeuristicPath:
 
         assert result["error"] is None
         agent._llm_client.chat.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_eslint_skipped_treated_as_no_result(self, agent, js_file):
+        """ESLint skipped 응답은 결과 없음으로 처리된다."""
+        eslint_result = ToolResult(
+            success=True,
+            data={"errors": [], "warnings": [], "skipped": True},
+        )
+        agent._eslint_runner = MagicMock()
+        agent._eslint_runner.execute.return_value = eslint_result
+        agent._llm_client.chat.return_value = _make_llm_response()
+
+        await agent.run(
+            task_id="task_1", file=js_file, language="javascript",
+        )
+
+        call_args = agent._llm_client.chat.call_args
+        messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
+        prompt = messages[1]["content"]
+        assert "ESLint 결과 없음" in prompt
 
 
 class TestLLMFailure:
@@ -274,19 +289,9 @@ class TestFileContext:
     @pytest.mark.asyncio
     async def test_file_context_included_in_prompt(self, agent, js_file):
         """file_context가 프롬프트에 포함된다."""
-        eslint_result = ToolResult(
-            success=True,
-            data={
-                "errors": [{"rule": "test", "message": "test", "line": 1}],
-                "warnings": [],
-                "total_errors": 1, "total_warnings": 0,
-            },
-        )
-        agent._eslint_runner = MagicMock()
-        agent._eslint_runner.execute.return_value = eslint_result
         agent._llm_client.chat.return_value = _make_llm_response()
 
-        ctx = {"file": js_file, "imports": [], "calls": []}
+        ctx = {"file": js_file, "imports": ["lodash"], "calls": []}
         await agent.run(
             task_id="task_1", file=js_file, language="javascript",
             file_context=ctx,
@@ -295,7 +300,7 @@ class TestFileContext:
         call_args = agent._llm_client.chat.call_args
         messages = call_args.kwargs.get("messages") or call_args[1].get("messages")
         prompt = messages[1]["content"]
-        assert "imports" in prompt
+        assert "lodash" in prompt
 
     @pytest.mark.asyncio
     async def test_no_file_context(self, agent, js_file):

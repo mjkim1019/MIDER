@@ -1,6 +1,6 @@
 """프롬프트 템플릿 검증 테스트.
 
-15개 프롬프트 파일의 존재 여부, 로드, 변수 치환을 검증한다.
+14개 프롬프트 파일의 존재 여부, 로드, 변수 치환을 검증한다.
 """
 
 import pytest
@@ -13,8 +13,7 @@ ALL_PROMPTS = [
     "orchestrator",
     "task_classifier",
     "context_collector",
-    "js_analyzer_error_focused",
-    "js_analyzer_heuristic",
+    "js_analyzer",
     "c_analyzer_error_focused",
     "c_analyzer_heuristic",
     "proc_analyzer_error_focused",
@@ -42,16 +41,11 @@ PROMPT_VARIABLES = {
         "execution_plan": '{"sub_tasks": []}',
         "file_contents": "int main() {}",
     },
-    "js_analyzer_error_focused": {
-        "eslint_errors": '[{"line": 1}]',
+    "js_analyzer": {
         "file_path": "/app/test.js",
-        "structure_summary": "[파일 정보] 1줄, 언어: javascript",
-        "error_functions": "const x = 1;",
+        "file_content": "const x = 1;\nel.innerHTML = userInput;",
+        "eslint_results": '[{"rule": "no-redeclare", "line": 1}]',
         "file_context": '{"imports": []}',
-    },
-    "js_analyzer_heuristic": {
-        "file_path": "/app/test.js",
-        "file_content_optimized": "const x = 1;",
     },
     "c_analyzer_error_focused": {
         "clang_tidy_warnings": '[{"line": 1}]',
@@ -132,7 +126,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 15, f"프롬프트 파일 수: {len(txt_files)} (기대: 15)"
+        assert len(txt_files) == 14, f"프롬프트 파일 수: {len(txt_files)} (기대: 14)"
 
 
 class TestPromptLoad:
@@ -161,14 +155,14 @@ class TestPromptVariableSubstitution:
         assert "/app/test.c" in result
         assert "int main()" in result
 
-    def test_js_analyzer_error_focused_substitution(self):
+    def test_js_analyzer_substitution(self):
         result = load_prompt(
-            "js_analyzer_error_focused",
-            **PROMPT_VARIABLES["js_analyzer_error_focused"],
+            "js_analyzer",
+            **PROMPT_VARIABLES["js_analyzer"],
         )
         assert "/app/test.js" in result
-        assert "const x = 1;" in result  # error_functions
-        assert "eslint" in result.lower() or "ESLint" in result
+        assert "const x = 1;" in result  # file_content
+        assert "no-redeclare" in result  # eslint_results
 
     def test_c_analyzer_error_focused_substitution(self):
         result = load_prompt(
@@ -227,8 +221,8 @@ class TestPromptContent:
 
     def test_js_analyzer_has_security_patterns(self):
         result = load_prompt(
-            "js_analyzer_heuristic",
-            **PROMPT_VARIABLES["js_analyzer_heuristic"],
+            "js_analyzer",
+            **PROMPT_VARIABLES["js_analyzer"],
         )
         assert "innerHTML" in result
         assert "XSS" in result or "xss" in result
@@ -259,9 +253,8 @@ class TestPromptContent:
         assert "인덱스" in result
 
     def test_error_focused_has_structure_summary(self):
-        """Error-Focused 프롬프트에 structure_summary 변수가 포함되는지 검증 (SQL 제외)."""
+        """Error-Focused 프롬프트에 structure_summary 변수가 포함되는지 검증 (SQL, JS 제외)."""
         for name in [
-            "js_analyzer_error_focused",
             "c_analyzer_error_focused",
             "proc_analyzer_error_focused",
         ]:
@@ -277,8 +270,7 @@ class TestPromptContent:
     def test_all_analyzer_prompts_have_json_output(self):
         """모든 analyzer 프롬프트가 JSON 출력 형식을 포함하는지 검증."""
         analyzer_prompts = [
-            "js_analyzer_error_focused",
-            "js_analyzer_heuristic",
+            "js_analyzer",
             "c_analyzer_error_focused",
             "c_analyzer_heuristic",
             "proc_analyzer_error_focused",
