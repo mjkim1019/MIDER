@@ -29,7 +29,7 @@ def _make_issue(
 ) -> dict:
     return {
         "issue_id": issue_id,
-        "category": "logic",
+        "category": "code_quality",
         "severity": severity,
         "title": title,
         "description": "테스트 설명",
