@@ -296,7 +296,13 @@
 | 2026-03-31 | T33 리뷰: `__import__("re")` → `import re` | 컨벤션 위반 (MEDIUM) |
 | 2026-03-31 | T33 리뷰: typedef/struct 함수 내부 필터링 추가 | 함수 안 typedef가 글로벌 컨텍스트에 포함되는 버그 방지 (MEDIUM) |
 
-## T32~T35 설계 검토 사항
-- **JS 긴 파일**: 2-Pass 도입 vs 함수 청킹 vs ESLint 강제 — 검토 후 결정
-- **XML 정적분석**: ESLint 부적합 확인, lxml+XSD는 스키마 필요 — 파싱 데이터 + 전체 코드 전달이 현실적
+| 2026-03-31 | T34 구현: XMLParser에 extract_inline_scripts + ScriptBlock + js_line_to_xml_line | 인라인 JS(파일의 78%)를 추출하여 분석 가능하게 |
+| 2026-03-31 | T34 구현: build_datalist_summary (45K→1.5K 토큰, 97% 절감) | dataList 전체 JSON은 토큰 낭비, 이름+컬럼수 요약으로 충분 |
+| 2026-03-31 | T34 구현: XML Analyzer 재구조화 — 인라인 JS를 JS Analyzer에 위임 | JS 분석 파이프라인(ESLint + Few-Shot) 재사용, 코드 중복 방지 |
+| 2026-03-31 | T34 구현: XML 프롬프트 2개→1개 통합, Error-Focused/Heuristic 제거 | T32 JS와 동일한 단순화 |
+| 2026-03-31 | T34 리뷰: tempfile.mktemp → NamedTemporaryFile | TOCTOU race condition 방지 (HIGH) |
+| 2026-03-31 | T34 리뷰: 한 줄짜리 CDATA offset_map 누락 수정 | offset_map에 등록 안 되면 라인 매핑 실패 (HIGH) |
+| 2026-03-31 | T34 리뷰: import re 함수 내부 → 파일 상단 이동 | 컨벤션 위반 (MEDIUM) |
+
+## T35 설계 검토 사항
 - **주석 처리**: 제거 시 라인번호 깨짐 CRITICAL, 3~20% 토큰 절감 — 선택적 제거(헤더 주석만) 또는 현행 유지 권장
