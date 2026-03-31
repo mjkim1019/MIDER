@@ -55,42 +55,94 @@
 2. 에러 발생 시 ROLLBACK이 실행되는지 확인합니다
 3. COMMIT 후 에러 발생 시 부분 커밋(partial commit) 문제가 없는지 확인합니다
 
-### Step 6: Heuristic Scanner 결과 검증 (장애 유발 패턴)
-Scanner가 탐지한 패턴을 실제 코드에서 확인합니다:
+### Step 6: C 코드 안전성 검사 (memory_safety) — ⚠ 핵심
+Pro*C는 C 코드이므로 SQL 외에 **C 코드 자체의 장애 유발 패턴**을 반드시 검사하세요.
+Scanner가 잡지 못한 패턴도 코드를 직접 읽고 독립적으로 찾아야 합니다.
 
-**FORMAT_STRUCT** — %s 포맷에 구조체 전달 (Core Dump 유발)
-- 위험: `PFM_DSP("값=[%s]", io.in.arr[0]);` → 구조체 전체가 %s에 전달
-- 정상: `PFM_DSP("값=[%s]", io.in.arr[0].field);` → 문자열 멤버 접근
+**6-1. 포맷 문자열 불일치 (Core Dump — severity: critical)**
+PFM_DSP, PFM_ERRS, snprintf, sprintf, fprintf 등에서:
+- `%s`에 구조체 전체를 전달하면 Core Dump → 반드시 문자열 멤버(.field)를 접근해야 함
+- `%s`에 long/int형을 전달하면 잘못된 메모리 접근 → `%ld`, `%d` 사용 필요
+- 예시 (실제 장애):
+  - 위험: `PFM_DSP("phon = [%s]", io.in.phon_num[0]);` → 구조체 전체 전달
+  - 정상: `PFM_DSP("phon = [%s]", io.in.phon_num[0].rcv_phon_num);` → 멤버 접근
+  - 위험: `PFM_ERRS("%s", ctx->svc_mgmt_num);` → long형에 %s
+  - 정상: `PFM_ERRS("%ld", ctx->svc_mgmt_num);` → long형에 %ld
 
-**MEMSET_SIZEOF_MISMATCH** — memset 변수/sizeof 타입 불일치 (이전 데이터 잔류)
-- 위험: `memset(&xxx_u0010_in, 0, sizeof(xxx_s0009_in_t));` → 크기 다를 수 있음
-- 정상: `memset(&xxx_u0010_in, 0, sizeof(xxx_u0010_in));` → 변수 자체 크기
+**6-2. 루프 내 구조체/변수 초기화 누락 (데이터 오염 — severity: high)**
+while/for 루프에서 매 반복 시작 시 구조체를 초기화하지 않으면 이전 반복의 데이터가 잔류:
+- 위험: while 루프에서 `INIT2VCHAR(gst_sec_06);`가 주석처리 또는 누락
+- 정상: 매 반복 시작 시 `INIT2VCHAR` 또는 `memset`으로 초기화
+- 실제 장애: 이전 처리 데이터가 누적되어 총 금액 오표기 발생
 
-**LOOP_INIT_MISSING** — 루프 내 초기화 누락 (데이터 누적)
-**FCLOSE_MISSING** — fopen/fclose 짝 불일치 (파일 핸들 릭)
+**6-3. memset 크기 불일치 (부분 초기화 — severity: high)**
+- 위험: `memset(&u0010, 0, sizeof(s0009_t));` → 변수명(u0010)과 타입명(s0009)의 숫자 불일치
+- 정상: `memset(&u0010, 0, sizeof(u0010));` 또는 숫자 부분 일치
+
+**6-4. 미초기화 변수 사용 (쓰레기 값 — severity: high)**
+- `long curcnt, ix;` 선언 후 초기화 없이 배열 인덱스/루프 제어에 사용
+- 단, `long rc;` 후 즉시 `rc = func_call();`로 대입하는 것은 ProFrame 표준 패턴 (안전)
+
+**6-5. 파일 핸들 누수 (severity: medium)**
+- fopen 후 fclose가 없거나, 에러 경로에서 fclose 누락
+- 장시간 배치 시 "Too many open files" 발생
+
+**6-6. 버퍼 오버플로우 (severity: high)**
+- strncpy, snprintf의 크기 인자가 대상 버퍼보다 큰 경우
+- 특히 snprintf(buf, sizeof(buf) + 1, ...) 같은 오프바이원
+
+### Step 7: Heuristic Scanner 결과 검증
+Scanner가 위에서 탐지한 패턴이 있으면 실제 코드에서 진짜 버그인지 **확인/기각** 합니다.
+Scanner 결과가 없더라도 Step 6에서 독립적으로 찾은 이슈는 보고합니다.
 
 ## 이슈 예시
+
+### 예시 1: SQL 이슈
 {{
   "issue_id": "PC-001",
   "category": "data_integrity",
   "severity": "critical",
   "title": "EXEC SQL UPDATE 후 SQLCA 에러 체크 누락",
   "description": "UPDATE 문 실행 후 sqlca.sqlcode를 검사하지 않아 SQL 에러가 발생해도 다음 로직이 실행됩니다.",
-  "location": {{
-    "file": "{file_path}",
-    "line_start": 45,
-    "line_end": 47,
-    "column_start": null,
-    "column_end": null
-  }},
+  "location": {{ "file": "{file_path}", "line_start": 45, "line_end": 47 }},
   "fix": {{
     "before": "EXEC SQL UPDATE ORDERS SET STATUS = :status;",
     "after": "EXEC SQL UPDATE ORDERS SET STATUS = :status;\nif (sqlca.sqlcode != 0) goto error_handler;",
     "description": "UPDATE 실행 후 SQLCA 에러 코드를 검사합니다."
   }},
-  "source": "llm",
-  "static_tool": null,
-  "static_rule": null
+  "source": "llm", "static_tool": null, "static_rule": null
+}}
+
+### 예시 2: C 코드 이슈 (포맷 문자열)
+{{
+  "issue_id": "PC-002",
+  "category": "memory_safety",
+  "severity": "critical",
+  "title": "PFM_DSP에서 %s에 구조체 전체 전달로 Core Dump 위험",
+  "description": "phon_num[0]은 구조체이므로 %s 포맷에 전달하면 잘못된 메모리 접근으로 Core Dump가 발생합니다. 구조체의 문자열 멤버(.rcv_phon_num)를 접근해야 합니다.",
+  "location": {{ "file": "{file_path}", "line_start": 1174, "line_end": 1174 }},
+  "fix": {{
+    "before": "PFM_DSP(\"phon = [%s]\", io.in.phon_num[0]);",
+    "after": "PFM_DSP(\"phon = [%s]\", io.in.phon_num[0].rcv_phon_num);",
+    "description": "구조체 전체 대신 문자열 멤버를 접근합니다."
+  }},
+  "source": "llm", "static_tool": null, "static_rule": null
+}}
+
+### 예시 3: C 코드 이슈 (루프 초기화 누락)
+{{
+  "issue_id": "PC-003",
+  "category": "data_integrity",
+  "severity": "high",
+  "title": "while 루프에서 구조체 초기화 누락으로 이전 데이터 잔류",
+  "description": "while 루프 반복 시 gst_sec_06 구조체를 INIT2VCHAR로 초기화하지 않아 이전 반복 데이터가 누적됩니다.",
+  "location": {{ "file": "{file_path}", "line_start": 2915, "line_end": 2915 }},
+  "fix": {{
+    "before": "/* INIT2VCHAR(gst_sec_06); */",
+    "after": "INIT2VCHAR(gst_sec_06);",
+    "description": "주석 처리된 초기화 코드를 활성화합니다."
+  }},
+  "source": "llm", "static_tool": null, "static_rule": null
 }}
 
 ## 출력 형식
