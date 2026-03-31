@@ -4,8 +4,8 @@ Oracle proc 프리컴파일러 + SQLExtractor + LLM 심층분석을 결합하여
 Pro*C 파일의 데이터 무결성 위협 패턴을 탐지한다.
 
 분석 경로:
-  함수 ≥2 AND >500줄 → 2-Pass (mini 선별 → 함수별 LLM)
-  그 외 → 기존 단일 LLM 호출 (Error-Focused / Heuristic)
+  함수 ≥2개 → 함수별 청킹 (Pass 1 선별 + 전체 함수 개별 LLM, 위험 함수 중점)
+  함수 0~1개 → 단일 LLM 호출
 """
 
 import asyncio
@@ -148,18 +148,17 @@ class ProCAnalyzerAgent(BaseAgent):
                 f"Scanner={len(scanner_findings or [])}건"
             )
 
-            # Step 4: 분석 경로 결정
+            # Step 4: 함수별 청킹 분석 (모든 파일 동일 경로)
             boundaries = find_function_boundaries(lines, "proc")
-            use_chunked = len(boundaries) >= 2 and line_count > 500
 
-            if use_chunked:
-                # 2-Pass 함수별 청킹
+            if len(boundaries) >= 2:
+                # 함수 ≥2개 → Pass 1 선별 + 전체 함수 개별 LLM 호출
                 self.rl.decision(
-                    "Decision: 2-Pass 함수별 청킹",
-                    reason=f"{len(boundaries)}개 함수, {line_count}줄(>500)",
+                    "Decision: 함수별 청킹",
+                    reason=f"{len(boundaries)}개 함수, {line_count}줄",
                 )
                 logger.info(
-                    f"ProC [{filename}] 경로: 2-Pass 함수별 청킹 | "
+                    f"ProC [{filename}] 경로: 함수별 청킹 | "
                     f"{len(boundaries)}개 함수, {line_count}줄"
                 )
                 issues = await self._run_function_chunked(
@@ -172,43 +171,22 @@ class ProCAnalyzerAgent(BaseAgent):
                     boundaries=boundaries,
                 )
             else:
-                # 기존 단일 LLM 호출
-                has_proc_errors = bool(proc_errors)
-                has_missing_sqlca = any(
-                    not block.get("has_sqlca_check", True)
-                    for block in sql_blocks
+                # 함수 0~1개 → 단일 LLM 호출 (청킹 의미 없음)
+                self.rl.decision(
+                    "Decision: 단일 호출",
+                    reason=f"함수 {len(boundaries)}개 → 청킹 불필요",
                 )
-                has_scanner_findings = bool(scanner_findings)
-                use_error_focused = (
-                    has_proc_errors or has_missing_sqlca or has_scanner_findings
+                logger.info(
+                    f"ProC [{filename}] 경로: 단일 호출 | "
+                    f"함수 {len(boundaries)}개"
                 )
-                reasons: list[str] = []
-                if has_proc_errors:
-                    reasons.append(f"proc errors={len(proc_errors or [])}")
-                if has_missing_sqlca:
-                    reasons.append("SQLCA 미검사")
-                if has_scanner_findings:
-                    reasons.append(f"Scanner {len(scanner_findings)}건")
-                if use_error_focused:
-                    self.rl.decision(
-                        "Decision: Error-Focused path",
-                        reason=", ".join(reasons),
-                    )
-                    logger.info(
-                        f"ProC [{filename}] 경로: Error-Focused | "
-                        f"{', '.join(reasons)}"
-                    )
-                else:
-                    self.rl.decision("Decision: Heuristic path", reason="정적 오류 없음")
-                    logger.info(f"ProC [{filename}] 경로: Heuristic | 정적 오류 없음")
-
                 prompt, messages = self._build_messages(
                     file=file,
                     file_content=file_content,
                     proc_errors=proc_errors,
                     sql_blocks=sql_blocks,
                     file_context=file_context,
-                    use_error_focused=use_error_focused,
+                    use_error_focused=True,
                     scanner_findings=scanner_findings,
                 )
 

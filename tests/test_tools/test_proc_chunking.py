@@ -332,12 +332,12 @@ class TestFunctionChunkedPath:
         # issue_id 재번호 확인
         assert result["issues"][0]["issue_id"] == "PC-001"
         assert result["issues"][1]["issue_id"] == "PC-002"
-        # 2-Pass 경로 로그 확인
-        assert any("2-Pass 함수별 청킹" in r.message for r in caplog.records)
+        # 함수별 청킹 경로 로그 확인
+        assert any("함수별 청킹" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
-    async def test_small_file_uses_single_path(self, agent, tmp_path):
-        """≤500줄 → 기존 단일 LLM 호출."""
+    async def test_single_function_uses_single_path(self, agent, tmp_path):
+        """함수 1개 → 단일 LLM 호출."""
         content = (
             '#include <stdio.h>\n'
             'void foo() {\n'
@@ -353,7 +353,7 @@ class TestFunctionChunkedPath:
         result = await agent.run(task_id="t1", file=str(f), language="proc")
 
         assert result["error"] is None
-        # 단일 호출 (Pass 1 없음)
+        # 함수 1개 → 단일 호출 (Pass 1 없음)
         assert agent._llm_client.chat.call_count == 1
 
     @pytest.mark.asyncio
