@@ -1,6 +1,6 @@
 """프롬프트 템플릿 검증 테스트.
 
-14개 프롬프트 파일의 존재 여부, 로드, 변수 치환을 검증한다.
+13개 프롬프트 파일의 존재 여부, 로드, 변수 치환을 검증한다.
 """
 
 import pytest
@@ -16,8 +16,6 @@ ALL_PROMPTS = [
     "js_analyzer",
     "c_analyzer_error_focused",
     "c_analyzer_heuristic",
-    "proc_analyzer_error_focused",
-    "proc_analyzer_heuristic",
     "proc_analyzer",
     "sql_analyzer_error_focused",
     "sql_analyzer_heuristic",
@@ -58,20 +56,6 @@ PROMPT_VARIABLES = {
     "c_analyzer_heuristic": {
         "file_path": "/app/test.c",
         "file_content_optimized": "int main() {}",
-    },
-    "proc_analyzer_error_focused": {
-        "proc_errors": '[{"line": 1}]',
-        "sql_blocks": '[{"sql": "SELECT 1"}]',
-        "scanner_findings": "없음",
-        "file_path": "/app/test.pc",
-        "structure_summary": "[파일 정보] 1줄, 언어: proc",
-        "error_functions": "EXEC SQL SELECT 1;",
-        "file_context": '{"imports": []}',
-    },
-    "proc_analyzer_heuristic": {
-        "sql_blocks": '[{"sql": "SELECT 1"}]',
-        "file_path": "/app/test.pc",
-        "file_content_optimized": "EXEC SQL SELECT 1;",
     },
     "proc_analyzer": {
         "global_context": "(글로벌 컨텍스트)",
@@ -138,7 +122,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 15, f"프롬프트 파일 수: {len(txt_files)} (기대: 15)"
+        assert len(txt_files) == 13, f"프롬프트 파일 수: {len(txt_files)} (기대: 13)"
 
 
 class TestPromptLoad:
@@ -183,14 +167,6 @@ class TestPromptVariableSubstitution:
         )
         assert "/app/test.c" in result
         assert "clang-tidy" in result or "clang_tidy" in result
-
-    def test_proc_analyzer_error_focused_substitution(self):
-        result = load_prompt(
-            "proc_analyzer_error_focused",
-            **PROMPT_VARIABLES["proc_analyzer_error_focused"],
-        )
-        assert "/app/test.pc" in result
-        assert "SQLCA" in result or "sqlca" in result
 
     def test_sql_analyzer_error_focused_substitution(self):
         result = load_prompt(
@@ -250,8 +226,8 @@ class TestPromptContent:
 
     def test_proc_analyzer_has_sqlca(self):
         result = load_prompt(
-            "proc_analyzer_heuristic",
-            **PROMPT_VARIABLES["proc_analyzer_heuristic"],
+            "proc_analyzer",
+            **PROMPT_VARIABLES["proc_analyzer"],
         )
         assert "SQLCA" in result or "sqlca" in result
         assert "INDICATOR" in result or "indicator" in result
@@ -268,7 +244,6 @@ class TestPromptContent:
         """Error-Focused 프롬프트에 structure_summary 변수가 포함되는지 검증 (SQL, JS 제외)."""
         for name in [
             "c_analyzer_error_focused",
-            "proc_analyzer_error_focused",
         ]:
             result = load_prompt(name, **PROMPT_VARIABLES[name])
             assert "파일 정보" in result, f"{name}: structure_summary 미치환"
@@ -285,8 +260,7 @@ class TestPromptContent:
             "js_analyzer",
             "c_analyzer_error_focused",
             "c_analyzer_heuristic",
-            "proc_analyzer_error_focused",
-            "proc_analyzer_heuristic",
+            "proc_analyzer",
             "sql_analyzer_error_focused",
             "sql_analyzer_heuristic",
         ]

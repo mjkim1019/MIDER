@@ -60,14 +60,15 @@ C 파일마다 두 가지 정적 분석을 **항상** 실행:
 #### clang-tidy
 
 - **도구**: `ClangTidyRunner` (`mider/tools/static_analysis/clang_tidy_runner.py`)
-- **체크 규칙**: `clang-analyzer-*`, `bugprone-*`
-- **동작**: stub 헤더 생성 → clang-tidy 실행 → 경고 파싱
-- **출력**: 경고 리스트 (severity, message, line, check)
+- **체크 규칙**: `-*,clang-analyzer-*,bugprone-*,-bugprone-branch-clone`
+- **동작**: stub 헤더 생성 (`StubHeaderGenerator`) → clang-tidy 실행 → 경고 파싱
+- **헤더 에러 필터링**: `file not found`, `unknown type name` 등 헤더 누락 에러는 제외
+- **출력**: 경고 리스트 (severity, message, line, check). 헤더 에러만 있으면 None
 
 #### CHeuristicScanner
 
 - **도구**: `CHeuristicScanner` (`mider/tools/static_analysis/c_heuristic_scanner.py`)
-- **7개 탐지 패턴**:
+- **6개 탐지 패턴**:
 
 | 패턴 ID | 설명 | 예시 |
 |---------|------|------|
@@ -103,14 +104,14 @@ C 파일마다 두 가지 정적 분석을 **항상** 실행:
 
 **Pass 1 — 위험 함수 선별**
 - 프롬프트: `c_prescan_fewshot.txt`
-- 모델: mini (gpt-4o-mini) — 빠른 필터링 용도
-- 입력: 파일 전체 코드 + clang 경고 + scanner 결과
+- 모델: mini (gpt-5-mini) — 빠른 필터링 용도
+- 입력: 전체 함수 시그니처 요약 (`build_all_functions_summary()`) + clang 경고 + scanner 결과
 - 출력: `risky_functions` 리스트 (위험도 높은 함수명)
 - Fallback: LLM이 위험 함수를 못 찾으면 scanner가 탐지한 함수로 대체
 
 **Pass 2 — 함수별 심층 분석**
 - 프롬프트: `c_analyzer_error_focused.txt`
-- 모델: primary (gpt-4o)
+- 모델: primary (gpt-5)
 - 선별된 함수마다 개별 LLM 호출 (최대 3개 동시 실행)
 - 각 함수의 코드 + 해당 함수의 clang 경고만 전달
 - 출력: 함수별 issue 리스트
@@ -118,22 +119,22 @@ C 파일마다 두 가지 정적 분석을 **항상** 실행:
 #### 경로 B: Error-Focused 분석 (소형 파일 + 정적분석 있음)
 
 - 프롬프트: `c_analyzer_error_focused.txt`
-- 모델: primary (gpt-4o)
+- 모델: primary (gpt-5)
 - 단일 LLM 호출 — 파일 전체 + clang 경고 + scanner 결과 통합 전달
 - 정적 분석 결과를 힌트로 LLM이 심층 분석
 
 #### 경로 C: Heuristic 분석 (소형 파일 + 정적분석 없음)
 
 - 프롬프트: `c_analyzer_heuristic.txt`
-- 모델: primary (gpt-4o)
-- 단일 LLM 호출 — 최적화된 파일 내용 전달
-- clang-tidy 없이 LLM만으로 패턴 기반 분석
+- 모델: primary (gpt-5)
+- 단일 LLM 호출 — 최적화된 파일 내용 + scanner 결과 전달
+- clang-tidy 없이 scanner + LLM으로 패턴 기반 분석
 
 ### 2-3. 후처리
 
 #### 중복 제거 (3단계)
 
-1. **프레임워크 안전 패턴 제거**: Proframe 단일 스레드 환경에서 불필요한 thread safety 경고, 프레임워크가 보장하는 NULL 검사 등
+1. **프레임워크 안전 패턴 제거**: Proframe 단일 스레드 환경에서 불필요한 thread safety/동시성 경고, 프레임워크가 보장하는 NULL 검사, 코드 스타일 제안, 전역 변수 공유 경고, 구조체 부분 초기화 경고 등 (title 키워드 매칭으로 자동 제거)
 2. **키워드 그룹 병합**: strncpy null termination 관련 이슈, ix 미초기화 관련 이슈 등을 하나로 병합
 3. **변수+카테고리 병합**: 동일 변수에 대한 동일 카테고리 이슈 병합
 
@@ -198,5 +199,10 @@ Issue
 | C 분석 에이전트 | `mider/agents/c_analyzer.py` |
 | clang-tidy 도구 | `mider/tools/static_analysis/clang_tidy_runner.py` |
 | 휴리스틱 스캐너 | `mider/tools/static_analysis/c_heuristic_scanner.py` |
+| stub 헤더 생성 | `mider/tools/static_analysis/stub_header_generator.py` |
+| 토큰 최적화 유틸 | `mider/tools/utility/token_optimizer.py` |
 | 분석 결과 모델 | `mider/models/analysis_result.py` |
 | 실행 계획 모델 | `mider/models/execution_plan.py` |
+| 프롬프트 (Pass 1) | `mider/config/prompts/c_prescan_fewshot.txt` |
+| 프롬프트 (Error-Focused) | `mider/config/prompts/c_analyzer_error_focused.txt` |
+| 프롬프트 (Heuristic) | `mider/config/prompts/c_analyzer_heuristic.txt` |

@@ -179,9 +179,9 @@
   - [x] T31.4: Heuristic(≤500줄)에 scanner findings 추가
   - [x] T31.5: 2-Pass에 clang 데이터 + all_functions_summary 통합 (>500줄)
   - [x] T31.6: 단위 테스트 (6개 추가, 기존 27개 호환)
-- [ ] T32: JS 긴 파일 전략 설계 (검토)
-  - [ ] T32.1: 대안 비교 분석 (2-Pass vs 함수 청킹 vs ESLint 강제)
-  - [ ] T32.2: 설계 결정 문서
+- [x] T32: JS 긴 파일 전략 — ESLint + 전체 코드 단일 호출
+  - [x] T32.1: ESLint 에러 포함 + 전체 코드 전달 방식 구현
+  - [x] T32.2: 프롬프트 통합 (Error-Focused/Heuristic → 단일)
 - [x] T33-old: ProC 유틸리티 (글로벌 컨텍스트, 커서 맵, SQL 함수 매핑, Pass 1 프롬프트)
 - [x] T33: ProC 분석 재설계 — 전체 코드 전달 + 스마트 그룹핑
   - [x] T33.1: 프롬프트 통합 (Error-Focused/Heuristic → 단일) → proc_analyzer.txt
@@ -191,22 +191,44 @@
   - [x] T33.5: 그룹핑 호출 경로 (`_run_grouped_call`) → proc_analyzer.py
   - [x] T33.6: `run()` 리팩토링 (통일 파이프라인) → proc_analyzer.py
   - [x] T33.7: 단위 테스트
-- [x] T36: Agent 표준 로그 개선 — 언어별 동작 차이 가시화
-  - [x] T36.1: 분석 경로 선택 로그 추가 (5개 Analyzer)
-  - [x] T36.2: 도구 실행 결과 로그 추가 (5개 Analyzer)
-  - [x] T36.3: 후처리 로그 추가 (C dedup, SQL merge)
-  - [x] T36.4: 단위 테스트 (caplog 검증)
-- [ ] T34: XML 분석 강화 — 인라인 JS 추출 + JS Analyzer 위임 + dataList 요약
+- [x] T34: XML 분석 강화 — 인라인 JS 추출 + JS Analyzer 위임 + dataList 요약
   - [x] T34.1: XMLParser에 `<script>` CDATA 추출 + 라인 오프셋 맵
   - [x] T34.2: dataList 요약 함수 (`build_datalist_summary`)
   - [x] T34.3: XML Analyzer 재구조화 (JS Analyzer 위임 + 라인 변환 + 병합)
   - [x] T34.4: XML 프롬프트 통합 (2개 → 1개)
   - [x] T34.5: 단위 테스트
-- [ ] T35: 주석 처리 전략 검토
-  - [ ] T35.1: 전략 비교 (현행유지 vs 선택적 제거 vs 압축)
-  - [ ] T35.2: 설계 결정 문서
+- ~~T35: 주석 처리 전략 검토~~ (v1 범위 제외)
+- [x] T36: Agent 표준 로그 개선 — 언어별 동작 차이 가시화
+  - [x] T36.1: 분석 경로 선택 로그 추가 (5개 Analyzer)
+  - [x] T36.2: 도구 실행 결과 로그 추가 (5개 Analyzer)
+  - [x] T36.3: 후처리 로그 추가 (C dedup, SQL merge)
+  - [x] T36.4: 단위 테스트 (caplog 검증)
 - [x] T15: Integration Test
   - [x] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
   - [x] T15.2: E2E 테스트
   - [x] T15.3: Exit code 검증
   - [x] T15.4: 출력 파일 검증 (4개 JSON)
+
+---
+
+## v1 릴리스 정리
+
+- [x] T40: 미사용 파일 정리
+  - [x] T40.1: 미사용 ProC 프롬프트 삭제
+  - [x] T40.2: 프롬프트 개수 테스트 수정
+- [x] T41: README v1 리라이트
+  - [x] T41.1: XML 지원 추가 + 모델명 업데이트
+  - [x] T41.2: 아키텍처 & 분석 전략 섹션 추가
+  - [x] T41.3: 사용자 매뉴얼 섹션 추가
+- [x] T43: 시스템 아키텍처 문서 (docs/architecture/)
+  - [x] T43.1: system_overview.md — 전체 시스템 구조
+  - [x] T43.2: js_analysis_pipeline.md — JS 분석 파이프라인
+  - [x] T43.3: proc_analysis_pipeline.md — ProC 분석 파이프라인
+  - [x] T43.4: sql_analysis_pipeline.md — SQL 분석 파이프라인
+  - [x] T43.5: xml_analysis_pipeline.md — XML 분석 파이프라인
+  - [x] T43.6: c_analysis_pipeline.md 최신화
+- [ ] T42: 버전 1.0.0 릴리스 (depends: T40, T41, T43)
+  - [ ] T42.1: 버전 범프 (0.1.0 → 1.0.0)
+  - [ ] T42.2: 로컬 브랜치 정리 (38개)
+  - [ ] T42.3: 원격 브랜치 정리
+  - [ ] T42.4: v1.0.0 태그 + GitHub Release
