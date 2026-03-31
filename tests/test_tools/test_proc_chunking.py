@@ -288,7 +288,7 @@ class TestFunctionChunkedPath:
 
     @pytest.mark.asyncio
     async def test_large_file_uses_chunked_path(self, agent, tmp_path, caplog):
-        """함수 ≥2 AND >500줄 → 2-Pass 경로 진입."""
+        """함수 ≥2 AND >500줄 → 전체 함수 개별 분석, 위험 함수 중점 표시."""
         pc_file = _make_large_proc_file(tmp_path, num_functions=5, lines_per_func=120)
 
         # Pass 1 응답: 2개 위험 함수 선별
@@ -298,8 +298,8 @@ class TestFunctionChunkedPath:
                 {"function_name": "func_002", "reason": "SQLCA 미검사"},
             ]
         })
-        # Pass 2 응답: 각 함수에서 1개 이슈
-        pass2_response = json.dumps({
+        # Pass 2 응답: 위험 함수에서만 이슈 발견
+        issue_response = json.dumps({
             "issues": [
                 {
                     "issue_id": "PC-001",
@@ -313,11 +313,15 @@ class TestFunctionChunkedPath:
                 }
             ]
         })
+        empty_response = json.dumps({"issues": []})
 
         agent._llm_client.chat.side_effect = [
-            pass1_response,  # Pass 1
-            pass2_response,  # Pass 2 func_000
-            pass2_response,  # Pass 2 func_002
+            pass1_response,   # Pass 1
+            issue_response,   # Pass 2 func_000 (위험)
+            empty_response,   # Pass 2 func_001
+            issue_response,   # Pass 2 func_002 (위험)
+            empty_response,   # Pass 2 func_003
+            empty_response,   # Pass 2 func_004
         ]
 
         with caplog.at_level(logging.INFO):
@@ -353,21 +357,27 @@ class TestFunctionChunkedPath:
         assert agent._llm_client.chat.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_pass1_no_risky_fallback(self, agent, tmp_path, caplog):
-        """Pass 1에서 위험 함수 0개 → Heuristic fallback."""
+    async def test_pass1_no_risky_still_analyzes_all(self, agent, tmp_path, caplog):
+        """Pass 1에서 위험 함수 0개여도 전체 함수를 개별 분석한다."""
         pc_file = _make_large_proc_file(tmp_path, num_functions=5, lines_per_func=120)
 
-        # Pass 1: 위험 함수 없음
+        # Pass 1: 위험 함수 없음 + Pass 2: 5개 함수 각각 응답
         agent._llm_client.chat.side_effect = [
             json.dumps({"risky_functions": []}),  # Pass 1
-            json.dumps({"issues": []}),           # Heuristic fallback
+            json.dumps({"issues": []}),           # func_000
+            json.dumps({"issues": []}),           # func_001
+            json.dumps({"issues": []}),           # func_002
+            json.dumps({"issues": []}),           # func_003
+            json.dumps({"issues": []}),           # func_004
         ]
 
         with caplog.at_level(logging.INFO):
             result = await agent.run(task_id="t1", file=pc_file, language="proc")
 
         assert result["error"] is None
-        assert any("위험 함수 없음" in r.message for r in caplog.records)
+        # Pass 1(1회) + Pass 2(5개 함수) = 6회 호출
+        assert agent._llm_client.chat.call_count == 6
+        assert any("0개 위험 함수 선별" in r.message for r in caplog.records)
 
 
 class TestProgressLog:

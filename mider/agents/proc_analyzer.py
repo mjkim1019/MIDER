@@ -336,36 +336,34 @@ class ProCAnalyzerAgent(BaseAgent):
             entry for entry in prescan_result.get("risky_functions", [])
             if isinstance(entry, dict) and "function_name" in entry
         ]
-        risky_functions = [entry["function_name"] for entry in risky_entries]
-
-        if not risky_functions:
-            logger.info(f"ProC [{filename}] Pass 1: 위험 함수 없음 → 단일 Heuristic")
-            self.rl.decision("Pass 1 판정: 위험 함수 없음 → Heuristic fallback")
-            return await self._run_single_heuristic(
-                file=file,
-                file_content=file_content,
-                file_context=file_context,
-                sql_blocks=sql_blocks,
-            )
+        risky_functions = set(entry["function_name"] for entry in risky_entries)
+        risky_reasons: dict[str, str] = {
+            entry["function_name"]: entry.get("reason", "")
+            for entry in risky_entries
+        }
 
         logger.info(
-            f"ProC [{filename}] Pass 1: {len(risky_functions)}개 위험 함수 선별 → "
-            f"{risky_functions}"
+            f"ProC [{filename}] Pass 1: {len(risky_functions)}개 위험 함수 선별"
+            f"{' → ' + str(sorted(risky_functions)) if risky_functions else ''}"
         )
-        self.rl.step(f"Pass 1 판정: {len(risky_functions)}개 위험 함수 선별")
+        self.rl.step(
+            f"Pass 1 판정: {len(risky_functions)}개 위험 / "
+            f"{len(boundaries)}개 전체 → 전체 함수 분석"
+        )
         for entry in risky_entries:
             self.rl.scan(
-                f"  [sky_blue2]{entry.get('function_name', '?')}[/sky_blue2]: "
+                f"  ⚠ [sky_blue2]{entry.get('function_name', '?')}[/sky_blue2]: "
                 f"{entry.get('reason', '')}"
             )
 
-        # ── Pass 2: 함수별 개별 LLM 호출 ──
-        func_start_lines = self._map_function_boundaries(
-            risky_functions, boundaries, func_names,
-        )
+        # ── Pass 2: 전체 함수 개별 LLM 호출 (위험 함수는 중점 표시) ──
+        # 전체 함수에 대해 시작 라인 매핑
+        all_func_starts: dict[str, int] = {
+            name: start for start, name in func_names.items()
+        }
 
         sem = asyncio.Semaphore(_MAX_CONCURRENT_LLM)
-        total_funcs = len(func_start_lines)
+        total_funcs = len(all_func_starts)
         done_count = 0
         next_milestone = 25
 
@@ -373,10 +371,12 @@ class ProCAnalyzerAgent(BaseAgent):
             idx: int, func_name: str, start_line: int,
         ) -> list[dict]:
             nonlocal done_count, next_milestone
+            is_risky = func_name in risky_functions
             async with sem:
+                risk_tag = "⚠ " if is_risky else ""
                 self.rl.step(
                     f"Pass 2 [{idx}/{total_funcs}] "
-                    f"[sky_blue2]{func_name}[/sky_blue2] 분석"
+                    f"{risk_tag}[sky_blue2]{func_name}[/sky_blue2] 분석"
                 )
                 result = await self._analyze_single_function(
                     file=file,
@@ -391,6 +391,8 @@ class ProCAnalyzerAgent(BaseAgent):
                     scanner_findings=scanner_findings or [],
                     boundaries=boundaries,
                     func_names=func_names,
+                    is_risky=is_risky,
+                    risky_reason=risky_reasons.get(func_name, ""),
                 )
                 done_count += 1
                 pct = (done_count * 100) // total_funcs
@@ -404,11 +406,7 @@ class ProCAnalyzerAgent(BaseAgent):
 
         tasks = []
         func_idx = 0
-        for func_name in risky_functions:
-            start_line = func_start_lines.get(func_name)
-            if start_line is None:
-                logger.warning(f"함수 경계 찾기 실패, 분석 건너뜀: {func_name}")
-                continue
+        for func_name, start_line in all_func_starts.items():
             func_idx += 1
             tasks.append(_analyze_with_limit(func_idx, func_name, start_line))
 
@@ -446,6 +444,8 @@ class ProCAnalyzerAgent(BaseAgent):
         scanner_findings: list[dict[str, Any]],
         boundaries: list[tuple[int, int]],
         func_names: dict[int, str],
+        is_risky: bool = False,
+        risky_reason: str = "",
     ) -> list[dict[str, Any]]:
         """단일 함수를 LLM으로 심층 분석한다."""
         # 함수 코드 추출
@@ -484,6 +484,16 @@ class ProCAnalyzerAgent(BaseAgent):
             func_proc_errors, ensure_ascii=False, indent=2,
         ) if func_proc_errors else "(없음)"
 
+        # 위험 함수 중점 분석 태그
+        risk_priority = ""
+        if is_risky:
+            risk_priority = (
+                f"\n\n## ⚠ 중점 분석 대상\n"
+                f"이 함수는 사전 선별에서 위험으로 판정되었습니다.\n"
+                f"사유: {risky_reason}\n"
+                f"일반 함수보다 더 꼼꼼하게 분석하세요."
+            )
+
         prompt = load_prompt(
             "proc_analyzer_function",
             global_context=global_context,
@@ -496,6 +506,10 @@ class ProCAnalyzerAgent(BaseAgent):
             file_path=file,
         )
 
+        # 중점 분석 태그를 프롬프트 상단에 삽입
+        if risk_priority:
+            prompt = risk_priority + "\n\n" + prompt
+
         messages = [
             {
                 "role": "system",
@@ -513,41 +527,6 @@ class ProCAnalyzerAgent(BaseAgent):
         if not isinstance(llm_result, dict):
             return []
 
-        return llm_result.get("issues", [])
-
-    async def _run_single_heuristic(
-        self,
-        *,
-        file: str,
-        file_content: str,
-        file_context: dict[str, Any] | None,
-        sql_blocks: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """단일 Heuristic LLM 호출 (Pass 1에서 위험 함수 0개일 때 fallback)."""
-        sql_blocks_str = json.dumps(sql_blocks, ensure_ascii=False, indent=2)
-        file_content_optimized = optimize_file_content(
-            file_content, file_context, "proc",
-        )
-        prompt = load_prompt(
-            "proc_analyzer_heuristic",
-            sql_blocks=sql_blocks_str,
-            file_path=file,
-            file_content_optimized=file_content_optimized,
-        )
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다. "
-                    "반드시 JSON 형식으로 응답하세요."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ]
-        response = await self.call_llm(messages, json_mode=True)
-        llm_result = json.loads(response)
-        if not isinstance(llm_result, dict):
-            return []
         return llm_result.get("issues", [])
 
     # ──────────────────────────────────────────────
@@ -696,21 +675,6 @@ class ProCAnalyzerAgent(BaseAgent):
         return result
 
     @staticmethod
-    def _map_function_boundaries(
-        risky_functions: list[str],
-        boundaries: list[tuple[int, int]],
-        func_names: dict[int, str],
-    ) -> dict[str, int]:
-        """위험 함수명 → 시작 라인 매핑."""
-        name_to_start: dict[str, int] = {
-            name: start for start, name in func_names.items()
-        }
-        return {
-            fname: name_to_start[fname]
-            for fname in risky_functions
-            if fname in name_to_start
-        }
-
     @staticmethod
     def _build_function_findings_summary(
         *,
