@@ -296,6 +296,17 @@
 | 2026-03-31 | T33 리뷰: `__import__("re")` → `import re` | 컨벤션 위반 (MEDIUM) |
 | 2026-03-31 | T33 리뷰: typedef/struct 함수 내부 필터링 추가 | 함수 안 typedef가 글로벌 컨텍스트에 포함되는 버그 방지 (MEDIUM) |
 
+## T33 재설계 결정 (전체 코드 전달 + 스마트 그룹핑)
+- **기존 T33 문제**: 함수별 개별 분석 → Scanner가 못 잡는 버그를 LLM도 못 잡음 (에러 함수만 추출)
+- **핵심 변경**: Error-Focused/Heuristic 분기 제거 → 전체 코드를 LLM에 직접 전달
+- **토큰 한계 대응**: 24개 샘플 중 22개는 단일 호출 가능, 2개(~130K~176K tokens)만 그룹핑 필요
+- **스마트 그룹핑 (대형 파일)**: ProC 함수 패턴 분석 결과 3가지 분류
+  - 계층형(b10+b20+b30): 커서/변수 흐름 공유 → 형제 그룹핑
+  - 디스패치형(work_proc1~11): 독립적 → 개별 분석
+  - 유틸(z+s계열): 접두사별 그룹핑
+- **Pass 1 역할 변경**: 위험 함수 "선별" → 위험 함수 "태깅" (전체 분석하되 중점 표시)
+- **기존 유틸 재사용**: 글로벌 컨텍스트, 커서 맵, SQL 함수 매핑, Pass 1 프롬프트
+
 | 2026-03-31 | T34 구현: XMLParser에 extract_inline_scripts + ScriptBlock + js_line_to_xml_line | 인라인 JS(파일의 78%)를 추출하여 분석 가능하게 |
 | 2026-03-31 | T34 구현: build_datalist_summary (45K→1.5K 토큰, 97% 절감) | dataList 전체 JSON은 토큰 낭비, 이름+컬럼수 요약으로 충분 |
 | 2026-03-31 | T34 구현: XML Analyzer 재구조화 — 인라인 JS를 JS Analyzer에 위임 | JS 분석 파이프라인(ESLint + Few-Shot) 재사용, 코드 중복 방지 |

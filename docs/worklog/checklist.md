@@ -182,13 +182,15 @@
 - [ ] T32: JS 긴 파일 전략 설계 (검토)
   - [ ] T32.1: 대안 비교 분석 (2-Pass vs 함수 청킹 vs ESLint 강제)
   - [ ] T32.2: 설계 결정 문서
-- [x] T33: ProC 함수별 청킹 — 2-Pass 선별 + 커서 맵
-  - [x] T33.1: 글로벌 컨텍스트 추출 (`extract_proc_global_context`) → token_optimizer.py
-  - [x] T33.2: SQL 블록 함수 매핑 + 커서 라이프사이클 맵 → sql_extractor.py, token_optimizer.py
-  - [x] T33.3: 함수별 청킹 분석 (`_run_function_chunked`) → proc_analyzer.py
-  - [x] T33.4: 함수별 분석 프롬프트 → proc_analyzer_function.txt (신규)
-  - [x] T33.5: Pass 1 선별 프롬프트 → proc_prescan.txt (신규)
-  - [x] T33.6: 단위 테스트 (global context, cursor map, sql mapping, E2E, 진행률 로그)
+- [x] T33-old: ProC 유틸리티 (글로벌 컨텍스트, 커서 맵, SQL 함수 매핑, Pass 1 프롬프트)
+- [ ] T33: ProC 분석 재설계 — 전체 코드 전달 + 스마트 그룹핑
+  - [ ] T33.1: 프롬프트 통합 (Error-Focused/Heuristic → 단일) → proc_analyzer.txt
+  - [ ] T33.2: 함수 패턴 분류기 (`classify_proc_functions`) → token_optimizer.py
+  - [ ] T33.3: 토큰 기반 전달 분기 (`_decide_delivery_mode`) → proc_analyzer.py
+  - [ ] T33.4: 단일 호출 경로 (`_run_single_call`) → proc_analyzer.py
+  - [ ] T33.5: 그룹핑 호출 경로 (`_run_grouped_call`) → proc_analyzer.py
+  - [ ] T33.6: `run()` 리팩토링 (통일 파이프라인) → proc_analyzer.py
+  - [ ] T33.7: 단위 테스트
 - [x] T36: Agent 표준 로그 개선 — 언어별 동작 차이 가시화
   - [x] T36.1: 분석 경로 선택 로그 추가 (5개 Analyzer)
   - [x] T36.2: 도구 실행 결과 로그 추가 (5개 Analyzer)
