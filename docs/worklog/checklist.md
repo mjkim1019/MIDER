@@ -185,9 +185,9 @@
 - [ ] T33: ProC 함수별 청킹 — 2-Pass 선별 + 커서 맵
   - [x] T33.1: 글로벌 컨텍스트 추출 (`extract_proc_global_context`) → token_optimizer.py
   - [x] T33.2: SQL 블록 함수 매핑 + 커서 라이프사이클 맵 → sql_extractor.py, token_optimizer.py
-  - [ ] T33.3: 함수별 청킹 분석 (`_run_function_chunked`) → proc_analyzer.py
-  - [ ] T33.4: 함수별 분석 프롬프트 → proc_analyzer_function.txt (신규)
-  - [ ] T33.5: Pass 1 선별 프롬프트 → proc_prescan.txt (신규)
+  - [x] T33.3: 함수별 청킹 분석 (`_run_function_chunked`) → proc_analyzer.py
+  - [x] T33.4: 함수별 분석 프롬프트 → proc_analyzer_function.txt (신규)
+  - [x] T33.5: Pass 1 선별 프롬프트 → proc_prescan.txt (신규)
   - [ ] T33.6: 단위 테스트 (global context, cursor map, sql mapping, E2E, 진행률 로그)
 - [x] T36: Agent 표준 로그 개선 — 언어별 동작 차이 가시화
   - [x] T36.1: 분석 경로 선택 로그 추가 (5개 Analyzer)

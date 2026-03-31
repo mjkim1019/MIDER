@@ -25,6 +25,8 @@ ALL_PROMPTS = [
     "c_prescan_fewshot",
     "xml_analyzer_error_focused",
     "xml_analyzer_heuristic",
+    "proc_analyzer_function",
+    "proc_prescan",
 ]
 
 # 각 프롬프트의 필수 변수 매핑
@@ -119,6 +121,24 @@ PROMPT_VARIABLES = {
         "component_ids": "[]",
         "js_file": "없음",
     },
+    "proc_analyzer_function": {
+        "global_context": "(글로벌 컨텍스트)",
+        "cursor_lifecycle_map": "(커서 없음)",
+        "structure_summary": "[파일 정보] 100줄, 언어: proc",
+        "function_code": "void foo() { }",
+        "function_sql_blocks": "(없음)",
+        "function_scanner_findings": "(없음)",
+        "function_proc_errors": "(없음)",
+        "file_path": "/app/test.pc",
+    },
+    "proc_prescan": {
+        "file_path": "/app/test.pc",
+        "total_functions": "10",
+        "total_findings": "3",
+        "all_functions_summary": "[L1-L30] void foo(...) — 30줄",
+        "function_findings_summary": "### foo\n- SQLCA 미검사 L20",
+        "cursor_lifecycle_map": "(커서 없음)",
+    },
 }
 
 
@@ -132,7 +152,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 15, f"프롬프트 파일 수: {len(txt_files)} (기대: 15)"
+        assert len(txt_files) == 17, f"프롬프트 파일 수: {len(txt_files)} (기대: 17)"
 
 
 class TestPromptLoad:
