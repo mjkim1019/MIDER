@@ -105,33 +105,6 @@ def _make_reporter_response(issues: list[dict]) -> str:
     })
 
 
-@pytest.fixture
-def orchestrator():
-    """LLM이 mock된 OrchestratorAgent."""
-    orch = OrchestratorAgent(model="gpt-5")
-    # 모든 sub-agent의 LLM을 mock
-    orch._task_classifier = _mock_agent("task_classifier")
-    orch._context_collector = _mock_agent("context_collector")
-    orch._reporter = _mock_agent("reporter")
-    return orch
-
-
-def _mock_agent(name: str):
-    """LLM이 mock된 Agent를 생성한다."""
-    from mider.agents.task_classifier import TaskClassifierAgent
-    from mider.agents.context_collector import ContextCollectorAgent
-    from mider.agents.reporter import ReporterAgent
-
-    agents = {
-        "task_classifier": TaskClassifierAgent,
-        "context_collector": ContextCollectorAgent,
-        "reporter": ReporterAgent,
-    }
-    agent = agents[name]()
-    agent._llm_client = AsyncMock()
-    return agent
-
-
 # ──────────────────────────────────────────────
 # T15.1: 샘플 파일 존재 검증
 # ──────────────────────────────────────────────
