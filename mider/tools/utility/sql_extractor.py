@@ -10,6 +10,7 @@ from typing import Any
 
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 from mider.tools.file_io.file_reader import FileReader
+from mider.tools.utility.token_optimizer import find_function_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,52 @@ _NON_SQL_KEYWORDS = {
 }
 
 
+# 함수 시그니처에서 함수명 추출 패턴 (C/ProC)
+_FUNC_NAME_PATTERN = re.compile(
+    r"^(?!\s*(?:if|else|for|while|switch|return|#|typedef|struct|union|enum)\b)"
+    r"\s*(?:static\s+|extern\s+|inline\s+)*"
+    r"(?:void|int|char|long|short|unsigned|float|double|size_t|ssize_t|\w+_t|\w+)\s*\*?\s+"
+    r"(\w+)\s*\("
+)
+
+
+def _extract_func_names(
+    lines: list[str],
+    boundaries: list[tuple[int, int]],
+) -> dict[int, str]:
+    """함수 경계의 시작 라인에서 함수명을 추출한다.
+
+    Returns:
+        {start_line: func_name} 딕셔너리
+    """
+    result: dict[int, str] = {}
+    for start, _end in boundaries:
+        idx = start - 1  # 1-based → 0-based
+        m = _FUNC_NAME_PATTERN.match(lines[idx])
+        if m:
+            result[start] = m.group(1)
+            continue
+        # 2줄 선언
+        if idx + 1 < len(lines):
+            combined = lines[idx].rstrip() + " " + lines[idx + 1].lstrip()
+            m = _FUNC_NAME_PATTERN.match(combined)
+            if m:
+                result[start] = m.group(1)
+    return result
+
+
+def _find_enclosing_function(
+    line_num: int,
+    boundaries: list[tuple[int, int]],
+    func_names: dict[int, str],
+) -> str | None:
+    """주어진 라인 번호를 포함하는 함수명을 반환한다."""
+    for start, end in boundaries:
+        if start <= line_num <= end:
+            return func_names.get(start)
+    return None
+
+
 class SQLExtractor(BaseTool):
     """Pro*C 파일에서 EXEC SQL 블록을 추출하는 Tool."""
 
@@ -58,6 +105,11 @@ class SQLExtractor(BaseTool):
         """
         read_result = self._file_reader.execute(path=file)
         content = read_result.data["content"]
+        lines = content.splitlines()
+
+        # 함수 경계 + 함수명 매핑 (SQL 블록에 function 필드 추가용)
+        boundaries = find_function_boundaries(lines, "proc")
+        func_names = _extract_func_names(lines, boundaries)
 
         sql_blocks: list[dict[str, Any]] = []
         block_id = 0
@@ -86,6 +138,11 @@ class SQLExtractor(BaseTool):
             # EXEC SQL 구문의 라인 번호 계산
             line_number = content[:match.start()].count("\n") + 1
 
+            # 함수 매핑
+            func_name = _find_enclosing_function(
+                line_number, boundaries, func_names,
+            )
+
             sql_blocks.append({
                 "id": block_id,
                 "sql": sql_body,
@@ -93,6 +150,7 @@ class SQLExtractor(BaseTool):
                 "indicator_variables": indicator_var_names,
                 "has_sqlca_check": has_sqlca_check,
                 "line": line_number,
+                "function": func_name,
             })
             block_id += 1
 

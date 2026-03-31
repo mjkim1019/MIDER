@@ -331,6 +331,8 @@ def xml_file(tmp_path):
 def xml_agent():
     agent = XMLAnalyzerAgent(model="gpt-4o")
     agent._llm_client = AsyncMock()
+    agent._js_analyzer._llm_client = AsyncMock()
+    agent._js_analyzer._llm_client.chat.return_value = _make_llm_response()
     return agent
 
 
@@ -351,16 +353,15 @@ class TestXMLAnalyzerLogging:
         assert "events=" in parse_logs[0].message
 
     @pytest.mark.asyncio
-    async def test_path_logged(self, xml_agent, xml_file, caplog):
-        """분석 경로가 표준 로그에 출력된다."""
+    async def test_structure_issues_logged(self, xml_agent, xml_file, caplog):
+        """XML 구조 이슈 건수가 로그에 출력된다."""
         xml_agent._llm_client.chat.return_value = _make_llm_response()
 
         with caplog.at_level(logging.INFO, logger="mider.agents.xml_analyzer"):
             await xml_agent.run(task_id="t1", file=xml_file)
 
-        path_logs = [r for r in caplog.records if "경로:" in r.message]
-        assert len(path_logs) >= 1
-        assert "XML" in path_logs[0].message
+        struct_logs = [r for r in caplog.records if "구조 이슈:" in r.message]
+        assert len(struct_logs) >= 1
 
     @pytest.mark.asyncio
     async def test_js_validation_logged(self, xml_agent, xml_file, caplog):

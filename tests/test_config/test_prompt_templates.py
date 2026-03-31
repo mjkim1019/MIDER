@@ -22,8 +22,9 @@ ALL_PROMPTS = [
     "sql_analyzer_heuristic",
     "reporter",
     "c_prescan_fewshot",
-    "xml_analyzer_error_focused",
-    "xml_analyzer_heuristic",
+    "xml_analyzer",
+    "proc_analyzer_function",
+    "proc_prescan",
 ]
 
 # 각 프롬프트의 필수 변수 매핑
@@ -97,21 +98,32 @@ PROMPT_VARIABLES = {
         "function_findings_summary": "### 함수: foo (2개 패턴)",
         "all_functions_summary": "[L1-L30] int foo(...) — 30줄",
     },
-    "xml_analyzer_error_focused": {
+    "xml_analyzer": {
         "file_path": "/app/screen.xml",
         "parse_errors": "[]",
         "duplicate_ids": "[]",
         "missing_handlers": "[]",
-        "data_lists": "[]",
+        "datalist_summary": "[dataList 요약] 없음",
         "events": "[]",
         "js_file": "없음",
     },
-    "xml_analyzer_heuristic": {
-        "file_path": "/app/screen.xml",
-        "data_lists": "[]",
-        "events": "[]",
-        "component_ids": "[]",
-        "js_file": "없음",
+    "proc_analyzer_function": {
+        "global_context": "(글로벌 컨텍스트)",
+        "cursor_lifecycle_map": "(커서 맵)",
+        "structure_summary": "(구조 요약)",
+        "function_code": "void test() {}",
+        "function_sql_blocks": "없음",
+        "function_scanner_findings": "없음",
+        "function_proc_errors": "없음",
+        "file_path": "/app/test.pc",
+    },
+    "proc_prescan": {
+        "file_path": "/app/test.pc",
+        "total_functions": "10",
+        "total_findings": "5",
+        "function_findings_summary": "### 함수: test (1건)",
+        "all_functions_summary": "[L1-L30] void test(...) — 30줄",
+        "cursor_lifecycle_map": "(커서 맵)",
     },
 }
 
@@ -126,7 +138,7 @@ class TestPromptFilesExist:
 
     def test_total_prompt_count(self):
         txt_files = list(PROMPTS_DIR.glob("*.txt"))
-        assert len(txt_files) == 14, f"프롬프트 파일 수: {len(txt_files)} (기대: 14)"
+        assert len(txt_files) == 15, f"프롬프트 파일 수: {len(txt_files)} (기대: 15)"
 
 
 class TestPromptLoad:

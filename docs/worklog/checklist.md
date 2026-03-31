@@ -179,12 +179,9 @@
   - [x] T31.4: Heuristic(≤500줄)에 scanner findings 추가
   - [x] T31.5: 2-Pass에 clang 데이터 + all_functions_summary 통합 (>500줄)
   - [x] T31.6: 단위 테스트 (6개 추가, 기존 27개 호환)
-- [ ] T32: JS 분석 단순화 — ESLint 번들 + 전체 코드 LLM 분석
-  - [x] T32.1: .eslintrc.json WebSquare 환경 최적화
-  - [x] T32.2: ESLint 번들 + .gitignore 설정
-  - [x] T32.3: JS Analyzer 단일 경로 통합 (Error-Focused/Heuristic 제거)
-  - [x] T32.4: 프롬프트 통합 + Few-Shot (2개 → 1개)
-  - [x] T32.5: 단위 테스트 업데이트
+- [ ] T32: JS 긴 파일 전략 설계 (검토)
+  - [ ] T32.1: 대안 비교 분석 (2-Pass vs 함수 청킹 vs ESLint 강제)
+  - [ ] T32.2: 설계 결정 문서
 - [x] T33: ProC 함수별 청킹 — 2-Pass 선별 + 커서 맵
   - [x] T33.1: 글로벌 컨텍스트 추출 (`extract_proc_global_context`) → token_optimizer.py
   - [x] T33.2: SQL 블록 함수 매핑 + 커서 라이프사이클 맵 → sql_extractor.py, token_optimizer.py
@@ -197,10 +194,12 @@
   - [x] T36.2: 도구 실행 결과 로그 추가 (5개 Analyzer)
   - [x] T36.3: 후처리 로그 추가 (C dedup, SQL merge)
   - [x] T36.4: 단위 테스트 (caplog 검증)
-- [ ] T34: XML 분석 강화 검토
-  - [ ] T34.1: 전체 코드 전달 효과 검토
-  - [ ] T34.2: script 태그 추출 (이슈 #005)
-  - [ ] T34.3: 설계 결정 문서
+- [ ] T34: XML 분석 강화 — 인라인 JS 추출 + JS Analyzer 위임 + dataList 요약
+  - [x] T34.1: XMLParser에 `<script>` CDATA 추출 + 라인 오프셋 맵
+  - [x] T34.2: dataList 요약 함수 (`build_datalist_summary`)
+  - [x] T34.3: XML Analyzer 재구조화 (JS Analyzer 위임 + 라인 변환 + 병합)
+  - [x] T34.4: XML 프롬프트 통합 (2개 → 1개)
+  - [x] T34.5: 단위 테스트
 - [ ] T35: 주석 처리 전략 검토
   - [ ] T35.1: 전략 비교 (현행유지 vs 선택적 제거 vs 압축)
   - [ ] T35.2: 설계 결정 문서

@@ -296,22 +296,13 @@
 | 2026-03-31 | T33 리뷰: `__import__("re")` → `import re` | 컨벤션 위반 (MEDIUM) |
 | 2026-03-31 | T33 리뷰: typedef/struct 함수 내부 필터링 추가 | 함수 안 typedef가 글로벌 컨텍스트에 포함되는 버그 방지 (MEDIUM) |
 
-## T32 설계 결정 (JS 분석 단순화)
-- **ESLint 번들**: `resources/binaries/`에 eslint@8 npm 설치 → 폐쇄망 exe에 포함, 사용자 추가 설치 불필요
-- **.eslintrc.json 재구성**: WebSquare globals 9종 등록 + 노이즈 룰 제거 + 장애 유발 룰 20종 → 905건→19건 (전부 유의미)
-- **Heuristic 경로 제거**: head 200+tail 100 잘라보내기는 중간 코드 완전 누락 → 사용자 판단: 전체 코드 전달이 분석 품질 우선
-- **단일 경로**: Error-Focused/Heuristic 이중 분기 → 항상 파일 전체 코드 + ESLint 결과를 LLM에 전달
-- **JS Heuristic Scanner 미구현**: ESLint 번들 확보 + LLM이 전체 코드를 보고 분석 가능 — C와 달리 정적분석 도구 안정
-- **이중 for문 변수 재사용 등 ESLint 미탐지 패턴**: Few-Shot 예시로 LLM 판단 교정 (C의 `c_prescan_fewshot.txt` 패턴 적용)
-- **Few-Shot 구성**: 위험 3건(var 이중루프 재사용, 클로저 루프변수 공유, null 체크 누락) + 안전 2건(let 블록스코프, 옵셔널 체이닝) — 위험/안전 대비로 오탐 억제
-- **프롬프트 통합**: `js_analyzer_error_focused.txt` + `js_analyzer_heuristic.txt` → `js_analyzer.txt` 단일화
+| 2026-03-31 | T34 구현: XMLParser에 extract_inline_scripts + ScriptBlock + js_line_to_xml_line | 인라인 JS(파일의 78%)를 추출하여 분석 가능하게 |
+| 2026-03-31 | T34 구현: build_datalist_summary (45K→1.5K 토큰, 97% 절감) | dataList 전체 JSON은 토큰 낭비, 이름+컬럼수 요약으로 충분 |
+| 2026-03-31 | T34 구현: XML Analyzer 재구조화 — 인라인 JS를 JS Analyzer에 위임 | JS 분석 파이프라인(ESLint + Few-Shot) 재사용, 코드 중복 방지 |
+| 2026-03-31 | T34 구현: XML 프롬프트 2개→1개 통합, Error-Focused/Heuristic 제거 | T32 JS와 동일한 단순화 |
+| 2026-03-31 | T34 리뷰: tempfile.mktemp → NamedTemporaryFile | TOCTOU race condition 방지 (HIGH) |
+| 2026-03-31 | T34 리뷰: 한 줄짜리 CDATA offset_map 누락 수정 | offset_map에 등록 안 되면 라인 매핑 실패 (HIGH) |
+| 2026-03-31 | T34 리뷰: import re 함수 내부 → 파일 상단 이동 | 컨벤션 위반 (MEDIUM) |
 
-| 2026-03-31 | T32 구현: .eslintrc.json WebSquare 환경 최적화 (905건→19건) | no-undef/eqeqeq/no-var 오탐 제거, no-shadow/no-fallthrough 등 장애 패턴 추가 |
-| 2026-03-31 | T32 구현: JS Analyzer Error-Focused/Heuristic 이중 경로 → 단일 경로 | 전체 코드 전달이 head+tail 잘라보내기보다 분석 품질 우선 (사용자 결정) |
-| 2026-03-31 | T32 구현: 프롬프트 2개→1개 통합 + Few-Shot 5건 | var 이중루프 재사용 등 ESLint 미탐지 패턴을 LLM이 잡도록 교정 |
-| 2026-03-31 | T32 리뷰: test_analyzer_logging.py `"logic"` → `"code_quality"` | Issue 스키마에 없는 category 값 수정 (HIGH) |
-| 2026-03-31 | T32 리뷰: js_analyzer.txt 첫 줄 중복 제거 | 시스템 메시지와 프롬프트 첫 줄 동일 → 토큰 낭비 (MEDIUM) |
-
-## T32~T35 설계 검토 사항
-- **XML 정적분석**: ESLint 부적합 확인, lxml+XSD는 스키마 필요 — 파싱 데이터 + 전체 코드 전달이 현실적
+## T35 설계 검토 사항
 - **주석 처리**: 제거 시 라인번호 깨짐 CRITICAL, 3~20% 토큰 절감 — 선택적 제거(헤더 주석만) 또는 현행 유지 권장
