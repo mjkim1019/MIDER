@@ -697,3 +697,26 @@ def optimize_file_content(
         f"[구조 요약]\n"
         f"{summary}"
     )
+
+
+def build_datalist_summary(data_lists: list[dict]) -> str:
+    """dataList 전체를 이름+컬럼수 요약으로 변환한다.
+
+    ~23K 토큰의 전체 dataList JSON 대신 ~2K 토큰 요약을 생성한다.
+
+    Args:
+        data_lists: XMLParser가 추출한 data_lists 리스트
+
+    Returns:
+        요약 문자열
+    """
+    if not data_lists:
+        return "[dataList 요약] 없음"
+
+    lines = [f"[dataList 요약] 총 {len(data_lists)}개"]
+    for dl in data_lists:
+        dl_id = dl.get("id", "(no id)")
+        col_count = len(dl.get("columns", []))
+        lines.append(f"  {dl_id}: {col_count} columns")
+
+    return "\n".join(lines)
