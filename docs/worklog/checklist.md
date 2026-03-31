@@ -205,8 +205,8 @@
 - [ ] T35: 주석 처리 전략 검토
   - [ ] T35.1: 전략 비교 (현행유지 vs 선택적 제거 vs 압축)
   - [ ] T35.2: 설계 결정 문서
-- [ ] T15: Integration Test
-  - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
-  - [ ] T15.2: E2E 테스트
-  - [ ] T15.3: Exit code 검증
-  - [ ] T15.4: 출력 파일 검증 (4개 JSON)
+- [x] T15: Integration Test
+  - [x] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
+  - [x] T15.2: E2E 테스트
+  - [x] T15.3: Exit code 검증
+  - [x] T15.4: 출력 파일 검증 (4개 JSON)
