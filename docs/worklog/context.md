@@ -296,6 +296,26 @@
 | 2026-03-31 | T33 리뷰: `__import__("re")` → `import re` | 컨벤션 위반 (MEDIUM) |
 | 2026-03-31 | T33 리뷰: typedef/struct 함수 내부 필터링 추가 | 함수 안 typedef가 글로벌 컨텍스트에 포함되는 버그 방지 (MEDIUM) |
 
+## T33 재설계 결정 (전체 코드 전달 + 스마트 그룹핑)
+- **기존 T33 문제**: 함수별 개별 분석 → Scanner가 못 잡는 버그를 LLM도 못 잡음 (에러 함수만 추출)
+- **핵심 변경**: Error-Focused/Heuristic 분기 제거 → 전체 코드를 LLM에 직접 전달
+- **토큰 한계 대응**: 24개 샘플 중 22개는 단일 호출 가능, 2개(~130K~176K tokens)만 그룹핑 필요
+- **스마트 그룹핑 (대형 파일)**: ProC 함수 패턴 분석 결과 3가지 분류
+  - 계층형(b10+b20+b30): 커서/변수 흐름 공유 → 형제 그룹핑
+  - 디스패치형(work_proc1~11): 독립적 → 개별 분석
+  - 유틸(z+s계열): 접두사별 그룹핑
+- **Pass 1 역할 변경**: 위험 함수 "선별" → 위험 함수 "태깅" (전체 분석하되 중점 표시)
+- **기존 유틸 재사용**: 글로벌 컨텍스트, 커서 맵, SQL 함수 매핑, Pass 1 프롬프트
+
+| 2026-03-31 | T33 재설계: proc_analyzer.txt 통합 프롬프트 (error_focused+heuristic 2개→1개) | 전체 코드 전달이므로 분기 불필요 |
+| 2026-03-31 | T33 재설계: classify_proc_functions 함수 패턴 분류기 | 계층형/디스패치형/유틸/보일러플레이트 자동 분류 |
+| 2026-03-31 | T33 재설계: _decide_delivery_mode (100K 토큰 기준 분기) | 128K 한계에서 프롬프트+응답 여유분 확보 |
+| 2026-03-31 | T33 재설계: _run_single_call — 전체 코드 단일 호출 | Scanner 한계 해결: LLM이 전체 코드에서 직접 버그 탐지 |
+| 2026-03-31 | T33 재설계: _run_grouped_call — 스마트 그룹핑 | 대형 파일(>100K tok) Lost-in-the-Middle 최소화 |
+| 2026-03-31 | T33 리뷰: json.loads에 try-except 추가 3곳 | LLM 응답 파싱 실패 시 graceful degradation (CRITICAL) |
+| 2026-03-31 | T33 리뷰: 진행률 카운터에 asyncio.Lock 추가 | 병렬 태스크 간 중복 마일스톤 로그 방지 (CRITICAL) |
+| 2026-03-31 | T33 리뷰: proc_analyzer_function.txt 삭제 | 미사용 dead code (HIGH) |
+
 | 2026-03-31 | T34 구현: XMLParser에 extract_inline_scripts + ScriptBlock + js_line_to_xml_line | 인라인 JS(파일의 78%)를 추출하여 분석 가능하게 |
 | 2026-03-31 | T34 구현: build_datalist_summary (45K→1.5K 토큰, 97% 절감) | dataList 전체 JSON은 토큰 낭비, 이름+컬럼수 요약으로 충분 |
 | 2026-03-31 | T34 구현: XML Analyzer 재구조화 — 인라인 JS를 JS Analyzer에 위임 | JS 분석 파이프라인(ESLint + Few-Shot) 재사용, 코드 중복 방지 |

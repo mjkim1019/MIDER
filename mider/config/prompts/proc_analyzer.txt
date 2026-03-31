@@ -1,0 +1,189 @@
+당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다.
+아래 Pro*C 코드를 심층 분석하여 장애 유발 패턴을 찾으세요.
+
+## 글로벌 컨텍스트 (호스트 변수, 전역 선언)
+{global_context}
+
+## 커서 라이프사이클 맵
+{cursor_lifecycle_map}
+
+## ⚠ 중점 분석 대상 함수
+{risky_functions_annotation}
+
+## Heuristic Scanner 탐지 결과 (장애 유발 패턴)
+{scanner_findings}
+위 항목은 regex 사전 스캔으로 **의심되는** 위치입니다. 실제 코드를 확인하여 진짜 버그인지 판정하세요.
+
+## proc 프리컴파일러 에러
+{proc_errors}
+
+## 추출된 SQL 블록 (SQLCA 검사 여부 포함)
+{sql_blocks}
+
+## 분석 대상 코드
+파일: {file_path}
+```c
+{code}
+```
+
+## 분석 절차 (Chain-of-Thought)
+
+### Step 1: proc 에러 분석
+각 proc 에러에 대해:
+1. 에러가 발생한 EXEC SQL 구문을 확인합니다
+2. 에러의 실제 영향도를 판단합니다
+3. 수정 방안을 제시합니다
+
+### Step 2: SQLCA 에러 처리 검사 (data_integrity)
+각 EXEC SQL 블록에 대해:
+1. 실행 후 `sqlca.sqlcode` 또는 `WHENEVER SQLERROR` 검사가 있는지 확인합니다
+2. DML 문(INSERT, UPDATE, DELETE)은 반드시 에러 체크가 필요합니다
+3. SELECT INTO는 "데이터 없음"(sqlcode == 1403) 처리가 필요합니다
+
+### Step 3: INDICATOR 변수 검사 (null_safety)
+각 SELECT/FETCH 구문에서:
+1. NULL 가능 컬럼에 INDICATOR 변수가 있는지 확인합니다
+2. INDICATOR 변수가 없으면 NULL 값 수신 시 프로그램이 비정상 동작할 수 있습니다
+
+### Step 4: 커서 라이프사이클 검사 (data_integrity)
+1. 위 커서 라이프사이클 맵을 참조하여 DECLARE/OPEN/FETCH/CLOSE가 모두 존재하는지 확인합니다
+2. ⚠ 미발견으로 표시된 이벤트가 있으면 커서 누수(자원 릭)로 보고합니다
+3. 에러 경로에서도 커서가 닫히는지 확인합니다
+
+### Step 5: 트랜잭션 무결성 검사 (data_integrity)
+1. EXEC SQL COMMIT/ROLLBACK의 위치가 적절한지 확인합니다
+2. 에러 발생 시 ROLLBACK이 실행되는지 확인합니다
+3. COMMIT 후 에러 발생 시 부분 커밋(partial commit) 문제가 없는지 확인합니다
+
+### Step 6: C 코드 안전성 검사 (memory_safety) — ⚠ 핵심
+Pro*C는 C 코드이므로 SQL 외에 **C 코드 자체의 장애 유발 패턴**을 반드시 검사하세요.
+Scanner가 잡지 못한 패턴도 코드를 직접 읽고 독립적으로 찾아야 합니다.
+
+**6-1. 포맷 문자열 불일치 (Core Dump — severity: critical)**
+PFM_DSP, PFM_ERRS, snprintf, sprintf, fprintf 등에서:
+- `%s`에 구조체 전체를 전달하면 Core Dump → 반드시 문자열 멤버(.field)를 접근해야 함
+- `%s`에 long/int형을 전달하면 잘못된 메모리 접근 → `%ld`, `%d` 사용 필요
+- 예시 (실제 장애):
+  - 위험: `PFM_DSP("phon = [%s]", io.in.phon_num[0]);` → 구조체 전체 전달
+  - 정상: `PFM_DSP("phon = [%s]", io.in.phon_num[0].rcv_phon_num);` → 멤버 접근
+  - 위험: `PFM_ERRS("%s", ctx->svc_mgmt_num);` → long형에 %s
+  - 정상: `PFM_ERRS("%ld", ctx->svc_mgmt_num);` → long형에 %ld
+
+**6-2. 루프 내 구조체/변수 초기화 누락 (데이터 오염 — severity: high)**
+while/for 루프에서 매 반복 시작 시 구조체를 초기화하지 않으면 이전 반복의 데이터가 잔류:
+- 위험: while 루프에서 `INIT2VCHAR(gst_sec_06);`가 주석처리 또는 누락
+- 정상: 매 반복 시작 시 `INIT2VCHAR` 또는 `memset`으로 초기화
+- 실제 장애: 이전 처리 데이터가 누적되어 총 금액 오표기 발생
+
+**6-3. memset 크기 불일치 (부분 초기화 — severity: high)**
+- 위험: `memset(&u0010, 0, sizeof(s0009_t));` → 변수명(u0010)과 타입명(s0009)의 숫자 불일치
+- 정상: `memset(&u0010, 0, sizeof(u0010));` 또는 숫자 부분 일치
+
+**6-4. 미초기화 변수 사용 (쓰레기 값 — severity: high)**
+- `long curcnt, ix;` 선언 후 초기화 없이 배열 인덱스/루프 제어에 사용
+- 단, `long rc;` 후 즉시 `rc = func_call();`로 대입하는 것은 ProFrame 표준 패턴 (안전)
+
+**6-5. 파일 핸들 누수 (severity: medium)**
+- fopen 후 fclose가 없거나, 에러 경로에서 fclose 누락
+- 장시간 배치 시 "Too many open files" 발생
+
+**6-6. 버퍼 오버플로우 (severity: high)**
+- strncpy, snprintf의 크기 인자가 대상 버퍼보다 큰 경우
+- 특히 snprintf(buf, sizeof(buf) + 1, ...) 같은 오프바이원
+
+### Step 7: Heuristic Scanner 결과 검증
+Scanner가 위에서 탐지한 패턴이 있으면 실제 코드에서 진짜 버그인지 **확인/기각** 합니다.
+Scanner 결과가 없더라도 Step 6에서 독립적으로 찾은 이슈는 보고합니다.
+
+## 이슈 예시
+
+### 예시 1: SQL 이슈
+{{
+  "issue_id": "PC-001",
+  "category": "data_integrity",
+  "severity": "critical",
+  "title": "EXEC SQL UPDATE 후 SQLCA 에러 체크 누락",
+  "description": "UPDATE 문 실행 후 sqlca.sqlcode를 검사하지 않아 SQL 에러가 발생해도 다음 로직이 실행됩니다.",
+  "location": {{ "file": "{file_path}", "line_start": 45, "line_end": 47 }},
+  "fix": {{
+    "before": "EXEC SQL UPDATE ORDERS SET STATUS = :status;",
+    "after": "EXEC SQL UPDATE ORDERS SET STATUS = :status;\nif (sqlca.sqlcode != 0) goto error_handler;",
+    "description": "UPDATE 실행 후 SQLCA 에러 코드를 검사합니다."
+  }},
+  "source": "llm", "static_tool": null, "static_rule": null
+}}
+
+### 예시 2: C 코드 이슈 (포맷 문자열)
+{{
+  "issue_id": "PC-002",
+  "category": "memory_safety",
+  "severity": "critical",
+  "title": "PFM_DSP에서 %s에 구조체 전체 전달로 Core Dump 위험",
+  "description": "phon_num[0]은 구조체이므로 %s 포맷에 전달하면 잘못된 메모리 접근으로 Core Dump가 발생합니다. 구조체의 문자열 멤버(.rcv_phon_num)를 접근해야 합니다.",
+  "location": {{ "file": "{file_path}", "line_start": 1174, "line_end": 1174 }},
+  "fix": {{
+    "before": "PFM_DSP(\"phon = [%s]\", io.in.phon_num[0]);",
+    "after": "PFM_DSP(\"phon = [%s]\", io.in.phon_num[0].rcv_phon_num);",
+    "description": "구조체 전체 대신 문자열 멤버를 접근합니다."
+  }},
+  "source": "llm", "static_tool": null, "static_rule": null
+}}
+
+### 예시 3: C 코드 이슈 (루프 초기화 누락)
+{{
+  "issue_id": "PC-003",
+  "category": "data_integrity",
+  "severity": "high",
+  "title": "while 루프에서 구조체 초기화 누락으로 이전 데이터 잔류",
+  "description": "while 루프 반복 시 gst_sec_06 구조체를 INIT2VCHAR로 초기화하지 않아 이전 반복 데이터가 누적됩니다.",
+  "location": {{ "file": "{file_path}", "line_start": 2915, "line_end": 2915 }},
+  "fix": {{
+    "before": "/* INIT2VCHAR(gst_sec_06); */",
+    "after": "INIT2VCHAR(gst_sec_06);",
+    "description": "주석 처리된 초기화 코드를 활성화합니다."
+  }},
+  "source": "llm", "static_tool": null, "static_rule": null
+}}
+
+## 출력 형식
+반드시 아래 JSON 스키마로 응답하세요:
+{{
+  "issues": [
+    {{
+      "issue_id": "PC-NNN",
+      "category": "memory_safety|null_safety|data_integrity|error_handling|security|performance|code_quality",
+      "severity": "critical|high|medium|low",
+      "title": "한국어 제목",
+      "description": "한국어 상세 설명",
+      "location": {{
+        "file": "{file_path}",
+        "line_start": 0,
+        "line_end": 0,
+        "column_start": null,
+        "column_end": null
+      }},
+      "fix": {{
+        "before": "수정 전 코드 (1-3줄)",
+        "after": "수정 후 코드 (1-3줄)",
+        "description": "한국어 수정 설명"
+      }},
+      "source": "static_analysis|llm|hybrid",
+      "static_tool": "proc 또는 null",
+      "static_rule": "PCC 코드 또는 null"
+    }}
+  ]
+}}
+
+## 주의사항
+- 이슈 ID는 PC-001부터 순차적으로 부여합니다.
+- Pro*C는 데이터 무결성이 가장 중요합니다. SQLCA 미검사, 커서 미닫힘은 severity를 높게 책정합니다.
+- title과 description은 반드시 한국어로 작성합니다.
+- fix의 before/after는 1-3줄만 포함합니다.
+- 발견된 이슈가 없으면 `"issues": []`로 응답합니다.
+- **⚠ 중점 분석 대상 함수는 일반 함수보다 더 꼼꼼하게 분석하세요.**
+- **[Proframe 환경] 아래 패턴은 이슈로 보고하지 마세요:**
+  - INDICATOR 변수 누락 — Proframe은 WHENEVER SQLERROR + NVL()로 NULL을 처리
+  - memset에서 sizeof(타입명) 사용 — Proframe 표준 관행이며 타입명과 변수 타입이 일치
+  - 전역 변수 동시성/스레드 안전성 — Proframe은 프로세스 기반 단일스레드
+  - NULL 포인터 검증 누락 — INPUT/NGMHEADER/ctx는 프레임워크가 보장
+- **[중요] fix.before/after에는 원본 코드에 실제로 존재하는 변수명만 사용하세요.**

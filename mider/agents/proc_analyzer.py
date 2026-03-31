@@ -3,9 +3,11 @@
 Oracle proc 프리컴파일러 + SQLExtractor + LLM 심층분석을 결합하여
 Pro*C 파일의 데이터 무결성 위협 패턴을 탐지한다.
 
-분석 경로:
-  함수 ≥2개 → 함수별 청킹 (Pass 1 선별 + 전체 함수 개별 LLM, 위험 함수 중점)
-  함수 0~1개 → 단일 LLM 호출
+분석 경로 (통일 아키텍처):
+  모든 파일: 공통 파이프라인 (proc + SQL + Scanner + 커서맵 + 글로벌컨텍스트)
+  → Pass 1: mini로 위험 함수 태깅
+  → ≤100K tokens: 전체 코드 단일 LLM 호출
+  → >100K tokens: 스마트 그룹핑 (계층형/디스패치형/유틸)
 """
 
 import asyncio
@@ -26,17 +28,17 @@ from mider.config.settings_loader import (
 )
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
+from mider.tools.static_analysis.c_heuristic_scanner import CHeuristicScanner
 from mider.tools.static_analysis.proc_heuristic_scanner import ProCHeuristicScanner
 from mider.tools.static_analysis.proc_runner import ProcRunner
 from mider.tools.utility.sql_extractor import SQLExtractor
 from mider.tools.utility.token_optimizer import (
     build_all_functions_summary,
     build_cursor_lifecycle_map,
-    build_structure_summary,
+    classify_proc_functions,
     extract_error_functions,
     extract_proc_global_context,
     find_function_boundaries,
-    optimize_file_content,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,7 +46,10 @@ logger = logging.getLogger(__name__)
 # 병렬 LLM 호출 동시성 제한
 _MAX_CONCURRENT_LLM = 3
 
-# 함수 시그니처에서 함수명 추출
+# 토큰 한계 (128K에서 프롬프트+응답 여유분 확보)
+_TOKEN_LIMIT = 100_000
+
+# 함수명 추출 패턴
 _FUNC_NAME_PATTERN = re.compile(
     r"^(?!\s*(?:if|else|for|while|switch|return|#|typedef|struct|union|enum)\b)"
     r"\s*(?:static\s+|extern\s+|inline\s+)*"
@@ -56,12 +61,10 @@ _FUNC_NAME_PATTERN = re.compile(
 class ProCAnalyzerAgent(BaseAgent):
     """Phase 2: Pro*C 파일을 분석하는 Agent.
 
-    proc 프리컴파일러 에러 + SQL 블록 추출 결과를 기반으로
-    LLM이 심층 분석하여 데이터 무결성 이슈를 탐지한다.
-
-    분석 경로:
-    - 함수 ≥2 AND >500줄 → 2-Pass (함수별 청킹)
-    - 그 외 → 기존 단일 LLM 호출 (Error-Focused / Heuristic)
+    통일 아키텍처:
+    - 공통 파이프라인 (proc + SQL + Scanner + 커서맵 + 글로벌컨텍스트)
+    - Pass 1: mini로 위험 함수 태깅
+    - 코드 전달: 전체 코드 단일 호출 / 스마트 그룹핑 (토큰 기반 분기)
     """
 
     def __init__(
@@ -83,6 +86,7 @@ class ProCAnalyzerAgent(BaseAgent):
         self._proc_runner = ProcRunner()
         self._sql_extractor = SQLExtractor()
         self._heuristic_scanner = ProCHeuristicScanner()
+        self._c_scanner = CHeuristicScanner()
 
     async def run(
         self,
@@ -92,22 +96,12 @@ class ProCAnalyzerAgent(BaseAgent):
         language: str = "proc",
         file_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Pro*C 파일을 분석한다.
-
-        Args:
-            task_id: ExecutionPlan의 task_id
-            file: 분석할 파일 경로
-            language: 파일 언어 ("proc")
-            file_context: Phase 1에서 수집한 파일 컨텍스트
-
-        Returns:
-            AnalysisResult 형식의 딕셔너리
-        """
+        """Pro*C 파일을 분석한다."""
         start_time = time.time()
         logger.info(f"Pro*C 분석 시작: {file}")
 
         try:
-            # Step 1: 파일 읽기
+            # ── 공통 파이프라인 ──
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
             lines = file_content.splitlines()
@@ -115,12 +109,10 @@ class ProCAnalyzerAgent(BaseAgent):
             filename = Path(file).name
             self.rl.scan(f"File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄)")
 
-            # Step 2: proc 프리컴파일러 실행
             proc_errors = self._run_proc(file)
             if proc_errors:
                 self.rl.scan(f"proc: {len(proc_errors)}건 에러")
 
-            # Step 3: SQL 블록 추출
             sql_blocks = self._extract_sql_blocks(file)
             if sql_blocks:
                 sql_funcs = {b.get("function", "?") for b in sql_blocks if b.get("function")}
@@ -129,8 +121,10 @@ class ProCAnalyzerAgent(BaseAgent):
                     f"([sky_blue2]{', '.join(sorted(sql_funcs)[:5])}[/sky_blue2])"
                 )
 
-            # Step 3.5: Heuristic Scanner (장애 유발 패턴 4종)
-            scanner_findings = self._run_heuristic_scanner(file)
+            # ProC Scanner (도메인 특화 4종) + C Scanner (범용 6종) 병합
+            proc_scanner_findings = self._run_heuristic_scanner(file)
+            c_scanner_findings = self._run_c_scanner(file)
+            scanner_findings = (proc_scanner_findings or []) + (c_scanner_findings or [])
             if scanner_findings:
                 for finding in scanner_findings:
                     self.rl.detect(
@@ -138,69 +132,74 @@ class ProCAnalyzerAgent(BaseAgent):
                         f"{finding['description'][:80]}"
                     )
 
-            # 도구 실행 결과 표준 로그
             missing_sqlca = sum(
                 1 for b in sql_blocks if not b.get("has_sqlca_check", True)
             )
             logger.info(
                 f"ProC [{filename}] 도구: proc에러={len(proc_errors or [])}, "
                 f"SQL블록={len(sql_blocks)}(SQLCA미검사={missing_sqlca}), "
-                f"Scanner={len(scanner_findings or [])}건"
+                f"Scanner={len(scanner_findings)}건 "
+                f"(ProC={len(proc_scanner_findings or [])}, C={len(c_scanner_findings or [])})"
             )
 
-            # Step 4: 함수별 청킹 분석 (모든 파일 동일 경로)
+            # 글로벌 컨텍스트 + 커서 맵
+            global_context = extract_proc_global_context(file_content)
+            cursor_map = build_cursor_lifecycle_map(file_content)
             boundaries = find_function_boundaries(lines, "proc")
+            func_names = self._extract_func_names(lines, boundaries)
 
+            # ── Pass 1: 위험 함수 태깅 (함수 ≥2일 때만) ──
+            risky_annotation = "(위험 함수 없음)"
             if len(boundaries) >= 2:
-                # 함수 ≥2개 → Pass 1 선별 + 전체 함수 개별 LLM 호출
-                self.rl.decision(
-                    "Decision: 함수별 청킹",
-                    reason=f"{len(boundaries)}개 함수, {line_count}줄",
-                )
-                logger.info(
-                    f"ProC [{filename}] 경로: 함수별 청킹 | "
-                    f"{len(boundaries)}개 함수, {line_count}줄"
-                )
-                issues = await self._run_function_chunked(
+                risky_annotation = await self._pass1_risk_tagging(
                     file=file,
                     file_content=file_content,
-                    file_context=file_context,
                     proc_errors=proc_errors,
                     sql_blocks=sql_blocks,
                     scanner_findings=scanner_findings,
                     boundaries=boundaries,
+                    func_names=func_names,
+                    cursor_map=cursor_map,
                 )
-            else:
-                # 함수 0~1개 → 단일 LLM 호출 (청킹 의미 없음)
+
+            # ── 코드 전달 분기 ──
+            mode = self._decide_delivery_mode(file_content)
+
+            common_kwargs = dict(
+                file=file,
+                file_content=file_content,
+                global_context=global_context,
+                cursor_map=cursor_map,
+                risky_annotation=risky_annotation,
+                proc_errors=proc_errors,
+                sql_blocks=sql_blocks,
+                scanner_findings=scanner_findings,
+            )
+
+            if mode == "single":
                 self.rl.decision(
-                    "Decision: 단일 호출",
-                    reason=f"함수 {len(boundaries)}개 → 청킹 불필요",
+                    "Decision: 전체 코드 단일 호출",
+                    reason=f"{line_count}줄, 토큰 한계 내",
+                )
+                logger.info(f"ProC [{filename}] 경로: 단일 호출 | {line_count}줄")
+                issues = await self._run_single_call(**common_kwargs)
+            else:
+                self.rl.decision(
+                    "Decision: 스마트 그룹핑",
+                    reason=f"{line_count}줄, 토큰 초과 → 함수 그룹핑",
                 )
                 logger.info(
-                    f"ProC [{filename}] 경로: 단일 호출 | "
-                    f"함수 {len(boundaries)}개"
+                    f"ProC [{filename}] 경로: 스마트 그룹핑 | "
+                    f"{len(boundaries)}개 함수, {line_count}줄"
                 )
-                prompt, messages = self._build_messages(
-                    file=file,
-                    file_content=file_content,
-                    proc_errors=proc_errors,
-                    sql_blocks=sql_blocks,
-                    file_context=file_context,
-                    use_error_focused=True,
-                    scanner_findings=scanner_findings,
+                issues = await self._run_grouped_call(
+                    **common_kwargs,
+                    boundaries=boundaries,
+                    func_names=func_names,
                 )
 
-                response = await self.call_llm(messages, json_mode=True)
-                llm_result = json.loads(response)
-
-                if not isinstance(llm_result, dict):
-                    raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
-
-                issues = llm_result.get("issues", [])
-
-            # Step 5: AnalysisResult 생성
+            # ── 결과 생성 ──
             elapsed = time.time() - start_time
-
             result = AnalysisResult.model_validate({
                 "task_id": task_id,
                 "file": file,
@@ -215,7 +214,6 @@ class ProCAnalyzerAgent(BaseAgent):
                 f"Pro*C 분석 완료: {file} → {len(result.issues)}개 이슈, "
                 f"{result.analysis_time_seconds}초"
             )
-
             return result.model_dump()
 
         except Exception as e:
@@ -233,38 +231,25 @@ class ProCAnalyzerAgent(BaseAgent):
             ).model_dump()
 
     # ──────────────────────────────────────────────
-    # 2-Pass 함수별 청킹
+    # Pass 1: 위험 함수 태깅
     # ──────────────────────────────────────────────
 
-    async def _run_function_chunked(
+    async def _pass1_risk_tagging(
         self,
         *,
         file: str,
         file_content: str,
-        file_context: dict[str, Any] | None,
         proc_errors: list[dict[str, Any]],
         sql_blocks: list[dict[str, Any]],
         scanner_findings: list[dict[str, Any]] | None,
         boundaries: list[tuple[int, int]],
-    ) -> list[dict[str, Any]]:
-        """2-Pass 함수별 청킹 분석.
-
-        Pass 1: mini 모델로 위험 함수 선별
-        Pass 2: 선별된 함수를 각각 개별 primary 모델 호출로 심층 분석
-        """
+        func_names: dict[int, str],
+        cursor_map: str,
+    ) -> str:
+        """mini 모델로 위험 함수를 태깅하고 annotation 문자열을 반환한다."""
         filename = Path(file).name
-        lines = file_content.splitlines()
-
-        # 공통 컨텍스트 생성
-        global_context = extract_proc_global_context(file_content)
-        cursor_map = build_cursor_lifecycle_map(file_content)
         all_funcs_summary = build_all_functions_summary(file_content, "proc")
-        structure_summary = build_structure_summary(file_content, file_context, "proc")
 
-        # 함수명 매핑
-        func_names = self._extract_func_names(lines, boundaries)
-
-        # ── Pass 1: 위험 함수 선별 ──
         findings_summary = self._build_function_findings_summary(
             proc_errors=proc_errors,
             sql_blocks=sql_blocks,
@@ -295,7 +280,6 @@ class ProCAnalyzerAgent(BaseAgent):
             {"role": "user", "content": prescan_prompt},
         ]
 
-        # mini 모델로 선별
         original_model = self.model
         original_fallback = self.fallback_model
         self.model = get_mini_model()
@@ -306,7 +290,10 @@ class ProCAnalyzerAgent(BaseAgent):
             self.model = original_model
             self.fallback_model = original_fallback
 
-        prescan_result = json.loads(prescan_response)
+        try:
+            prescan_result = json.loads(prescan_response)
+        except (json.JSONDecodeError, TypeError):
+            prescan_result = {"risky_functions": []}
         if not isinstance(prescan_result, dict):
             prescan_result = {"risky_functions": []}
 
@@ -314,179 +301,72 @@ class ProCAnalyzerAgent(BaseAgent):
             entry for entry in prescan_result.get("risky_functions", [])
             if isinstance(entry, dict) and "function_name" in entry
         ]
-        risky_functions = set(entry["function_name"] for entry in risky_entries)
-        risky_reasons: dict[str, str] = {
-            entry["function_name"]: entry.get("reason", "")
-            for entry in risky_entries
-        }
 
         logger.info(
-            f"ProC [{filename}] Pass 1: {len(risky_functions)}개 위험 함수 선별"
-            f"{' → ' + str(sorted(risky_functions)) if risky_functions else ''}"
+            f"ProC [{filename}] Pass 1: {len(risky_entries)}개 위험 함수 태깅"
         )
-        self.rl.step(
-            f"Pass 1 판정: {len(risky_functions)}개 위험 / "
-            f"{len(boundaries)}개 전체 → 전체 함수 분석"
-        )
+        self.rl.step(f"Pass 1: {len(risky_entries)}개 위험 함수 태깅")
         for entry in risky_entries:
             self.rl.scan(
                 f"  ⚠ [sky_blue2]{entry.get('function_name', '?')}[/sky_blue2]: "
                 f"{entry.get('reason', '')}"
             )
 
-        # ── Pass 2: 전체 함수 개별 LLM 호출 (위험 함수는 중점 표시) ──
-        # 전체 함수에 대해 시작 라인 매핑
-        all_func_starts: dict[str, int] = {
-            name: start for start, name in func_names.items()
-        }
+        if not risky_entries:
+            return "(위험 함수 없음 — 전체 코드를 균등하게 분석하세요)"
 
-        sem = asyncio.Semaphore(_MAX_CONCURRENT_LLM)
-        total_funcs = len(all_func_starts)
-        done_count = 0
-        next_milestone = 25
+        # annotation 문자열 생성
+        lines_out: list[str] = []
+        for entry in risky_entries:
+            lines_out.append(
+                f"- ⚠ {entry['function_name']}: {entry.get('reason', '')}"
+            )
+        return "\n".join(lines_out)
 
-        async def _analyze_with_limit(
-            idx: int, func_name: str, start_line: int,
-        ) -> list[dict]:
-            nonlocal done_count, next_milestone
-            is_risky = func_name in risky_functions
-            async with sem:
-                risk_tag = "⚠ " if is_risky else ""
-                self.rl.step(
-                    f"Pass 2 [{idx}/{total_funcs}] "
-                    f"{risk_tag}[sky_blue2]{func_name}[/sky_blue2] 분석"
-                )
-                result = await self._analyze_single_function(
-                    file=file,
-                    file_content=file_content,
-                    func_name=func_name,
-                    start_line=start_line,
-                    global_context=global_context,
-                    cursor_map=cursor_map,
-                    structure_summary=structure_summary,
-                    proc_errors=proc_errors,
-                    sql_blocks=sql_blocks,
-                    scanner_findings=scanner_findings or [],
-                    boundaries=boundaries,
-                    func_names=func_names,
-                    is_risky=is_risky,
-                    risky_reason=risky_reasons.get(func_name, ""),
-                )
-                done_count += 1
-                pct = (done_count * 100) // total_funcs
-                while pct >= next_milestone:
-                    logger.info(
-                        f"ProC [{filename}] 진행: {next_milestone}% "
-                        f"({done_count}/{total_funcs} 함수)"
-                    )
-                    next_milestone += 25
-                return result
+    # ──────────────────────────────────────────────
+    # 코드 전달 분기
+    # ──────────────────────────────────────────────
 
-        tasks = []
-        func_idx = 0
-        for func_name, start_line in all_func_starts.items():
-            func_idx += 1
-            tasks.append(_analyze_with_limit(func_idx, func_name, start_line))
+    @staticmethod
+    def _decide_delivery_mode(file_content: str) -> str:
+        """코드 전달 방식을 결정한다.
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        Returns:
+            "single" (전체 코드 단일 호출) 또는 "grouped" (스마트 그룹핑)
+        """
+        estimated_tokens = len(file_content) // 3  # 보수적 추정 (한글+코드 혼합)
+        prompt_overhead = 3000
+        if estimated_tokens + prompt_overhead <= _TOKEN_LIMIT:
+            return "single"
+        return "grouped"
 
-        all_issues: list[dict[str, Any]] = []
-        for result in results:
-            if isinstance(result, BaseException):
-                logger.warning(f"함수 분석 실패: {result}")
-                continue
-            all_issues.extend(result)
+    # ──────────────────────────────────────────────
+    # 단일 호출 경로
+    # ──────────────────────────────────────────────
 
-        # issue_id 재번호 (PC-001부터 순차)
-        for i, issue in enumerate(all_issues):
-            issue["issue_id"] = f"PC-{i + 1:03d}"
-
-        logger.info(
-            f"ProC [{filename}] Pass 2 완료: {len(all_issues)}개 이슈 "
-            f"({total_funcs}개 함수 개별 분석)"
-        )
-        return all_issues
-
-    async def _analyze_single_function(
+    async def _run_single_call(
         self,
         *,
         file: str,
         file_content: str,
-        func_name: str,
-        start_line: int,
         global_context: str,
         cursor_map: str,
-        structure_summary: str,
+        risky_annotation: str,
         proc_errors: list[dict[str, Any]],
         sql_blocks: list[dict[str, Any]],
-        scanner_findings: list[dict[str, Any]],
-        boundaries: list[tuple[int, int]],
-        func_names: dict[int, str],
-        is_risky: bool = False,
-        risky_reason: str = "",
+        scanner_findings: list[dict[str, Any]] | None,
     ) -> list[dict[str, Any]]:
-        """단일 함수를 LLM으로 심층 분석한다."""
-        # 함수 코드 추출
-        error_blocks = extract_error_functions(file_content, [start_line], "proc")
-        if not error_blocks:
-            return []
-
-        block = error_blocks[0]
-        function_code = f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
-
-        # 이 함수에 해당하는 SQL 블록 필터
-        func_sql = [
-            b for b in sql_blocks
-            if b.get("function") == func_name
-        ]
-        func_sql_str = json.dumps(
-            func_sql, ensure_ascii=False, indent=2,
-        ) if func_sql else "(없음)"
-
-        # 이 함수에 해당하는 Scanner findings 필터
-        func_scanner = [
-            f for f in scanner_findings
-            if block.line_start <= f.get("line", 0) <= block.line_end
-        ]
-        func_scanner_str = json.dumps(
-            func_scanner, ensure_ascii=False, indent=2,
-        ) if func_scanner else "(없음)"
-
-        # 이 함수에 해당하는 proc 에러 필터
-        func_proc_errors = [
-            e for e in proc_errors
-            if isinstance(e, dict)
-            and block.line_start <= e.get("line", 0) <= block.line_end
-        ]
-        func_proc_str = json.dumps(
-            func_proc_errors, ensure_ascii=False, indent=2,
-        ) if func_proc_errors else "(없음)"
-
-        # 위험 함수 중점 분석 태그
-        risk_priority = ""
-        if is_risky:
-            risk_priority = (
-                f"\n\n## ⚠ 중점 분석 대상\n"
-                f"이 함수는 사전 선별에서 위험으로 판정되었습니다.\n"
-                f"사유: {risky_reason}\n"
-                f"일반 함수보다 더 꼼꼼하게 분석하세요."
-            )
-
-        prompt = load_prompt(
-            "proc_analyzer_function",
+        """전체 코드를 단일 LLM 호출로 분석한다."""
+        prompt = self._build_unified_prompt(
+            file=file,
+            code=file_content,
             global_context=global_context,
-            cursor_lifecycle_map=cursor_map,
-            structure_summary=structure_summary,
-            function_code=function_code,
-            function_sql_blocks=func_sql_str,
-            function_scanner_findings=func_scanner_str,
-            function_proc_errors=func_proc_str,
-            file_path=file,
+            cursor_map=cursor_map,
+            risky_annotation=risky_annotation,
+            proc_errors=proc_errors,
+            sql_blocks=sql_blocks,
+            scanner_findings=scanner_findings,
         )
-
-        # 중점 분석 태그를 프롬프트 상단에 삽입
-        if risk_priority:
-            prompt = risk_priority + "\n\n" + prompt
 
         messages = [
             {
@@ -500,12 +380,197 @@ class ProCAnalyzerAgent(BaseAgent):
         ]
 
         response = await self.call_llm(messages, json_mode=True)
-        llm_result = json.loads(response)
-
+        try:
+            llm_result = json.loads(response)
+        except (json.JSONDecodeError, TypeError):
+            return []
         if not isinstance(llm_result, dict):
             return []
-
         return llm_result.get("issues", [])
+
+    # ──────────────────────────────────────────────
+    # 그룹핑 호출 경로
+    # ──────────────────────────────────────────────
+
+    async def _run_grouped_call(
+        self,
+        *,
+        file: str,
+        file_content: str,
+        global_context: str,
+        cursor_map: str,
+        risky_annotation: str,
+        proc_errors: list[dict[str, Any]],
+        sql_blocks: list[dict[str, Any]],
+        scanner_findings: list[dict[str, Any]] | None,
+        boundaries: list[tuple[int, int]],
+        func_names: dict[int, str],
+    ) -> list[dict[str, Any]]:
+        """스마트 그룹핑으로 분석한다."""
+        filename = Path(file).name
+        lines = file_content.splitlines()
+
+        classification = classify_proc_functions(
+            file_content, boundaries, func_names,
+        )
+        logger.info(
+            f"ProC [{filename}] 그룹핑: "
+            f"boilerplate={len(classification['boilerplate'])}, "
+            f"계층={len(classification['hierarchical_groups'])}그룹, "
+            f"디스패치={len(classification['dispatch'])}, "
+            f"유틸={len(classification['utility_groups'])}그룹"
+        )
+
+        # 그룹 목록 생성
+        groups: list[dict[str, Any]] = []
+
+        # 계층형 그룹
+        for hier_group in classification["hierarchical_groups"]:
+            code = self._extract_group_code(lines, hier_group, boundaries, func_names)
+            groups.append({"label": f"계층({'+'.join(hier_group[:3])}...)", "code": code})
+
+        # 디스패치형 개별
+        for func_name in classification["dispatch"]:
+            code = self._extract_func_code(lines, func_name, boundaries, func_names)
+            if code:
+                groups.append({"label": func_name, "code": code})
+
+        # 유틸 그룹
+        for util_group in classification["utility_groups"]:
+            code = self._extract_group_code(lines, util_group, boundaries, func_names)
+            groups.append({"label": f"유틸({'+'.join(util_group[:3])}...)", "code": code})
+
+        if not groups:
+            # 분류 실패 시 전체 코드 fallback
+            logger.warning(f"ProC [{filename}] 그룹핑 실패 → 전체 코드 fallback")
+            return await self._run_single_call(
+                file=file,
+                file_content=file_content,
+                global_context=global_context,
+                cursor_map=cursor_map,
+                risky_annotation=risky_annotation,
+                proc_errors=proc_errors,
+                sql_blocks=sql_blocks,
+                scanner_findings=scanner_findings,
+            )
+
+        # 병렬 LLM 호출
+        sem = asyncio.Semaphore(_MAX_CONCURRENT_LLM)
+        progress_lock = asyncio.Lock()
+        total_groups = len(groups)
+        done_count = 0
+        next_milestone = 25
+
+        async def _analyze_group(idx: int, group: dict) -> list[dict]:
+            nonlocal done_count, next_milestone
+            async with sem:
+                self.rl.step(
+                    f"그룹 [{idx}/{total_groups}] "
+                    f"[sky_blue2]{group['label']}[/sky_blue2] 분석"
+                )
+                prompt = self._build_unified_prompt(
+                    file=file,
+                    code=group["code"],
+                    global_context=global_context,
+                    cursor_map=cursor_map,
+                    risky_annotation=risky_annotation,
+                    proc_errors=proc_errors,
+                    sql_blocks=sql_blocks,
+                    scanner_findings=scanner_findings,
+                )
+
+                messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다. "
+                            "반드시 JSON 형식으로 응답하세요."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ]
+
+                response = await self.call_llm(messages, json_mode=True)
+                try:
+                    llm_result = json.loads(response)
+                except (json.JSONDecodeError, TypeError):
+                    llm_result = {"issues": []}
+
+                async with progress_lock:
+                    done_count += 1
+                    pct = (done_count * 100) // total_groups
+                    while pct >= next_milestone:
+                        logger.info(
+                            f"ProC [{filename}] 진행: {next_milestone}% "
+                            f"({done_count}/{total_groups} 그룹)"
+                        )
+                        next_milestone += 25
+
+                if not isinstance(llm_result, dict):
+                    return []
+                return llm_result.get("issues", [])
+
+        tasks = [
+            _analyze_group(i + 1, group)
+            for i, group in enumerate(groups)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        all_issues: list[dict[str, Any]] = []
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning(f"그룹 분석 실패: {result}")
+                continue
+            all_issues.extend(result)
+
+        # issue_id 재번호
+        for i, issue in enumerate(all_issues):
+            issue["issue_id"] = f"PC-{i + 1:03d}"
+
+        logger.info(
+            f"ProC [{filename}] 그룹핑 완료: {len(all_issues)}개 이슈 "
+            f"({total_groups}개 그룹)"
+        )
+        return all_issues
+
+    # ──────────────────────────────────────────────
+    # 프롬프트 빌더 (통합)
+    # ──────────────────────────────────────────────
+
+    @staticmethod
+    def _build_unified_prompt(
+        *,
+        file: str,
+        code: str,
+        global_context: str,
+        cursor_map: str,
+        risky_annotation: str,
+        proc_errors: list[dict[str, Any]],
+        sql_blocks: list[dict[str, Any]],
+        scanner_findings: list[dict[str, Any]] | None,
+    ) -> str:
+        """통합 프롬프트를 구성한다."""
+        proc_errors_str = json.dumps(
+            proc_errors or [], ensure_ascii=False, indent=2,
+        ) if proc_errors else "(없음)"
+        sql_blocks_str = json.dumps(
+            sql_blocks, ensure_ascii=False, indent=2,
+        )
+        scanner_str = json.dumps(
+            scanner_findings or [], ensure_ascii=False, indent=2,
+        ) if scanner_findings else "(없음)"
+
+        return load_prompt(
+            "proc_analyzer",
+            global_context=global_context,
+            cursor_lifecycle_map=cursor_map,
+            risky_functions_annotation=risky_annotation,
+            scanner_findings=scanner_str,
+            proc_errors=proc_errors_str,
+            sql_blocks=sql_blocks_str,
+            code=code,
+            file_path=file,
+        )
 
     # ──────────────────────────────────────────────
     # 도구 실행 헬퍼
@@ -538,95 +603,14 @@ class ProCAnalyzerAgent(BaseAgent):
             logger.warning(f"Pro*C Heuristic Scanner 실패: {e}")
             return []
 
-    # ──────────────────────────────────────────────
-    # 프롬프트 빌더
-    # ──────────────────────────────────────────────
-
-    def _build_messages(
-        self,
-        *,
-        file: str,
-        file_content: str,
-        proc_errors: list[dict[str, Any]],
-        sql_blocks: list[dict[str, Any]],
-        file_context: dict[str, Any] | None,
-        use_error_focused: bool,
-        scanner_findings: list[dict[str, Any]] | None = None,
-    ) -> tuple[str, list[dict[str, str]]]:
-        """프롬프트 경로를 선택하고 LLM 메시지를 구성한다."""
-        sql_blocks_str = json.dumps(
-            sql_blocks, ensure_ascii=False, indent=2,
-        )
-
-        if use_error_focused:
-            proc_errors_str = json.dumps(
-                proc_errors, ensure_ascii=False, indent=2,
-            )
-            file_context_str = json.dumps(
-                file_context, ensure_ascii=False, indent=2,
-            ) if file_context else "컨텍스트 정보 없음"
-
-            error_lines = []
-            for item in proc_errors:
-                if isinstance(item, dict) and "line" in item:
-                    error_lines.append(item["line"])
-            for block in sql_blocks:
-                if not block.get("has_sqlca_check", True) and "line" in block:
-                    error_lines.append(block["line"])
-            for finding in (scanner_findings or []):
-                if finding.get("line"):
-                    error_lines.append(finding["line"])
-
-            structure_summary = build_structure_summary(
-                file_content, file_context, "proc",
-            )
-            error_blocks = extract_error_functions(
-                file_content, error_lines, "proc",
-            )
-            error_functions_str = "\n\n".join(
-                f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
-                for block in error_blocks
-            ) if error_blocks else optimize_file_content(
-                file_content, file_context, "proc",
-            )
-
-            scanner_findings_str = json.dumps(
-                scanner_findings or [], ensure_ascii=False, indent=2,
-            )
-
-            prompt = load_prompt(
-                "proc_analyzer_error_focused",
-                proc_errors=proc_errors_str,
-                sql_blocks=sql_blocks_str,
-                scanner_findings=scanner_findings_str,
-                file_path=file,
-                structure_summary=structure_summary,
-                error_functions=error_functions_str,
-                file_context=file_context_str,
-            )
-        else:
-            file_content_optimized = optimize_file_content(
-                file_content, file_context, "proc",
-            )
-            prompt = load_prompt(
-                "proc_analyzer_heuristic",
-                sql_blocks=sql_blocks_str,
-                file_path=file,
-                file_content_optimized=file_content_optimized,
-            )
-
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다. "
-                    "반드시 JSON 형식으로 응답하세요."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ]
-
-        return prompt, messages
+    def _run_c_scanner(self, file: str) -> list[dict[str, Any]]:
+        """C Heuristic Scanner를 실행하여 범용 C 위험 패턴을 반환한다."""
+        try:
+            result = self._c_scanner.execute(file=file)
+            return result.data.get("findings", [])
+        except Exception as e:
+            logger.warning(f"C Heuristic Scanner 실패: {e}")
+            return []
 
     # ──────────────────────────────────────────────
     # 유틸리티
@@ -653,6 +637,35 @@ class ProCAnalyzerAgent(BaseAgent):
         return result
 
     @staticmethod
+    def _extract_func_code(
+        lines: list[str],
+        func_name: str,
+        boundaries: list[tuple[int, int]],
+        func_names: dict[int, str],
+    ) -> str | None:
+        """함수명으로 코드를 추출한다."""
+        for start, end in boundaries:
+            if func_names.get(start) == func_name:
+                return "\n".join(lines[start - 1:end])
+        return None
+
+    @staticmethod
+    def _extract_group_code(
+        lines: list[str],
+        group_func_names: list[str],
+        boundaries: list[tuple[int, int]],
+        func_names: dict[int, str],
+    ) -> str:
+        """함수 그룹의 코드를 연결하여 추출한다."""
+        parts: list[str] = []
+        name_set = set(group_func_names)
+        for start, end in boundaries:
+            if func_names.get(start) in name_set:
+                parts.append(f"/* ── {func_names[start]} (L{start}~L{end}) ── */")
+                parts.append("\n".join(lines[start - 1:end]))
+                parts.append("")
+        return "\n".join(parts) if parts else "(코드 추출 실패)"
+
     @staticmethod
     def _build_function_findings_summary(
         *,
@@ -663,10 +676,8 @@ class ProCAnalyzerAgent(BaseAgent):
         func_names: dict[int, str],
     ) -> str:
         """함수별 위험 패턴 요약을 생성한다 (Pass 1 프롬프트용)."""
-        # 함수별로 findings 그룹핑
         func_findings: dict[str, list[str]] = {}
 
-        # proc 에러
         for err in proc_errors:
             if not isinstance(err, dict):
                 continue
@@ -677,7 +688,6 @@ class ProCAnalyzerAgent(BaseAgent):
                     f"proc에러 L{line}: {err.get('message', '')[:60]}"
                 )
 
-        # SQL 블록 SQLCA 미검사
         for block in sql_blocks:
             if not block.get("has_sqlca_check", True):
                 func = block.get("function") or _find_enclosing_func(
@@ -688,7 +698,6 @@ class ProCAnalyzerAgent(BaseAgent):
                         f"SQLCA 미검사 L{block.get('line', '?')}: {block.get('sql', '')[:40]}"
                     )
 
-        # Scanner findings
         for finding in scanner_findings:
             line = finding.get("line", 0)
             func = _find_enclosing_func(line, boundaries, func_names)

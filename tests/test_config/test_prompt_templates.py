@@ -18,12 +18,12 @@ ALL_PROMPTS = [
     "c_analyzer_heuristic",
     "proc_analyzer_error_focused",
     "proc_analyzer_heuristic",
+    "proc_analyzer",
     "sql_analyzer_error_focused",
     "sql_analyzer_heuristic",
     "reporter",
     "c_prescan_fewshot",
     "xml_analyzer",
-    "proc_analyzer_function",
     "proc_prescan",
 ]
 
@@ -73,6 +73,16 @@ PROMPT_VARIABLES = {
         "file_path": "/app/test.pc",
         "file_content_optimized": "EXEC SQL SELECT 1;",
     },
+    "proc_analyzer": {
+        "global_context": "(글로벌 컨텍스트)",
+        "cursor_lifecycle_map": "(커서 없음)",
+        "risky_functions_annotation": "(위험 함수 없음)",
+        "scanner_findings": "(없음)",
+        "proc_errors": "(없음)",
+        "sql_blocks": '[{"sql": "SELECT 1"}]',
+        "code": "void foo() { EXEC SQL SELECT 1; }",
+        "file_path": "/app/test.pc",
+    },
     "sql_analyzer_error_focused": {
         "static_patterns": '[{"type": "full_table_scan"}]',
         "file_path": "/app/test.sql",
@@ -106,16 +116,6 @@ PROMPT_VARIABLES = {
         "datalist_summary": "[dataList 요약] 없음",
         "events": "[]",
         "js_file": "없음",
-    },
-    "proc_analyzer_function": {
-        "global_context": "(글로벌 컨텍스트)",
-        "cursor_lifecycle_map": "(커서 맵)",
-        "structure_summary": "(구조 요약)",
-        "function_code": "void test() {}",
-        "function_sql_blocks": "없음",
-        "function_scanner_findings": "없음",
-        "function_proc_errors": "없음",
-        "file_path": "/app/test.pc",
     },
     "proc_prescan": {
         "file_path": "/app/test.pc",
