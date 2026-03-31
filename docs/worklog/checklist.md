@@ -181,10 +181,10 @@
   - [x] T31.6: 단위 테스트 (6개 추가, 기존 27개 호환)
 - [ ] T32: JS 분석 단순화 — ESLint 번들 + 전체 코드 LLM 분석
   - [x] T32.1: .eslintrc.json WebSquare 환경 최적화
-  - [ ] T32.2: ESLint 번들 + .gitignore 설정
-  - [ ] T32.3: JS Analyzer 단일 경로 통합 (Error-Focused/Heuristic 제거)
-  - [ ] T32.4: 프롬프트 통합 (2개 → 1개)
-  - [ ] T32.5: 단위 테스트 업데이트
+  - [x] T32.2: ESLint 번들 + .gitignore 설정
+  - [x] T32.3: JS Analyzer 단일 경로 통합 (Error-Focused/Heuristic 제거)
+  - [x] T32.4: 프롬프트 통합 + Few-Shot (2개 → 1개)
+  - [x] T32.5: 단위 테스트 업데이트
 - [x] T33: ProC 함수별 청킹 — 2-Pass 선별 + 커서 맵
   - [x] T33.1: 글로벌 컨텍스트 추출 (`extract_proc_global_context`) → token_optimizer.py
   - [x] T33.2: SQL 블록 함수 매핑 + 커서 라이프사이클 맵 → sql_extractor.py, token_optimizer.py
