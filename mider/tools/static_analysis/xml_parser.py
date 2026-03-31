@@ -171,9 +171,16 @@ class XMLParser(BaseTool):
                     cdata_start = i
                     after = line.split("<![CDATA[", 1)[1]
                     if "]]>" in after:
+                        # 한 줄짜리 CDATA: <![CDATA[code]]>
                         content = after.split("]]>", 1)[0]
-                        if content.strip():
-                            cdata_lines.append(content)
+                        if content.strip() and _JS_KEYWORDS_RE.search(content):
+                            js_blocks.append(content)
+                            offset_map.append(ScriptBlock(
+                                xml_start=i,
+                                js_start=js_line_cursor,
+                                length=1,
+                            ))
+                            js_line_cursor += 1
                         cdata_start = None
                     elif after.strip():
                         cdata_lines.append(after)

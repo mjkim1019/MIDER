@@ -6,6 +6,7 @@ WebSquare XML 파일의 구조 이슈와 JS 코드 이슈를 통합 탐지한다
 
 import json
 import logging
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -237,9 +238,13 @@ class XMLAnalyzerAgent(BaseAgent):
         )
 
         # 임시 .js 파일 생성 → JSAnalyzer 위임
-        tmp_path = Path(tempfile.mktemp(suffix=".js"))
+        tmp_file = tempfile.NamedTemporaryFile(
+            suffix=".js", mode="w", encoding="utf-8", delete=False,
+        )
+        tmp_path = Path(tmp_file.name)
         try:
-            tmp_path.write_text(js_code, encoding="utf-8")
+            tmp_file.write(js_code)
+            tmp_file.close()
             js_result = await self._js_analyzer.run(
                 task_id=task_id,
                 file=str(tmp_path),
@@ -262,7 +267,7 @@ class XMLAnalyzerAgent(BaseAgent):
     ) -> None:
         """JS 이슈의 라인 번호를 원본 XML 라인으로 변환한다."""
         for issue in issues:
-            loc = issue.get("location", {})
+            loc = issue.setdefault("location", {})
             if loc.get("line_start"):
                 loc["line_start"] = js_line_to_xml_line(
                     loc["line_start"], offset_map,
@@ -278,7 +283,11 @@ class XMLAnalyzerAgent(BaseAgent):
         xml_issues: list[dict],
         js_issues: list[dict],
     ) -> list[dict]:
-        """XML 구조 이슈와 JS 코드 이슈를 병합하고 issue_id를 재번호한다."""
+        """XML 구조 이슈와 JS 코드 이슈를 병합하고 issue_id를 재번호한다.
+
+        Note: 원본 dict의 issue_id를 직접 수정한다.
+              호출 후 원본 리스트의 재사용은 하지 않는다.
+        """
         all_issues = list(xml_issues) + list(js_issues)
         for idx, issue in enumerate(all_issues, 1):
             issue["issue_id"] = f"XML-{idx:03d}"
@@ -290,8 +299,6 @@ class XMLAnalyzerAgent(BaseAgent):
         parse_data: dict[str, Any],
     ) -> dict[str, Any]:
         """XML 이벤트 핸들러에 대응하는 JS 함수가 존재하는지 검증한다."""
-        import re
-
         events = parse_data.get("events", [])
         if not events:
             return {"js_file": None, "missing_handlers": []}
