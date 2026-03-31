@@ -182,7 +182,7 @@
 - [ ] T32: JS 긴 파일 전략 설계 (검토)
   - [ ] T32.1: 대안 비교 분석 (2-Pass vs 함수 청킹 vs ESLint 강제)
   - [ ] T32.2: 설계 결정 문서
-- [ ] T33: ProC 함수별 청킹 — 2-Pass 선별 + 커서 맵
+- [x] T33: ProC 함수별 청킹 — 2-Pass 선별 + 커서 맵
   - [x] T33.1: 글로벌 컨텍스트 추출 (`extract_proc_global_context`) → token_optimizer.py
   - [x] T33.2: SQL 블록 함수 매핑 + 커서 라이프사이클 맵 → sql_extractor.py, token_optimizer.py
   - [x] T33.3: 함수별 청킹 분석 (`_run_function_chunked`) → proc_analyzer.py

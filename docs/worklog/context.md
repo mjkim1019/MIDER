@@ -287,6 +287,15 @@
 - **함수별 청킹의 장점**: 평균 72줄/함수(sample_inv 기준), 개별 LLM attention 분산 없음
 - **진행률 로그**: 25% 단위 4회 출력 — 111함수 개별 로그는 과다, 사용자가 진행 상황 확인 가능
 
+| 2026-03-31 | T33 구현: `extract_proc_global_context()` + `build_cursor_lifecycle_map()` 신규 (token_optimizer.py) | 함수별 청킹 시 글로벌 변수/커서 추적에 필수 |
+| 2026-03-31 | T33 구현: SQLExtractor에 `function` 필드 추가 | 함수별 SQL 블록 필터링 위해 — `_find_enclosing_function()` 패턴 |
+| 2026-03-31 | T33 구현: `_run_function_chunked()` 2-Pass (mini 선별 → 함수별 LLM) | C analyzer `_run_two_pass()` 패턴 재사용, 함수 ≥2 AND >500줄 조건 |
+| 2026-03-31 | T33 구현: 기존 Error-Focused/Heuristic 분기는 ≤500줄 파일에서 유지 | 소형 파일은 청킹 오버헤드만 증가 |
+| 2026-03-31 | T33 리뷰: proc_analyzer_function.txt `{{{{` → `{{` 수정 | 이중 에스케이프로 LLM에 `{{ }}` 전달 → JSON 파싱 실패 (CRITICAL) |
+| 2026-03-31 | T33 리뷰: 진행률 로그 `if` → `while` 변경 | 마일스톤 건너뛰기 방지 (HIGH) |
+| 2026-03-31 | T33 리뷰: `__import__("re")` → `import re` | 컨벤션 위반 (MEDIUM) |
+| 2026-03-31 | T33 리뷰: typedef/struct 함수 내부 필터링 추가 | 함수 안 typedef가 글로벌 컨텍스트에 포함되는 버그 방지 (MEDIUM) |
+
 ## T32~T35 설계 검토 사항
 - **JS 긴 파일**: 2-Pass 도입 vs 함수 청킹 vs ESLint 강제 — 검토 후 결정
 - **XML 정적분석**: ESLint 부적합 확인, lxml+XSD는 스키마 필요 — 파싱 데이터 + 전체 코드 전달이 현실적
