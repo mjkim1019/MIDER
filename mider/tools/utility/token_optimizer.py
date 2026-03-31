@@ -486,6 +486,125 @@ def build_all_functions_summary(
     return "\n".join(parts)
 
 
+def classify_proc_functions(
+    file_content: str,
+    boundaries: list[tuple[int, int]],
+    func_names: dict[int, str],
+) -> dict[str, list]:
+    """ProC 함수를 패턴별로 분류한다.
+
+    분류 규칙:
+    - boilerplate: main, *_init_proc, *_exit_proc, 모듈명 함수
+    - hierarchical_groups: 숫자 접두사 형제 (b10+b20+b30)
+    - dispatch: 동일 접두사+번호 함수 (work_proc1~11)
+    - utility_groups: z/s/rep 접두사별 그룹
+
+    Args:
+        file_content: 파일 전체 내용
+        boundaries: 함수 경계 리스트 [(start, end), ...]
+        func_names: {start_line: func_name} 딕셔너리
+
+    Returns:
+        {
+            "boilerplate": [func_name, ...],
+            "hierarchical_groups": [[func_name, ...], ...],
+            "dispatch": [func_name, ...],
+            "utility_groups": [[func_name, ...], ...],
+        }
+    """
+    all_names = [func_names[start] for start, _end in boundaries if start in func_names]
+
+    boilerplate: list[str] = []
+    utility: dict[str, list[str]] = {}  # prefix → [func_names]
+    hierarchical: dict[str, list[str]] = {}  # prefix_digit → [func_names]
+    dispatch: list[str] = []
+    remaining: list[str] = []
+
+    # 숫자 접두사 패턴: a00_, b10_, c100_, z99_ 등
+    num_prefix_pat = re.compile(r"^([a-z])(\d{2,3})_")
+    # 디스패치 패턴: xxx_work_procN, xxx_ins_xxx_guid, xxx_insert_xxx_yyy 등
+    dispatch_pat = re.compile(r"^(\w+?)(\d+)$")
+
+    for name in all_names:
+        lower = name.lower()
+
+        # 1. 보일러플레이트
+        if lower == "main" or lower.endswith("_init_proc") or lower.endswith("_exit_proc"):
+            boilerplate.append(name)
+            continue
+        # 모듈명 함수 (파일명과 동일한 함수: zordbs0600450, zinvbprt23000 등)
+        if re.match(r"^z\w{3}b\w+\d+$", lower):
+            boilerplate.append(name)
+            continue
+
+        # 2. 숫자 접두사 계층형 (a00, b10, c100, z99 등)
+        m = num_prefix_pat.match(lower)
+        if m:
+            letter = m.group(1)
+            digits = m.group(2)
+            if letter in ("z", "s"):
+                # z/s 계열은 유틸 그룹
+                utility.setdefault(letter, []).append(name)
+            else:
+                # 계층형: 첫 자리 기준으로 그룹 (b00, b10, b20 → "b0" 그룹)
+                group_key = f"{letter}{digits[0]}"
+                hierarchical.setdefault(group_key, []).append(name)
+            continue
+
+        # 3. rep_ 접두사 → 유틸
+        if lower.startswith("rep_"):
+            utility.setdefault("rep", []).append(name)
+            continue
+
+        # 4. 나머지: 디스패치 패턴 감지 (동일 접두사+번호)
+        remaining.append(name)
+
+    # remaining에서 디스패치형 분류: 접두사가 같고 숫자 접미사가 있는 함수들
+    prefix_groups: dict[str, list[str]] = {}
+    non_dispatch: list[str] = []
+    for name in remaining:
+        m = dispatch_pat.match(name)
+        if m:
+            prefix = m.group(1)
+            prefix_groups.setdefault(prefix, []).append(name)
+        else:
+            non_dispatch.append(name)
+
+    for prefix, funcs in prefix_groups.items():
+        if len(funcs) >= 3:
+            # 3개 이상 동일 접두사+번호 → 디스패치형
+            dispatch.extend(funcs)
+        else:
+            # 2개 이하는 그냥 개별 분석
+            dispatch.extend(funcs)
+
+    # non_dispatch도 개별 분석
+    dispatch.extend(non_dispatch)
+
+    # hierarchical_groups: 단일 함수 그룹은 dispatch로 이동
+    hierarchical_groups: list[list[str]] = []
+    for _key, funcs in sorted(hierarchical.items()):
+        if len(funcs) >= 2:
+            hierarchical_groups.append(funcs)
+        else:
+            dispatch.extend(funcs)
+
+    # utility_groups: 단일 함수 그룹은 dispatch로 이동
+    utility_groups: list[list[str]] = []
+    for _key, funcs in sorted(utility.items()):
+        if len(funcs) >= 2:
+            utility_groups.append(funcs)
+        else:
+            dispatch.extend(funcs)
+
+    return {
+        "boilerplate": boilerplate,
+        "hierarchical_groups": hierarchical_groups,
+        "dispatch": dispatch,
+        "utility_groups": utility_groups,
+    }
+
+
 def extract_proc_global_context(file_content: str) -> str:
     """Pro*C 파일에서 글로벌 컨텍스트를 추출한다.
 
