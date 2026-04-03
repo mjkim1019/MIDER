@@ -61,11 +61,13 @@ Scanner가 탐지한 패턴을 실제 코드에서 확인합니다:
 
 **MEMSET_SIZEOF_MISMATCH** — memset 변수/sizeof 타입 불일치 (이전 데이터 잔류)
 - 위험: `memset(&xxx_u0010_in, 0, sizeof(xxx_s0009_in_t));` → 크기 다를 수 있음
+- 위험: **부분 초기화** — `memset(&xxx_dt, 0, 5);` 처럼 `sizeof` 대신 **상수(magic number)**를 사용하여 구조체/배열의 일부만 초기화하는 경우 (데이터 오염 위험)
 - 정상: `memset(&xxx_u0010_in, 0, sizeof(xxx_u0010_in));` → 변수 자체 크기 사용
 
 **LOOP_INIT_MISSING** — 루프 내 초기화 누락 (데이터 누적)
 - 위험: while루프에서 INIT2VCHAR가 주석 처리됨 → 이전 반복 데이터가 잔류
-- 정상: 매 반복 시작 시 INIT2VCHAR 또는 memset으로 구조체 초기화
+- 위험: **루프 변수 재초기화 누락** — 다건 페치 루프(`ix < curcnt`) 내부에서 출력 매핑 시 인덱스 변수(`ix`)를 0으로 재초기화(`ix = 0`)하지 않아 이전 배치 데이터가 덮어씌워지지 않거나 유실되는 경우
+- 정상: 매 반복 시작 시 INIT2VCHAR 또는 memset으로 구조체 초기화, 루프 제어 변수 초기화 확인
 
 **FCLOSE_MISSING** — fopen/fclose 짝 불일치 (파일 핸들 릭)
 - 위험: fopen 후 fclose 없음 → 장시간 배치 시 "Too many open files"
