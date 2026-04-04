@@ -174,8 +174,8 @@ class OrchestratorAgent(BaseAgent):
         )
 
         # 분석 요약에 전체 파이프라인 시간 주입
-        if analysis_stats:
-            analysis_stats["analysis_time_seconds"] = round(pipeline_elapsed, 2)
+        for stats in analysis_stats:
+            stats["analysis_time_seconds"] = round(pipeline_elapsed, 2)
 
         return {
             "session_id": self.session_id,
@@ -328,13 +328,23 @@ class OrchestratorAgent(BaseAgent):
         total_issues = sum(len(r.get("issues", [])) for r in analysis_results)
         logger.info(f"Phase 2 완료: {total_tasks}개 파일, {total_issues}개 이슈")
 
-        # ProC 분석 메트릭 수집
-        analysis_stats: dict[str, Any] = {}
-        proc_analyzer = self._analyzers.get("proc")
-        if proc_analyzer is not None and hasattr(proc_analyzer, "_stats"):
-            analysis_stats = dict(proc_analyzer._stats)
+        # 언어별 분석 메트릭 수집
+        all_analysis_stats: list[dict[str, Any]] = []
+        _LANGUAGE_LABELS = {
+            "proc": "Pro*C",
+            "c": "C",
+            "sql": "SQL",
+            "xml": "XML",
+            "javascript": "JavaScript",
+        }
+        for lang, analyzer in self._analyzers.items():
+            raw = getattr(analyzer, "_stats", None)
+            if isinstance(raw, dict) and raw:
+                stats = dict(raw)
+                stats["language"] = _LANGUAGE_LABELS.get(lang, lang)
+                all_analysis_stats.append(stats)
 
-        return analysis_results, total_lines, analysis_stats
+        return analysis_results, total_lines, all_analysis_stats
 
     async def _run_phase3(
         self,

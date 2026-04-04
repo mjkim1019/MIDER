@@ -351,18 +351,39 @@ def _format_duration(seconds: float) -> str:
 
 def print_analysis_stats(
     console: Console,
+    stats: dict[str, Any] | list[dict[str, Any]],
+) -> None:
+    """분석 요약 메트릭을 출력한다.
+
+    Args:
+        console: Rich Console 인스턴스
+        stats: 단일 stats dict 또는 언어별 stats 리스트
+    """
+    # 하위 호환: dict → 리스트로 변환
+    if isinstance(stats, dict):
+        stats_list = [stats] if stats else []
+    else:
+        stats_list = stats
+
+    for s in stats_list:
+        if not s or not s.get("delivery_mode"):
+            continue
+        _print_single_stats(console, s)
+
+
+def _print_single_stats(
+    console: Console,
     stats: dict[str, Any],
 ) -> None:
-    """분석 요약 메트릭을 출력한다."""
-    if not stats or not stats.get("delivery_mode"):
-        return
-
+    """단일 언어의 분석 요약 메트릭을 출력한다."""
     mode = stats["delivery_mode"]
     total_time = stats.get("analysis_time_seconds", 0.0)
     total_tokens = stats.get("total_tokens", 0)
     total_lines = stats.get("total_lines", 0)
+    language = stats.get("language", "")
 
-    console.print("\n[bold]분석 요약[/]")
+    header = f"\n[bold]{language} 분석 요약[/]" if language else "\n[bold]분석 요약[/]"
+    console.print(header)
     console.print(f"  모드: {mode}")
     console.print(f"  총 분석시간: {_format_duration(total_time)}")
 
@@ -472,7 +493,7 @@ async def run_analysis(
     write_output_files(output_dir, result, files)
     print_issues(console, issue_list)
     print_summary(console, result.get("summary", {}), output_dir, files)
-    print_analysis_stats(console, result.get("analysis_stats", {}))
+    print_analysis_stats(console, result.get("analysis_stats", []))
 
     return determine_exit_code(result)
 

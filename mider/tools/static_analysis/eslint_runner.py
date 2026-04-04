@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 _PACKAGE_DIR = Path(__file__).parent.parent.parent  # mider/
 _DEFAULT_CONFIG = _PACKAGE_DIR / "resources" / "lint-configs" / ".eslintrc.json"
 _DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "node"
+_BINARIES_DIR = _PACKAGE_DIR / "resources" / "binaries"
 
 # ESLint 실행 타임아웃 (초)
 _TIMEOUT_SECONDS = 60
@@ -98,6 +99,8 @@ class ESLintRunner(BaseTool):
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=_TIMEOUT_SECONDS,
             )
         except FileNotFoundError:
@@ -117,9 +120,10 @@ class ESLintRunner(BaseTool):
         """ESLint 실행 파일 경로를 찾는다."""
         # node_modules 내 eslint CLI
         candidates = [
-            self._binary.parent / "node_modules" / ".bin" / "eslint",
-            self._binary.parent / "eslint" / "bin" / "eslint.js",
-            _PACKAGE_DIR / "resources" / "binaries" / "eslint",
+            # .js 엔트리포인트 우선 (node로 직접 실행 가능)
+            _BINARIES_DIR / "node_modules" / "eslint" / "bin" / "eslint.js",
+            self._binary.parent / "node_modules" / "eslint" / "bin" / "eslint.js",
+            _BINARIES_DIR / "eslint",
         ]
         for candidate in candidates:
             if candidate.exists():

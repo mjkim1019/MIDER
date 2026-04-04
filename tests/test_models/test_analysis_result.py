@@ -67,20 +67,21 @@ class TestIssue:
         assert issue.issue_id == "C-001"
         assert issue.source == "hybrid"
 
-    def test_invalid_category(self):
-        with pytest.raises(ValidationError):
-            Issue(
-                issue_id="X-001",
-                category="invalid_category",  # type: ignore[arg-type]
-                severity="low",
-                title="test",
-                description="test",
-                location=Location(
-                    file="/a", line_start=1, line_end=1
-                ),
-                fix=CodeFix(before="a", after="b", description="c"),
-                source="llm",
-            )
+    def test_invalid_category_fallback(self):
+        """허용 목록 밖의 category는 code_quality로 폴백된다."""
+        issue = Issue(
+            issue_id="X-001",
+            category="invalid_category",  # type: ignore[arg-type]
+            severity="low",
+            title="test",
+            description="test",
+            location=Location(
+                file="/a", line_start=1, line_end=1
+            ),
+            fix=CodeFix(before="a", after="b", description="c"),
+            source="llm",
+        )
+        assert issue.category == "code_quality"
 
     def test_invalid_severity(self):
         with pytest.raises(ValidationError):

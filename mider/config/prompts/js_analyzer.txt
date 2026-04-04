@@ -9,6 +9,9 @@
 ## ESLint 정적분석 결과
 {eslint_results}
 
+## Heuristic Scanner 결과
+{scanner_findings}
+
 ## 파일 컨텍스트
 {file_context}
 
