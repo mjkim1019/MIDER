@@ -67,3 +67,37 @@ class TestFileReader:
         result = self.reader.execute(path=str(f))
         assert result.success is True
         assert "#include <stdio.h>" in result.data["content"]
+
+    def test_read_cp949_file(self, tmp_path):
+        f = tmp_path / "legacy.pc"
+        content = "한글 주석\nEXEC SQL SELECT 1;\n확장문자 ①㈜"
+        f.write_text(content, encoding="cp949")
+
+        result = self.reader.execute(path=str(f))
+
+        assert result.success is True
+        assert result.data["content"] == content
+        assert result.data["encoding"] == "cp949"
+
+    def test_read_utf8_bom_file(self, tmp_path):
+        f = tmp_path / "bom.pc"
+        content = "EXEC SQL INCLUDE sqlca;\n"
+        f.write_text(content, encoding="utf-8-sig")
+
+        result = self.reader.execute(path=str(f))
+
+        assert result.success is True
+        assert result.data["content"] == content
+        assert result.data["encoding"] == "utf-8-sig"
+
+    def test_read_malformed_legacy_file_with_replace(self, tmp_path):
+        f = tmp_path / "broken.pc"
+        raw = b"EXEC SQL SELECT 1;\\ncomment '" + bytes([0x87, 0x3F]) + " test".encode("ascii")
+        f.write_bytes(raw)
+
+        result = self.reader.execute(path=str(f))
+
+        assert result.success is True
+        assert "EXEC SQL SELECT 1;" in result.data["content"]
+        assert "\ufffd" in result.data["content"]
+        assert result.data["encoding"] == "cp949-replace"

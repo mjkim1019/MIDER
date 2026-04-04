@@ -21,6 +21,7 @@ from mider.tools.utility.token_optimizer import (
     classify_proc_functions,
     extract_proc_global_context,
     find_function_boundaries,
+    group_dispatch_functions,
 )
 
 
@@ -127,6 +128,81 @@ class TestClassifyProcFunctions:
         z_names = {name for g in r["utility_groups"] for name in g}
         assert "z00_print" in z_names
         assert "z99_error" in z_names
+
+
+    def test_dispatch_groups_returned(self):
+        """classify 결과에 dispatch_groups가 포함되어야 한다."""
+        code = "\n".join(
+            f"void work_proc{i}() {{\n  return;\n}}\n"
+            for i in range(1, 6)
+        )
+        r = _classify(code)
+        assert "dispatch_groups" in r
+        # 5개 함수(각 3줄) → 15줄, 1000줄 미만이므로 1그룹
+        assert len(r["dispatch_groups"]) == 1
+        assert len(r["dispatch_groups"][0]) == 5
+
+
+# ──────────────────────────────────────────────
+# group_dispatch_functions
+# ──────────────────────────────────────────────
+
+
+class TestGroupDispatchFunctions:
+    """줄 수 기반 dispatch 그룹핑 테스트."""
+
+    def test_small_functions_single_group(self):
+        """모든 함수가 hard_cap 이내면 1그룹."""
+        boundaries = [(1, 100), (101, 200), (201, 300)]
+        func_names = {1: "f1", 101: "f2", 201: "f3"}
+        groups = group_dispatch_functions(
+            ["f1", "f2", "f3"], boundaries, func_names,
+        )
+        assert len(groups) == 1
+        assert groups[0] == ["f1", "f2", "f3"]
+
+    def test_split_at_hard_cap(self):
+        """hard_cap(1200줄) 초과 시 그룹 분리."""
+        # f1=300, f2=500, f3=600, f4=500
+        boundaries = [(1, 300), (301, 800), (801, 1400), (1401, 1900)]
+        func_names = {1: "f1", 301: "f2", 801: "f3", 1401: "f4"}
+        groups = group_dispatch_functions(
+            ["f1", "f2", "f3", "f4"], boundaries, func_names,
+        )
+        # f1+f2=800, +f3=1400>1200 → 그룹1=[f1,f2], 그룹2=[f3,f4]=1100
+        assert len(groups) == 2
+        assert groups[0] == ["f1", "f2"]
+        assert groups[1] == ["f3", "f4"]
+
+    def test_single_oversized_function(self):
+        """1500줄 함수 → 단독 그룹."""
+        boundaries = [(1, 300), (301, 1800), (1801, 2300)]
+        func_names = {1: "f1", 301: "f2", 1801: "f3"}
+        groups = group_dispatch_functions(
+            ["f1", "f2", "f3"], boundaries, func_names,
+        )
+        # f1=300, f2=1500(단독), f3=500
+        # f1 시작 → +f2: 300+1500=1800>1200 → 그룹1=[f1], 그룹2=[f2](단독), 그룹3=[f3]
+        assert len(groups) == 3
+        assert groups[0] == ["f1"]
+        assert groups[1] == ["f2"]
+        assert groups[2] == ["f3"]
+
+    def test_greedy_packing(self):
+        """1200줄 이내라면 최대한 묶기."""
+        # f1=450, f2=420, f3=160, f4=130 → 합계 1160 ≤ 1200
+        boundaries = [(1, 450), (451, 870), (871, 1030), (1031, 1160)]
+        func_names = {1: "f1", 451: "f2", 871: "f3", 1031: "f4"}
+        groups = group_dispatch_functions(
+            ["f1", "f2", "f3", "f4"], boundaries, func_names,
+        )
+        assert len(groups) == 1
+        assert groups[0] == ["f1", "f2", "f3", "f4"]
+
+    def test_empty_input(self):
+        """빈 입력 → 빈 결과."""
+        groups = group_dispatch_functions([], [], {})
+        assert groups == []
 
 
 # ──────────────────────────────────────────────

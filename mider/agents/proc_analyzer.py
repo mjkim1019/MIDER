@@ -25,6 +25,7 @@ from mider.config.settings_loader import (
     get_agent_model,
     get_agent_temperature,
     get_mini_model,
+    get_proc_grouping_config,
 )
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
@@ -44,7 +45,9 @@ from mider.tools.utility.token_optimizer import (
 logger = logging.getLogger(__name__)
 
 # 병렬 LLM 호출 동시성 제한
-_MAX_CONCURRENT_LLM = 3
+_MAX_CONCURRENT_LLM = 5
+# 그룹 간 요청 간격 (초) — rate limit 완화용 stagger
+_GROUP_STAGGER_SECONDS = 3.0
 
 # 토큰 한계 (128K에서 프롬프트+응답 여유분 확보)
 _TOKEN_LIMIT = 100_000
@@ -87,6 +90,7 @@ class ProCAnalyzerAgent(BaseAgent):
         self._sql_extractor = SQLExtractor()
         self._heuristic_scanner = ProCHeuristicScanner()
         self._c_scanner = CHeuristicScanner()
+        self._stats: dict[str, Any] = {}
 
     async def run(
         self,
@@ -164,6 +168,13 @@ class ProCAnalyzerAgent(BaseAgent):
 
             # ── 코드 전달 분기 ──
             mode = self._decide_delivery_mode(file_content)
+            self._stats = {
+                "delivery_mode": mode,
+                "total_lines": line_count,
+                "total_tokens": 0,
+                "total_groups": 0,
+                "group_stats": [],
+            }
 
             common_kwargs = dict(
                 file=file,
@@ -198,6 +209,12 @@ class ProCAnalyzerAgent(BaseAgent):
                     func_names=func_names,
                 )
 
+            # ── source 필드 보정 ──
+            _VALID_SOURCES = {"static_analysis", "llm", "hybrid"}
+            for issue in issues:
+                if issue.get("source") not in _VALID_SOURCES:
+                    issue["source"] = "llm"
+
             # ── 결과 생성 ──
             elapsed = time.time() - start_time
             result = AnalysisResult.model_validate({
@@ -207,7 +224,7 @@ class ProCAnalyzerAgent(BaseAgent):
                 "agent": "ProCAnalyzerAgent",
                 "issues": issues,
                 "analysis_time_seconds": round(elapsed, 2),
-                "llm_tokens_used": 0,
+                "llm_tokens_used": self._stats.get("total_tokens", 0),
             })
 
             logger.info(
@@ -368,18 +385,24 @@ class ProCAnalyzerAgent(BaseAgent):
             scanner_findings=scanner_findings,
         )
 
+        system_content = (
+            "당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다. "
+            "반드시 JSON 형식으로 응답하세요."
+        )
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다. "
-                    "반드시 JSON 형식으로 응답하세요."
-                ),
-            },
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt},
         ]
 
         response = await self.call_llm(messages, json_mode=True)
+
+        # 토큰 추정 (입력 + 출력)
+        self._stats["total_tokens"] = (
+            self._estimate_tokens(system_content)
+            + self._estimate_tokens(prompt)
+            + self._estimate_tokens(response)
+        )
+
         try:
             llm_result = json.loads(response)
         except (json.JSONDecodeError, TypeError):
@@ -410,35 +433,51 @@ class ProCAnalyzerAgent(BaseAgent):
         filename = Path(file).name
         lines = file_content.splitlines()
 
+        _target, hard_cap = get_proc_grouping_config()
         classification = classify_proc_functions(
             file_content, boundaries, func_names,
+            hard_cap_lines=hard_cap,
         )
+        dispatch_groups = classification["dispatch_groups"]
         logger.info(
             f"ProC [{filename}] 그룹핑: "
             f"boilerplate={len(classification['boilerplate'])}, "
-            f"계층={len(classification['hierarchical_groups'])}그룹, "
-            f"디스패치={len(classification['dispatch'])}, "
+            f"디스패치={len(dispatch_groups)}그룹({len(classification['dispatch'])}함수), "
             f"유틸={len(classification['utility_groups'])}그룹"
         )
 
         # 그룹 목록 생성
         groups: list[dict[str, Any]] = []
 
-        # 계층형 그룹
-        for hier_group in classification["hierarchical_groups"]:
-            code = self._extract_group_code(lines, hier_group, boundaries, func_names)
-            groups.append({"label": f"계층({'+'.join(hier_group[:3])}...)", "code": code})
-
-        # 디스패치형 개별
-        for func_name in classification["dispatch"]:
-            code = self._extract_func_code(lines, func_name, boundaries, func_names)
-            if code:
-                groups.append({"label": func_name, "code": code})
+        # 디스패치 그룹 (줄 수 기반 묶음)
+        for dg in dispatch_groups:
+            code = self._extract_group_code(lines, dg, boundaries, func_names)
+            grp_ranges = self._get_group_line_ranges(dg, boundaries, func_names)
+            lc = sum(e - s + 1 for s, e in grp_ranges)
+            if len(dg) == 1:
+                label = dg[0]
+            else:
+                preview = "+".join(dg[:3])
+                label = f"dispatch({preview}{'...' if len(dg) > 3 else ''})"
+            groups.append({
+                "label": label,
+                "code": code,
+                "func_names_list": dg,
+                "line_ranges": grp_ranges,
+                "line_count": lc,
+            })
 
         # 유틸 그룹
         for util_group in classification["utility_groups"]:
             code = self._extract_group_code(lines, util_group, boundaries, func_names)
-            groups.append({"label": f"유틸({'+'.join(util_group[:3])}...)", "code": code})
+            grp_ranges = self._get_group_line_ranges(util_group, boundaries, func_names)
+            groups.append({
+                "label": f"유틸({'+'.join(util_group[:3])}...)",
+                "code": code,
+                "func_names_list": util_group,
+                "line_ranges": grp_ranges,
+                "line_count": sum(e - s + 1 for s, e in grp_ranges),
+            })
 
         if not groups:
             # 분류 실패 시 전체 코드 fallback
@@ -464,39 +503,144 @@ class ProCAnalyzerAgent(BaseAgent):
         async def _analyze_group(idx: int, group: dict) -> list[dict]:
             nonlocal done_count, next_milestone
             async with sem:
+                group_start = time.time()
+                # 그룹별 컨텍스트 필터링
+                grp_ranges = group["line_ranges"]
+                grp_fnames = group["func_names_list"]
+
+                filtered_proc_errors = self._filter_by_line_ranges(
+                    proc_errors, grp_ranges,
+                )
+                filtered_sql_blocks = self._filter_sql_blocks_by_group(
+                    sql_blocks, grp_fnames, grp_ranges,
+                )
+                filtered_scanner = self._filter_by_line_ranges(
+                    scanner_findings or [], grp_ranges,
+                )
+                filtered_cursor = self._filter_cursor_map(
+                    cursor_map, grp_fnames,
+                )
+                filtered_risky = self._filter_risky_annotation(
+                    risky_annotation, grp_fnames,
+                )
+
+                line_count = group["line_count"]
+
+                # ● 그룹 시작 로그 (verbose: rl.step, 항상: logger.info)
                 self.rl.step(
                     f"그룹 [{idx}/{total_groups}] "
-                    f"[sky_blue2]{group['label']}[/sky_blue2] 분석"
+                    f"[sky_blue2]{group['label']}[/sky_blue2] "
+                    f"({line_count}줄) | "
+                    f"필터링: proc_errors {len(proc_errors)}→{len(filtered_proc_errors)}, "
+                    f"sql_blocks {len(sql_blocks)}→{len(filtered_sql_blocks)}, "
+                    f"scanner {len(scanner_findings or [])}→{len(filtered_scanner)}"
                 )
+                logger.info(
+                    f"그룹 [{idx}/{total_groups}] {group['label']} "
+                    f"({line_count}줄)"
+                )
+
                 prompt = self._build_unified_prompt(
                     file=file,
                     code=group["code"],
                     global_context=global_context,
-                    cursor_map=cursor_map,
-                    risky_annotation=risky_annotation,
-                    proc_errors=proc_errors,
-                    sql_blocks=sql_blocks,
-                    scanner_findings=scanner_findings,
+                    cursor_map=filtered_cursor,
+                    risky_annotation=filtered_risky,
+                    proc_errors=filtered_proc_errors,
+                    sql_blocks=filtered_sql_blocks,
+                    scanner_findings=filtered_scanner,
                 )
 
+                system_content = (
+                    "당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다. "
+                    "반드시 JSON 형식으로 응답하세요."
+                )
                 messages = [
-                    {
-                        "role": "system",
-                        "content": (
-                            "당신은 Oracle Pro*C 프리컴파일러 및 임베디드 SQL 분석 전문가입니다. "
-                            "반드시 JSON 형식으로 응답하세요."
-                        ),
-                    },
+                    {"role": "system", "content": system_content},
                     {"role": "user", "content": prompt},
                 ]
 
+                # ── 토큰 비율 분석 (1 token ≈ 3 chars, 한글+코드 혼합) ──
+                est = self._estimate_tokens
+                code_tokens = est(group["code"])
+                system_tokens = est(system_content)
+                user_prompt_tokens = est(prompt)
+                total_tokens = system_tokens + user_prompt_tokens
+
+                global_ctx_tokens = est(global_context)
+                cursor_tokens = est(filtered_cursor)
+                risky_tokens = est(filtered_risky)
+                pe_str = json.dumps(
+                    filtered_proc_errors or [], ensure_ascii=False, indent=2,
+                ) if filtered_proc_errors else "(없음)"
+                sql_str = json.dumps(
+                    filtered_sql_blocks, ensure_ascii=False, indent=2,
+                )
+                sc_str = json.dumps(
+                    filtered_scanner or [], ensure_ascii=False, indent=2,
+                ) if filtered_scanner else "(없음)"
+                findings_tokens = est(pe_str) + est(sql_str) + est(sc_str)
+                template_tokens = max(
+                    0,
+                    total_tokens - code_tokens - global_ctx_tokens
+                    - cursor_tokens - risky_tokens - findings_tokens,
+                )
+
+                code_pct = (code_tokens / total_tokens * 100) if total_tokens else 0
+                non_code = total_tokens - code_tokens
+                non_code_pct = 100.0 - code_pct
+
+                self.rl.scan(
+                    f"└ 입력 비율: 총 {total_tokens:,} tokens | "
+                    f"소스코드 {code_tokens:,} ({code_pct:.1f}%) | "
+                    f"비소스 {non_code:,} ({non_code_pct:.1f}%)"
+                )
+                # 세부 내역
+                def _pct(t: int) -> str:
+                    return f"{t / total_tokens * 100:5.1f}" if total_tokens else "  0.0"
+
+                self.rl.scan(
+                    f"   소스코드(code)                {code_tokens:>7,} ({_pct(code_tokens)}%)"
+                )
+                self.rl.scan(
+                    f"   시스템/프롬프트 템플릿        {template_tokens:>7,} ({_pct(template_tokens)}%)"
+                )
+                self.rl.scan(
+                    f"   global_context                {global_ctx_tokens:>7,} ({_pct(global_ctx_tokens)}%)"
+                )
+                self.rl.scan(
+                    f"   cursor_map                    {cursor_tokens:>7,} ({_pct(cursor_tokens)}%)"
+                )
+                self.rl.scan(
+                    f"   risky_annotation              {risky_tokens:>7,} ({_pct(risky_tokens)}%)"
+                )
+                self.rl.scan(
+                    f"   proc_errors/sql_blocks/scanner{findings_tokens:>7,} ({_pct(findings_tokens)}%)"
+                )
+
                 response = await self.call_llm(messages, json_mode=True)
+
+                # 그룹별 메트릭 수집
+                output_tokens = self._estimate_tokens(response)
+                group_total_tokens = total_tokens + output_tokens
+                group_elapsed = time.time() - group_start
+                logger.debug(
+                    f"[{idx}/{total_groups}] LLM 응답 수신: "
+                    f"{group['label']} ({line_count}줄), "
+                    f"tokens≈{group_total_tokens:,}, {group_elapsed:.1f}초"
+                )
+
                 try:
                     llm_result = json.loads(response)
                 except (json.JSONDecodeError, TypeError):
                     llm_result = {"issues": []}
 
                 async with progress_lock:
+                    self._stats["group_stats"].append({
+                        "tokens": group_total_tokens,
+                        "lines": line_count,
+                        "elapsed_seconds": round(group_elapsed, 2),
+                    })
                     done_count += 1
                     pct = (done_count * 100) // total_groups
                     while pct >= next_milestone:
@@ -510,11 +654,18 @@ class ProCAnalyzerAgent(BaseAgent):
                     return []
                 return llm_result.get("issues", [])
 
-        tasks = [
-            _analyze_group(i + 1, group)
-            for i, group in enumerate(groups)
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # staggered launch: 각 그룹을 _GROUP_STAGGER_SECONDS 간격으로 시작
+        async def _staggered_launch() -> list[asyncio.Task]:
+            launched: list[asyncio.Task] = []
+            for i, group in enumerate(groups):
+                task = asyncio.create_task(_analyze_group(i + 1, group))
+                launched.append(task)
+                if i < len(groups) - 1:
+                    await asyncio.sleep(_GROUP_STAGGER_SECONDS)
+            return launched
+
+        launched_tasks = await _staggered_launch()
+        results = await asyncio.gather(*launched_tasks, return_exceptions=True)
 
         all_issues: list[dict[str, Any]] = []
         for result in results:
@@ -526,6 +677,12 @@ class ProCAnalyzerAgent(BaseAgent):
         # issue_id 재번호
         for i, issue in enumerate(all_issues):
             issue["issue_id"] = f"PC-{i + 1:03d}"
+
+        # 메트릭 집계
+        self._stats["total_groups"] = total_groups
+        self._stats["total_tokens"] = sum(
+            g["tokens"] for g in self._stats["group_stats"]
+        )
 
         logger.info(
             f"ProC [{filename}] 그룹핑 완료: {len(all_issues)}개 이슈 "
@@ -611,6 +768,109 @@ class ProCAnalyzerAgent(BaseAgent):
         except Exception as e:
             logger.warning(f"C Heuristic Scanner 실패: {e}")
             return []
+
+    # ──────────────────────────────────────────────
+    # 토큰 추정 / 그룹 유틸
+    # ──────────────────────────────────────────────
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """토큰 수를 추정한다 (1 token ≈ 3 chars, 한글+코드 혼합 기준)."""
+        return max(1, len(text) // 3) if text else 0
+
+    @staticmethod
+    def _count_group_lines(
+        group_func_names: list[str],
+        boundaries: list[tuple[int, int]],
+        func_names: dict[int, str],
+    ) -> int:
+        """그룹 함수들의 총 줄 수를 반환한다."""
+        name_set = set(group_func_names)
+        return sum(
+            end - start + 1
+            for start, end in boundaries
+            if func_names.get(start) in name_set
+        )
+
+    # ──────────────────────────────────────────────
+    # 그룹별 컨텍스트 필터링
+    # ──────────────────────────────────────────────
+
+    @staticmethod
+    def _get_group_line_ranges(
+        group_func_names: list[str],
+        boundaries: list[tuple[int, int]],
+        func_names: dict[int, str],
+    ) -> list[tuple[int, int]]:
+        """그룹 함수들의 (start, end) 라인 범위 리스트를 반환한다."""
+        name_set = set(group_func_names)
+        return [
+            (start, end)
+            for start, end in boundaries
+            if func_names.get(start) in name_set
+        ]
+
+    @staticmethod
+    def _filter_by_line_ranges(
+        items: list[dict[str, Any]],
+        line_ranges: list[tuple[int, int]],
+        line_key: str = "line",
+    ) -> list[dict[str, Any]]:
+        """항목의 라인 번호가 그룹 범위에 속하는 것만 필터링한다."""
+        filtered: list[dict[str, Any]] = []
+        for item in items:
+            line = item.get(line_key, 0)
+            if any(start <= line <= end for start, end in line_ranges):
+                filtered.append(item)
+        return filtered
+
+    @staticmethod
+    def _filter_sql_blocks_by_group(
+        sql_blocks: list[dict[str, Any]],
+        group_func_names: list[str],
+        line_ranges: list[tuple[int, int]],
+    ) -> list[dict[str, Any]]:
+        """SQL 블록을 함수명 또는 라인 범위로 필터링한다."""
+        name_set = set(group_func_names)
+        filtered: list[dict[str, Any]] = []
+        for block in sql_blocks:
+            func = block.get("function", "")
+            line = block.get("line", 0)
+            if func in name_set:
+                filtered.append(block)
+            elif any(start <= line <= end for start, end in line_ranges):
+                filtered.append(block)
+        return filtered
+
+    @staticmethod
+    def _filter_cursor_map(
+        cursor_map: str,
+        group_func_names: list[str],
+    ) -> str:
+        """그룹 함수에서 사용하는 커서만 필터링한다."""
+        if not cursor_map:
+            return cursor_map
+        name_set = set(group_func_names)
+        filtered_lines: list[str] = []
+        for line in cursor_map.splitlines():
+            if any(fn in line for fn in name_set):
+                filtered_lines.append(line)
+        return "\n".join(filtered_lines) if filtered_lines else cursor_map
+
+    @staticmethod
+    def _filter_risky_annotation(
+        risky_annotation: str,
+        group_func_names: list[str],
+    ) -> str:
+        """그룹 함수에 해당하는 위험 annotation만 필터링한다."""
+        if not risky_annotation:
+            return risky_annotation
+        name_set = set(group_func_names)
+        filtered_lines: list[str] = []
+        for line in risky_annotation.splitlines():
+            if any(fn in line for fn in name_set):
+                filtered_lines.append(line)
+        return "\n".join(filtered_lines) if filtered_lines else risky_annotation
 
     # ──────────────────────────────────────────────
     # 유틸리티

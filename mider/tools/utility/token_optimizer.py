@@ -490,13 +490,14 @@ def classify_proc_functions(
     file_content: str,
     boundaries: list[tuple[int, int]],
     func_names: dict[int, str],
+    *,
+    hard_cap_lines: int = 1200,
 ) -> dict[str, list]:
     """ProC 함수를 패턴별로 분류한다.
 
     분류 규칙:
     - boilerplate: main, *_init_proc, *_exit_proc, 모듈명 함수
-    - hierarchical_groups: 숫자 접두사 형제 (b10+b20+b30)
-    - dispatch: 동일 접두사+번호 함수 (work_proc1~11)
+    - dispatch: 숫자 접두사 함수 + 동일 접두사+번호 함수 → 줄 수 기반 그룹핑
     - utility_groups: z/s/rep 접두사별 그룹
 
     Args:
@@ -507,8 +508,8 @@ def classify_proc_functions(
     Returns:
         {
             "boilerplate": [func_name, ...],
-            "hierarchical_groups": [[func_name, ...], ...],
             "dispatch": [func_name, ...],
+            "dispatch_groups": [[func_name, ...], ...],
             "utility_groups": [[func_name, ...], ...],
         }
     """
@@ -516,7 +517,6 @@ def classify_proc_functions(
 
     boilerplate: list[str] = []
     utility: dict[str, list[str]] = {}  # prefix → [func_names]
-    hierarchical: dict[str, list[str]] = {}  # prefix_digit → [func_names]
     dispatch: list[str] = []
     remaining: list[str] = []
 
@@ -537,18 +537,16 @@ def classify_proc_functions(
             boilerplate.append(name)
             continue
 
-        # 2. 숫자 접두사 계층형 (a00, b10, c100, z99 등)
+        # 2. 숫자 접두사 (a00, b10, c100, z99 등)
         m = num_prefix_pat.match(lower)
         if m:
             letter = m.group(1)
-            digits = m.group(2)
             if letter in ("z", "s"):
                 # z/s 계열은 유틸 그룹
                 utility.setdefault(letter, []).append(name)
             else:
-                # 계층형: 첫 자리 기준으로 그룹 (b00, b10, b20 → "b0" 그룹)
-                group_key = f"{letter}{digits[0]}"
-                hierarchical.setdefault(group_key, []).append(name)
+                # 계층형이었던 함수들 → dispatch로 통합
+                dispatch.append(name)
             continue
 
         # 3. rep_ 접두사 → 유틸
@@ -581,14 +579,6 @@ def classify_proc_functions(
     # non_dispatch도 개별 분석
     dispatch.extend(non_dispatch)
 
-    # hierarchical_groups: 단일 함수 그룹은 dispatch로 이동
-    hierarchical_groups: list[list[str]] = []
-    for _key, funcs in sorted(hierarchical.items()):
-        if len(funcs) >= 2:
-            hierarchical_groups.append(funcs)
-        else:
-            dispatch.extend(funcs)
-
     # utility_groups: 단일 함수 그룹은 dispatch로 이동
     utility_groups: list[list[str]] = []
     for _key, funcs in sorted(utility.items()):
@@ -597,12 +587,89 @@ def classify_proc_functions(
         else:
             dispatch.extend(funcs)
 
+    # dispatch를 줄 수 기반 그룹으로 묶기
+    dispatch_groups = group_dispatch_functions(
+        dispatch, boundaries, func_names,
+        hard_cap=hard_cap_lines,
+    )
+
     return {
         "boilerplate": boilerplate,
-        "hierarchical_groups": hierarchical_groups,
         "dispatch": dispatch,
+        "dispatch_groups": dispatch_groups,
         "utility_groups": utility_groups,
     }
+
+
+# ──────────────────────────────────────────────
+# dispatch 줄 수 기반 그룹핑
+# ──────────────────────────────────────────────
+
+_DISPATCH_GROUP_HARD_CAP = 1200  # 기본 허용 상한 (settings.yaml로 오버라이드 가능)
+
+
+def group_dispatch_functions(
+    dispatch_names: list[str],
+    boundaries: list[tuple[int, int]],
+    func_names: dict[int, str],
+    *,
+    hard_cap: int = _DISPATCH_GROUP_HARD_CAP,
+) -> list[list[str]]:
+    """dispatch 함수들을 줄 수 기준으로 큰 그룹으로 묶는다.
+
+    정책:
+    - 함수를 원래 순서대로 순회하면서 그룹에 추가
+    - 현재 그룹 + 다음 함수 ≤ hard_cap → 추가
+    - 현재 그룹 + 다음 함수 > hard_cap → 현재 그룹 확정, 새 그룹 시작
+    - 단독으로 hard_cap 초과 함수 → 단독 그룹
+
+    Args:
+        dispatch_names: dispatch로 분류된 함수명 리스트
+        boundaries: 함수 경계 리스트 [(start, end), ...]
+        func_names: {start_line: func_name}
+        hard_cap: 그룹 허용 상한 줄 수 (기본 1200)
+
+    Returns:
+        [[func_name, ...], ...] 그룹 리스트
+    """
+    if not dispatch_names:
+        return []
+
+    # 함수별 줄 수 맵 (원래 순서 유지)
+    func_line_counts: dict[str, int] = {}
+    for start, end in boundaries:
+        name = func_names.get(start)
+        if name and name in set(dispatch_names):
+            func_line_counts[name] = end - start + 1
+
+    # 원래 순서 유지하면서 그룹핑
+    groups: list[list[str]] = []
+    current_group: list[str] = []
+    current_lines = 0
+
+    for name in dispatch_names:
+        func_lines = func_line_counts.get(name, 0)
+        if func_lines == 0:
+            continue
+
+        if not current_group:
+            # 새 그룹 시작
+            current_group.append(name)
+            current_lines = func_lines
+        elif current_lines + func_lines <= hard_cap:
+            # 상한 이내 → 추가
+            current_group.append(name)
+            current_lines += func_lines
+        else:
+            # 상한 초과 → 현재 그룹 확정, 새 그룹 시작
+            groups.append(current_group)
+            current_group = [name]
+            current_lines = func_lines
+
+    if current_group:
+        groups.append(current_group)
+
+    return groups
 
 
 def extract_proc_global_context(file_content: str) -> str:

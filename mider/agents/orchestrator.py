@@ -151,7 +151,7 @@ class OrchestratorAgent(BaseAgent):
         file_context = await self._run_phase1(execution_plan)
 
         # Phase 2: Sequential Analysis
-        analysis_results, total_lines = await self._run_phase2(
+        analysis_results, total_lines, analysis_stats = await self._run_phase2(
             execution_plan, file_context,
         )
 
@@ -173,6 +173,10 @@ class OrchestratorAgent(BaseAgent):
             f"{total_elapsed:.2f}초 소요"
         )
 
+        # 분석 요약에 전체 파이프라인 시간 주입
+        if analysis_stats:
+            analysis_stats["analysis_time_seconds"] = round(pipeline_elapsed, 2)
+
         return {
             "session_id": self.session_id,
             "execution_plan": execution_plan,
@@ -181,6 +185,7 @@ class OrchestratorAgent(BaseAgent):
             "summary": report["summary"],
             "deployment_checklist": report["deployment_checklist"],
             "errors": file_errors,
+            "analysis_stats": analysis_stats,
         }
 
     # ──────────────────────────────────────────────
@@ -240,11 +245,11 @@ class OrchestratorAgent(BaseAgent):
         self,
         execution_plan: dict[str, Any],
         file_context: dict[str, Any],
-    ) -> tuple[list[dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
         """Phase 2: 언어별 Analyzer 순차 호출.
 
         Returns:
-            (analysis_results, total_lines)
+            (analysis_results, total_lines, analysis_stats)
         """
         sub_tasks = execution_plan.get("sub_tasks", [])
         total_tasks = len(sub_tasks)
@@ -323,7 +328,13 @@ class OrchestratorAgent(BaseAgent):
         total_issues = sum(len(r.get("issues", [])) for r in analysis_results)
         logger.info(f"Phase 2 완료: {total_tasks}개 파일, {total_issues}개 이슈")
 
-        return analysis_results, total_lines
+        # ProC 분석 메트릭 수집
+        analysis_stats: dict[str, Any] = {}
+        proc_analyzer = self._analyzers.get("proc")
+        if proc_analyzer is not None and hasattr(proc_analyzer, "_stats"):
+            analysis_stats = dict(proc_analyzer._stats)
+
+        return analysis_results, total_lines, analysis_stats
 
     async def _run_phase3(
         self,
@@ -684,4 +695,5 @@ class OrchestratorAgent(BaseAgent):
                 "sections": [],
             },
             "errors": errors,
+            "analysis_stats": {},
         }

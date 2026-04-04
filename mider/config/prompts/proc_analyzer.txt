@@ -186,4 +186,5 @@ Scanner 결과가 없더라도 Step 6에서 독립적으로 찾은 이슈는 보
   - memset에서 sizeof(타입명) 사용 — Proframe 표준 관행이며 타입명과 변수 타입이 일치
   - 전역 변수 동시성/스레드 안전성 — Proframe은 프로세스 기반 단일스레드
   - NULL 포인터 검증 누락 — INPUT/NGMHEADER/ctx는 프레임워크가 보장
+  - swgf_snprintf 반환값을 VARCHAR.len에 대입 — swgf_snprintf는 Proframe 래퍼로, 표준 snprintf와 달리 실제 기록된 바이트 수만 반환하므로 버퍼 초과 위험 없음
 - **[중요] fix.before/after에는 원본 코드에 실제로 존재하는 변수명만 사용하세요.**

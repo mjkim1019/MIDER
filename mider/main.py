@@ -312,7 +312,12 @@ def print_summary(
     deployment_risk = risk.get("deployment_risk", "LOW")
     deployment_allowed = risk.get("deployment_allowed", True)
 
-    if deployment_allowed:
+    if deployment_risk == "UNABLE_TO_ANALYZE":
+        console.print(f"\n배포 판정: [yellow bold]분석불가[/] (분석 중 오류 발생)")
+        risk_desc = risk.get("risk_description", "")
+        if risk_desc:
+            console.print(f"  사유: {risk_desc[:200]}")
+    elif deployment_allowed:
         console.print(f"\n배포 판정: [green bold]가능[/] ({deployment_risk})")
     else:
         blocking = risk.get("blocking_issues", [])
@@ -320,7 +325,7 @@ def print_summary(
         if by_severity.get("high", 0) >= 3:
             reason += f", High {by_severity.get('high', 0)}건"
         console.print(
-            f"\n배포 판정: [red bold]불가[/] ({reason})"
+            f"\n배포 판정: [red bold]위험[/] ({reason})"
         )
         if blocking:
             console.print(f"  차단 이슈: {', '.join(blocking[:5])}")
@@ -333,6 +338,53 @@ def print_summary(
     console.print(f"      {prefix}checklist.json")
     console.print(f"      {prefix}summary.json")
     console.print(f"      {prefix}deployment-checklist.json")
+
+
+def _format_duration(seconds: float) -> str:
+    """초 단위 시간을 'N분 N초' 형식으로 변환한다."""
+    if seconds < 60:
+        return f"{seconds:.0f}초"
+    minutes = int(seconds) // 60
+    secs = int(seconds) % 60
+    return f"{minutes}분 {secs}초"
+
+
+def print_analysis_stats(
+    console: Console,
+    stats: dict[str, Any],
+) -> None:
+    """분석 요약 메트릭을 출력한다."""
+    if not stats or not stats.get("delivery_mode"):
+        return
+
+    mode = stats["delivery_mode"]
+    total_time = stats.get("analysis_time_seconds", 0.0)
+    total_tokens = stats.get("total_tokens", 0)
+    total_lines = stats.get("total_lines", 0)
+
+    console.print("\n[bold]분석 요약[/]")
+    console.print(f"  모드: {mode}")
+    console.print(f"  총 분석시간: {_format_duration(total_time)}")
+
+    if mode == "grouped":
+        gs = stats.get("group_stats", [])
+        n = stats.get("total_groups", len(gs))
+        console.print(f"  총 그룹 수: {n}")
+        console.print(f"  총 토큰: {total_tokens:,}")
+        if n > 0 and gs:
+            console.print(f"  그룹당 평균 토큰: {total_tokens // n:,}")
+            times = [g["elapsed_seconds"] for g in gs]
+            avg_time = sum(times) / len(times)
+            console.print(f"  그룹당 평균 분석시간: {_format_duration(avg_time)}")
+            lines_list = [g["lines"] for g in gs]
+            avg_lines = sum(lines_list) // len(lines_list)
+            console.print(f"  그룹당 평균 line 수: {avg_lines}줄")
+            console.print(
+                f"  그룹 line 수 범위: {min(lines_list)}~{max(lines_list)}줄"
+            )
+    else:
+        console.print(f"  총 토큰: {total_tokens:,}")
+        console.print(f"  총 line 수: {total_lines}줄")
 
 
 def write_output_files(
@@ -420,6 +472,7 @@ async def run_analysis(
     write_output_files(output_dir, result, files)
     print_issues(console, issue_list)
     print_summary(console, result.get("summary", {}), output_dir, files)
+    print_analysis_stats(console, result.get("analysis_stats", {}))
 
     return determine_exit_code(result)
 
