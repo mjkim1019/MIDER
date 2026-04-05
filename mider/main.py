@@ -25,6 +25,7 @@ from mider import __version__
 from mider.agents.orchestrator import OrchestratorAgent
 from mider.config.logging_config import setup_logging
 from mider.config.reasoning_logger import ReasoningLogger
+from mider.tools.utility.markdown_report_formatter import format_markdown_report
 
 logger = logging.getLogger(__name__)
 
@@ -50,27 +51,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mider",
         description="Mider - 폐쇄망 소스코드 분석 CLI",
+        formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
         "--files", "-f",
         nargs="+",
         required=True,
-        help="분석할 파일 경로 (1개 이상, glob 지원)",
+        help="분석할 파일 경로 (1개 이상, glob 지원)\n예: mider -f ordsb0100010t01.c zinvbpre01140.pc zord_svc_f101.sql",
     )
     parser.add_argument(
         "--output", "-o",
         default="./output",
-        help="결과 출력 디렉토리 (기본: ./output)",
+        help="결과 출력 디렉토리 (기본: ./output)\n예: mider -f ordsb0100010t01.c -o ./reports",
     )
     parser.add_argument(
         "--model", "-m",
         default=None,
-        help="LLM 모델명 (기본: MIDER_MODEL 환경변수 또는 settings.yaml)",
+        help="사용할 LLM 모델명 (기본: MIDER_MODEL 환경변수 또는 settings.yaml)\n예: mider -f ordsb0100010t01.c -m gpt-5",
     )
     parser.add_argument(
         "--explain-plan", "-e",
         default=None,
-        help="Explain Plan 결과 파일 경로 (SQL 분석 시 사용)",
+        help="Explain Plan 결과 파일 경로 (SQL 분석 시 사용)\n예: mider -f zord_svc_f101.sql -e zord_svc_f101_plan.txt",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -338,6 +340,7 @@ def print_summary(
     console.print(f"      {prefix}checklist.json")
     console.print(f"      {prefix}summary.json")
     console.print(f"      {prefix}deployment-checklist.json")
+    console.print(f"      {prefix}report.md")
 
 
 def _format_duration(seconds: float) -> str:
@@ -433,6 +436,19 @@ def write_output_files(
             encoding="utf-8",
         )
         logger.info(f"출력 파일 생성: {filepath}")
+
+    # Markdown 리포트 생성
+    md_content = format_markdown_report(
+        issue_list=result.get("issue_list", {}),
+        checklist=result.get("checklist", {}),
+        summary=result.get("summary", {}),
+        deployment_checklist=result.get("deployment_checklist", {}),
+        source_files=source_files,
+        json_filenames=list(files_to_write.keys()),
+    )
+    md_filepath = out_path / f"{prefix}report.md"
+    md_filepath.write_text(md_content, encoding="utf-8")
+    logger.info(f"출력 파일 생성: {md_filepath}")
 
 
 def determine_exit_code(result: dict[str, Any]) -> int:
