@@ -360,3 +360,183 @@ class TestCommon:
         assert result.success is True
         assert "content" in result.data
         assert "removed_count" in result.data
+
+
+# ──────────────────────────────────────────────
+# 엣지 케이스 테스트 (버그 수정 검증)
+# ──────────────────────────────────────────────
+
+
+class TestShebang:
+    """Shebang(#!) 처리 테스트."""
+
+    def test_shebang_line_preserved_and_comment_removed(
+        self, remover: CommentRemover
+    ) -> None:
+        """Shebang 줄은 보존되고 이후 주석은 제거된다."""
+        code = "#!/usr/bin/env node\n// Author: Kim (사번:12345)\nvar x = 1;\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "#!/usr/bin/env node" in cleaned
+        assert "Author" not in cleaned
+        assert "var x = 1;" in cleaned
+        assert _removed(result) >= 1
+
+    def test_shebang_only_file(self, remover: CommentRemover) -> None:
+        """Shebang만 있는 파일은 그대로 반환된다."""
+        code = "#!/usr/bin/env node"
+        result = remover.execute(content=code, language="javascript")
+        assert _cleaned(result) == code
+        assert _removed(result) == 0
+
+    def test_shebang_with_block_comment(self, remover: CommentRemover) -> None:
+        """Shebang 이후 블록 주석이 정상 제거된다."""
+        code = "#!/usr/bin/env node\n/* block comment */\nvar x;\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "#!/usr/bin/env node" in cleaned
+        assert "block comment" not in cleaned
+        assert "var x;" in cleaned
+
+    def test_shebang_not_applied_to_c(self, remover: CommentRemover) -> None:
+        """C 언어에서 #!는 Shebang 처리하지 않는다 (정규식 미지원)."""
+        code = "#!invalid\n// comment\nint x;\n"
+        result = remover.execute(content=code, language="c")
+        assert "// comment" not in _cleaned(result)
+        assert _removed(result) >= 1
+
+
+class TestCRLF:
+    """CRLF 줄바꿈 보존 테스트."""
+
+    def test_crlf_preserved_in_js_line_comment(
+        self, remover: CommentRemover
+    ) -> None:
+        """JS 한 줄 주석 제거 시 CRLF가 보존된다."""
+        code = "var x = 1; // comment\r\nvar y = 2;\r\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "// comment" not in cleaned
+        assert cleaned.count("\r\n") == code.count("\r\n")
+
+    def test_crlf_preserved_in_sql_line_comment(
+        self, remover: CommentRemover
+    ) -> None:
+        """SQL 한 줄 주석 제거 시 CRLF가 보존된다."""
+        code = "SELECT 1; -- comment\r\nSELECT 2;\r\n"
+        result = remover.execute(content=code, language="sql")
+        cleaned = _cleaned(result)
+        assert "comment" not in cleaned
+        assert cleaned.count("\r\n") == code.count("\r\n")
+
+    def test_crlf_preserved_in_block_comment(
+        self, remover: CommentRemover
+    ) -> None:
+        """블록 주석 내 CRLF가 보존된다."""
+        code = "/*\r\nblock\r\ncomment\r\n*/\r\nvar x;\r\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "block" not in cleaned
+        assert cleaned.count("\r\n") == code.count("\r\n")
+
+    def test_crlf_preserved_in_xml_comment(
+        self, remover: CommentRemover
+    ) -> None:
+        """XML 주석 내 CRLF가 보존된다."""
+        code = "<!--\r\nxml comment\r\n-->\r\n<root/>\r\n"
+        result = remover.execute(content=code, language="xml")
+        cleaned = _cleaned(result)
+        assert "xml comment" not in cleaned
+        assert cleaned.count("\r\n") == code.count("\r\n")
+
+
+class TestTemplateLiteralNesting:
+    """JS 템플릿 리터럴 ${} 중첩 테스트."""
+
+    def test_nested_template_literal(self, remover: CommentRemover) -> None:
+        """중첩된 템플릿 리터럴 이후 주석이 제거된다."""
+        code = "var s = `outer ${`inner`} rest`;\n// comment\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "outer" in cleaned
+        assert "inner" in cleaned
+        assert "rest" in cleaned
+        assert "// comment" not in cleaned
+
+    def test_template_with_braces_in_expression(
+        self, remover: CommentRemover
+    ) -> None:
+        """템플릿 표현식 내 중괄호({}) 이후 주석이 제거된다."""
+        code = "var s = `val: ${obj.fn({a: 1})} end`;\n// comment\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "val:" in cleaned
+        assert "obj.fn" in cleaned
+        assert "// comment" not in cleaned
+
+    def test_template_with_comment_inside_expression(
+        self, remover: CommentRemover
+    ) -> None:
+        """템플릿 표현식 내부의 주석이 제거된다."""
+        code = "var s = `${x /* remove this */}`;\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "remove this" not in cleaned
+        assert _removed(result) >= 1
+
+    def test_simple_template_expression_preserved(
+        self, remover: CommentRemover
+    ) -> None:
+        """단순 템플릿 표현식은 그대로 보존된다."""
+        code = "var s = `hello ${name}!`;\n"
+        result = remover.execute(content=code, language="javascript")
+        assert _cleaned(result) == code
+        assert _removed(result) == 0
+
+
+class TestAdditionalEdgeCases:
+    """추가 엣지 케이스."""
+
+    def test_consecutive_block_comments(self, remover: CommentRemover) -> None:
+        """연속된 블록 주석이 모두 제거된다."""
+        code = "/* a *//* b */\nvar x;\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "a" not in cleaned.split("\n")[0]
+        assert "b" not in cleaned.split("\n")[0]
+        assert "var x;" in cleaned
+        assert _removed(result) == 2
+
+    def test_comment_after_regex(self, remover: CommentRemover) -> None:
+        """정규식 리터럴 뒤 주석이 제거된다."""
+        code = "var re = /pattern/g; // comment\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "/pattern/g" in cleaned
+        assert "// comment" not in cleaned
+
+    def test_file_ending_without_newline(self, remover: CommentRemover) -> None:
+        """파일 끝에 줄바꿈 없이 끝나는 주석도 제거된다."""
+        code = "var x = 1; // comment"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "var x = 1;" in cleaned
+        assert "// comment" not in cleaned
+
+    def test_string_ending_with_backslash_then_comment(
+        self, remover: CommentRemover
+    ) -> None:
+        r"""문자열 끝 이스케이프 백슬래시 후 주석이 제거된다."""
+        code = 'var s = "path\\\\"; // comment\n'
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "path" in cleaned
+        assert "// comment" not in cleaned
+
+    def test_define_inline_comment_removed(self, remover: CommentRemover) -> None:
+        """C #define 뒤 인라인 주석이 제거된다."""
+        code = "#define MAX 100 // max value\nint x;\n"
+        result = remover.execute(content=code, language="c")
+        cleaned = _cleaned(result)
+        assert "#define MAX 100" in cleaned
+        assert "max value" not in cleaned

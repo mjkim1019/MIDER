@@ -58,12 +58,23 @@ def _remove_c_style_comments(
     removed_count = 0
     escape_next = False
 
+    # Shebang(#!) 처리: 첫 줄을 그대로 출력하고 건너뜀
+    if support_regex and length >= 2 and content[0] == "#" and content[1] == "!":
+        nl_idx = content.find("\n")
+        if nl_idx == -1:
+            return content, 0
+        result.append(content[: nl_idx + 1])
+        i = nl_idx + 1
+
     # Pro*C: EXEC SQL 블록 추적
     in_exec_sql = False
 
     # JS 정규식 판별용: 마지막 의미 있는 토큰
     last_significant_char = ""
     _REGEX_PREV_CHARS = frozenset("=([!&|?:,;{}~^%+-*/><")
+
+    # JS 템플릿 리터럴 ${} 중첩 추적
+    template_brace_stack: list[int] = []
 
     while i < length:
         ch = content[i]
@@ -100,6 +111,22 @@ def _remove_c_style_comments(
                 last_significant_char = ch
                 i += 1
                 continue
+
+            # JS 템플릿 리터럴 ${} 중첩: 닫는 } 처리
+            if support_backtick and template_brace_stack and ch == "}":
+                if template_brace_stack[-1] == 0:
+                    # 템플릿 표현식 종료, 백틱 문자열로 복귀
+                    template_brace_stack.pop()
+                    state = _State.STRING_BACKTICK
+                    result.append(ch)
+                    i += 1
+                    continue
+                else:
+                    template_brace_stack[-1] -= 1
+
+            # JS 템플릿 리터럴 ${} 중첩: 여는 { 추적
+            if support_backtick and template_brace_stack and ch == "{":
+                template_brace_stack[-1] += 1
 
             # JS 백틱 템플릿 리터럴
             if support_backtick and ch == "`":
@@ -205,6 +232,9 @@ def _remove_c_style_comments(
                 # 줄바꿈 보존, 주석 끝
                 result.append(ch)
                 state = _State.CODE
+            elif ch == "\r":
+                # CRLF 줄바꿈의 \r 보존
+                result.append(ch)
             # 주석 내용은 버림 (줄번호 보존)
             i += 1
 
@@ -212,6 +242,9 @@ def _remove_c_style_comments(
         elif state == _State.BLOCK_COMMENT:
             if ch == "\n":
                 # 블록 주석 내 줄바꿈 보존
+                result.append(ch)
+            elif ch == "\r":
+                # CRLF 줄바꿈의 \r 보존
                 result.append(ch)
             elif ch == "*" and i + 1 < length and content[i + 1] == "/":
                 # 블록 주석 종료
@@ -252,6 +285,14 @@ def _remove_c_style_comments(
                 escape_next = False
             elif ch == "\\":
                 escape_next = True
+            elif ch == "$" and i + 1 < length and content[i + 1] == "{":
+                # 템플릿 표현식 시작: ${...}
+                result.append(content[i + 1])
+                template_brace_stack.append(0)
+                state = _State.CODE
+                last_significant_char = "{"
+                i += 2
+                continue
             elif ch == "`":
                 state = _State.CODE
                 last_significant_char = ch
@@ -312,10 +353,14 @@ def _remove_sql_comments(content: str) -> tuple[str, int]:
             if ch == "\n":
                 result.append(ch)
                 state = _State.CODE
+            elif ch == "\r":
+                result.append(ch)
             i += 1
 
         elif state == _State.BLOCK_COMMENT:
             if ch == "\n":
+                result.append(ch)
+            elif ch == "\r":
                 result.append(ch)
             elif ch == "*" and i + 1 < length and content[i + 1] == "/":
                 state = _State.CODE
@@ -380,6 +425,8 @@ def _remove_xml_comments(content: str) -> tuple[str, int]:
 
         elif state == _State.BLOCK_COMMENT:
             if ch == "\n":
+                result.append(ch)
+            elif ch == "\r":
                 result.append(ch)
             elif content[i : i + 3] == "-->":
                 state = _State.CODE
