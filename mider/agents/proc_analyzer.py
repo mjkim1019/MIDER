@@ -418,7 +418,7 @@ class ProCAnalyzerAgent(BaseAgent):
         logger.info(
             f"ProC [{filename}] 그룹핑: "
             f"boilerplate={len(classification['boilerplate'])}, "
-            f"계층={len(classification['hierarchical_groups'])}그룹, "
+            f"디스패치그룹={len(classification['dispatch_groups'])}그룹, "
             f"디스패치={len(classification['dispatch'])}, "
             f"유틸={len(classification['utility_groups'])}그룹"
         )
@@ -426,10 +426,10 @@ class ProCAnalyzerAgent(BaseAgent):
         # 그룹 목록 생성
         groups: list[dict[str, Any]] = []
 
-        # 계층형 그룹
-        for hier_group in classification["hierarchical_groups"]:
-            code = self._extract_group_code(lines, hier_group, boundaries, func_names)
-            groups.append({"label": f"계층({'+'.join(hier_group[:3])}...)", "code": code})
+        # 디스패치 그룹 (줄 수 기반 그룹핑)
+        for dispatch_group in classification["dispatch_groups"]:
+            code = self._extract_group_code(lines, dispatch_group, boundaries, func_names)
+            groups.append({"label": f"그룹({'+'.join(dispatch_group[:3])}...)", "code": code})
 
         # 디스패치형 개별
         for func_name in classification["dispatch"]:
@@ -617,6 +617,20 @@ class ProCAnalyzerAgent(BaseAgent):
     # ──────────────────────────────────────────────
     # 유틸리티
     # ──────────────────────────────────────────────
+
+    @staticmethod
+    def _count_group_lines(
+        func_name_list: list[str],
+        boundaries: list[tuple[int, int]],
+        func_names: dict[int, str],
+    ) -> int:
+        """주어진 함수 이름 목록의 총 줄 수를 계산한다."""
+        name_set = set(func_name_list)
+        total = 0
+        for start, end in boundaries:
+            if func_names.get(start) in name_set:
+                total += end - start + 1
+        return total
 
     @staticmethod
     def _extract_func_names(

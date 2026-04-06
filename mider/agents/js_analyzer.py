@@ -191,6 +191,7 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             file_path=file,
             file_content=file_content,
             eslint_results=eslint_results_str,
+            scanner_findings="(없음)",
             file_context=file_context_str,
         )
 
