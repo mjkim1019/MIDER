@@ -44,6 +44,7 @@ PROMPT_VARIABLES = {
         "file_path": "/app/test.js",
         "file_content": "const x = 1;\nel.innerHTML = userInput;",
         "eslint_results": '[{"rule": "no-redeclare", "line": 1}]',
+        "scanner_findings": "Scanner 결과 없음",
         "file_context": '{"imports": []}',
     },
     "c_analyzer_error_focused": {

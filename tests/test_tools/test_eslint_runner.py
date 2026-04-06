@@ -56,15 +56,17 @@ class TestESLintRunner:
         with pytest.raises(ToolExecutionError, match="file not found"):
             runner.execute(file="/nonexistent.js")
 
-    def test_binary_not_found(self, mock_config, tmp_path):
+    @patch("shutil.which", return_value=None)
+    def test_binary_not_found(self, _mock_which, mock_config, tmp_path):
         runner = ESLintRunner(
             binary_path="/nonexistent/node",
             config_path=str(mock_config),
         )
         f = tmp_path / "test.js"
         f.write_text("var x;")
-        with pytest.raises(ToolExecutionError, match="binary not found"):
-            runner.execute(file=str(f))
+        # node 바이너리도 시스템 PATH에도 없으면 skipped 반환
+        result = runner.execute(file=str(f))
+        assert result.data.get("skipped") is True
 
     def test_config_not_found(self, mock_binary, tmp_path):
         runner = ESLintRunner(

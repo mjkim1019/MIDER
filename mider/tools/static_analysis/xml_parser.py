@@ -4,6 +4,7 @@ ElementTree 기반으로 WebSquare XML을 파싱하여
 데이터 리스트, 컬럼 정의, 이벤트 바인딩, 컴포넌트 ID를 추출한다.
 """
 
+import codecs
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -14,6 +15,23 @@ from typing import Any
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 
 logger = logging.getLogger(__name__)
+
+# FileReader와 동일한 인코딩 탐지 순서
+_SUPPORTED_ENCODINGS = ("utf-8", "cp949", "euc-kr")
+
+
+def _read_text_auto(path: Path) -> str:
+    """FileReader와 동일한 인코딩 폴백으로 텍스트 파일을 읽는다."""
+    raw = path.read_bytes()
+    if raw.startswith(codecs.BOM_UTF8):
+        return raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+    for enc in _SUPPORTED_ENCODINGS:
+        try:
+            return raw.decode(enc).replace("\r\n", "\n").replace("\r", "\n")
+        except UnicodeDecodeError:
+            continue
+    # 최후 수단: cp949 lossy
+    return raw.decode("cp949", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
 
 # 이벤트 속성 패턴 (ev:onclick, ev:onchange 등)
 _EVENT_ATTR_RE = re.compile(r"\{.*\}on\w+$|^ev:on\w+$|^on\w+$")
@@ -65,7 +83,7 @@ class XMLParser(BaseTool):
             raise ToolExecutionError("XMLParser", f"파일 없음: {file}")
 
         try:
-            content = path.read_text(encoding="utf-8")
+            content = _read_text_auto(path)
         except Exception as e:
             raise ToolExecutionError("XMLParser", f"파일 읽기 실패: {e}")
 
@@ -108,6 +126,14 @@ class XMLParser(BaseTool):
         # 1) 데이터 리스트 + 컬럼 추출
         data_lists = self._extract_data_lists(root)
 
+        # 1-1) dataList ID 유효성 검사
+        for dl in data_lists:
+            dl_id = dl.get("id", "")
+            if not dl_id or not dl_id.strip() or dl_id.strip() == ":":
+                parse_errors.append(
+                    f"dataList ID가 비어있거나 유효하지 않음: '{dl_id}'"
+                )
+
         # 2) 이벤트 바인딩 추출
         events = self._extract_events(root)
 
@@ -146,7 +172,7 @@ class XMLParser(BaseTool):
             return "", []
 
         try:
-            file_lines = path.read_text(encoding="utf-8").splitlines()
+            file_lines = _read_text_auto(path).splitlines()
         except Exception:
             return "", []
 

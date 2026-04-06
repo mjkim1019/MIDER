@@ -249,3 +249,21 @@ class TestAgentInit:
         agent = ProCAnalyzerAgent()
         assert agent.model == "gpt-5"
         assert agent.fallback_model == "gpt-5-mini"
+
+
+class TestGroupingHelpers:
+    def test_count_group_lines(self):
+        boundaries = [(10, 19), (30, 34), (40, 49)]
+        func_names = {
+            10: "foo",
+            30: "bar",
+            40: "baz",
+        }
+
+        line_count = ProCAnalyzerAgent._count_group_lines(
+            ["foo", "baz"],
+            boundaries,
+            func_names,
+        )
+
+        assert line_count == 20

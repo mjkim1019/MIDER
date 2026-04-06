@@ -38,5 +38,8 @@ tests/fixtures/*
 *.log
 err.txt
 
+# 분석 참고자료
+분석/
+
 # 기타 자료
 docs/발표자료/*

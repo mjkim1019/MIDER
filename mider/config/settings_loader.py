@@ -92,6 +92,21 @@ def get_mini_model() -> str:
     return llm.get("mini_model", "gpt-5-mini")
 
 
+def get_proc_grouping_config() -> tuple[int, int]:
+    """proc_analyzer의 dispatch 그룹핑 줄 수 기준을 반환한다.
+
+    Returns:
+        (target_lines, hard_cap_lines)
+    """
+    settings = _load_settings()
+    llm = settings.get("llm", {})
+    agents = llm.get("agents", {})
+    cfg = agents.get("proc_analyzer", {})
+    target = int(cfg.get("group_target_lines", 1000))
+    hard_cap = int(cfg.get("group_hard_cap_lines", 1200))
+    return target, hard_cap
+
+
 def get_stub_extra_types() -> list[str]:
     """clang-tidy 분석용 가짜 헤더(stub)에 추가할 커스텀 타입/매크로를 반환한다.
 

@@ -68,6 +68,7 @@ class SQLAnalyzerAgent(BaseAgent):
         self._ast_grep = AstGrepSearch()
         self._syntax_checker = SQLSyntaxChecker()
         self._explain_plan_parser = ExplainPlanParser()
+        self._stats: dict[str, Any] = {}
 
     async def run(
         self,
@@ -208,6 +209,15 @@ class SQLAnalyzerAgent(BaseAgent):
                 "analysis_time_seconds": round(elapsed, 2),
                 "llm_tokens_used": tokens_estimate,
             })
+
+            # 분석 요약 메트릭
+            self._stats = {
+                "delivery_mode": "single",
+                "total_lines": line_count,
+                "total_tokens": tokens_estimate,
+                "total_groups": 0,
+                "group_stats": [],
+            }
 
             logger.info(
                 f"SQL 분석 완료: {file} → {len(result.issues)}개 이슈, "
