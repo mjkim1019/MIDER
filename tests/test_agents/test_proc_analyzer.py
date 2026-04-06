@@ -68,9 +68,11 @@ def pc_file(tmp_path):
 
 @pytest.fixture
 def agent():
-    """ProCAnalyzerAgent with mocked LLM."""
+    """ProCAnalyzerAgent with mocked LLM (V1 경로 테스트용)."""
     agent = ProCAnalyzerAgent(model="gpt-4o")
     agent._llm_client = AsyncMock()
+    # V3 파이프라인 비활성화 → V1 fallback 테스트
+    agent._run_v3_pipeline = AsyncMock(side_effect=Exception("V3 disabled for V1 test"))
     return agent
 
 

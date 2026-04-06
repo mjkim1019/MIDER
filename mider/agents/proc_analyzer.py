@@ -1,10 +1,14 @@
 """ProCAnalyzerAgent: Phase 2 - Pro*C 분석.
 
-Oracle proc 프리컴파일러 + SQLExtractor + LLM 심층분석을 결합하여
-Pro*C 파일의 데이터 무결성 위협 패턴을 탐지한다.
+V3 파이프라인 (기본):
+  Phase 0: ProCPartitioner → PartitionResult + SymbolGraph
+  Phase 1: EmbeddedSQLStaticAnalyzer → Finding[] (8규칙)
+  Phase 2: ProCCrossChecker → Finding[] (7규칙)
+  Phase 3: ProCLLMReviewer → Issue[] (focused LLM review)
+  Phase 4: IssueMerger → Final Issue[] (중복 제거, 정렬)
 
-분석 경로 (통일 아키텍처):
-  모든 파일: 공통 파이프라인 (proc + SQL + Scanner + 커서맵 + 글로벌컨텍스트)
+V1 파이프라인 (fallback):
+  공통 파이프라인 (proc + SQL + Scanner + 커서맵 + 글로벌컨텍스트)
   → Pass 1: mini로 위험 함수 태깅
   → ≤100K tokens: 전체 코드 단일 LLM 호출
   → >100K tokens: 스마트 그룹핑 (계층형/디스패치형/유틸)
@@ -33,6 +37,13 @@ from mider.tools.static_analysis.c_heuristic_scanner import CHeuristicScanner
 from mider.tools.static_analysis.proc_heuristic_scanner import ProCHeuristicScanner
 from mider.tools.static_analysis.proc_runner import ProcRunner
 from mider.tools.utility.sql_extractor import SQLExtractor
+from mider.tools.static_analysis.embedded_sql_analyzer import EmbeddedSQLStaticAnalyzer
+from mider.tools.static_analysis.proc_clang_tidy_runner import ProCClangTidyRunner
+from mider.tools.static_analysis.proc_cross_checker import ProCCrossChecker
+from mider.tools.utility.issue_merger import IssueMerger
+from mider.tools.utility.proc_llm_reviewer import ProCLLMReviewer
+from mider.tools.utility.proc_partitioner import ProCPartitioner
+from mider.tools.utility.proc_symbol_graph import ProCSymbolGraphBuilder
 from mider.tools.utility.token_optimizer import (
     build_all_functions_summary,
     build_cursor_lifecycle_map,
@@ -92,6 +103,17 @@ class ProCAnalyzerAgent(BaseAgent):
         self._c_scanner = CHeuristicScanner()
         self._stats: dict[str, Any] = {}
 
+        # V3 컴포넌트
+        self._partitioner = ProCPartitioner()
+        self._graph_builder = ProCSymbolGraphBuilder()
+        self._sql_static_analyzer = EmbeddedSQLStaticAnalyzer()
+        self._cross_checker = ProCCrossChecker()
+        self._llm_reviewer = ProCLLMReviewer(
+            model=model, fallback_model=fallback_model, temperature=temperature,
+        )
+        self._issue_merger = IssueMerger()
+        self._proc_clang_tidy = ProCClangTidyRunner()
+
     async def run(
         self,
         *,
@@ -100,9 +122,234 @@ class ProCAnalyzerAgent(BaseAgent):
         language: str = "proc",
         file_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Pro*C 파일을 분석한다."""
+        """Pro*C 파일을 분석한다.
+
+        V3 파이프라인을 기본으로 사용하고, 실패 시 V1으로 fallback한다.
+        """
         start_time = time.time()
         logger.info(f"Pro*C 분석 시작: {file}")
+
+        try:
+            # V3 파이프라인 시도
+            result = await self._run_v3_pipeline(
+                task_id=task_id, file=file, language=language,
+            )
+            elapsed = time.time() - start_time
+            result["analysis_time_seconds"] = round(elapsed, 2)
+            logger.info(
+                f"Pro*C V3 분석 완료: {file} → {len(result.get('issues', []))}개 이슈, "
+                f"{elapsed:.1f}초"
+            )
+            return result
+
+        except Exception as v3_err:
+            logger.warning(f"V3 파이프라인 실패, V1 fallback 시도: {v3_err}")
+            try:
+                return await self._run_v1_pipeline(
+                    task_id=task_id, file=file, language=language,
+                )
+            except Exception as v1_err:
+                elapsed = time.time() - start_time
+                logger.error(f"Pro*C 분석 실패 (V1+V3): {file}: {v1_err}")
+                return AnalysisResult(
+                    task_id=task_id,
+                    file=file,
+                    language=language,
+                    agent="ProCAnalyzerAgent",
+                    issues=[],
+                    analysis_time_seconds=round(elapsed, 2),
+                    llm_tokens_used=0,
+                    error=f"V3: {v3_err} | V1: {v1_err}",
+                ).model_dump()
+
+    # ──────────────────────────────────────────────
+    # V3 파이프라인
+    # ──────────────────────────────────────────────
+
+    async def _run_v3_pipeline(
+        self,
+        *,
+        task_id: str,
+        file: str,
+        language: str = "proc",
+    ) -> dict[str, Any]:
+        """V3 분리 검사 파이프라인: Partitioner → Static → Cross → LLM → Merger."""
+        pipeline_start = time.time()
+        filename = Path(file).name
+
+        # ── Phase 0: Partitioner ──
+        self.rl.step("V3 Phase 0: Partitioner")
+        partition = self._partitioner.partition(file)
+        self.rl.scan(
+            f"Partition: {len(partition.functions)}개 함수, "
+            f"{len(partition.sql_blocks)}개 SQL블록, "
+            f"{len(partition.host_variables)}개 호스트변수, "
+            f"{len(partition.cursor_map)}개 커서"
+        )
+        logger.info(
+            f"ProC V3 [{filename}] Phase 0: "
+            f"함수={len(partition.functions)}, "
+            f"SQL={len(partition.sql_blocks)}, "
+            f"호스트변수={len(partition.host_variables)}, "
+            f"커서={len(partition.cursor_map)}"
+        )
+        partition_ms = int((time.time() - pipeline_start) * 1000)
+
+        # ── Phase 0: SymbolGraph ──
+        graph_start = time.time()
+        graph = self._graph_builder.build(partition)
+        self.rl.scan(
+            f"SymbolGraph: {len(graph.nodes)}개 노드, {len(graph.edges)}개 엣지"
+        )
+        graph_ms = int((time.time() - graph_start) * 1000)
+
+        # ── Phase 1: 정적 분석 (EmbeddedSQLStaticAnalyzer + clang-tidy) ──
+        static_start = time.time()
+        self.rl.step("V3 Phase 1: 정적 분석 (8규칙 + clang-tidy)")
+        static_findings = self._sql_static_analyzer.analyze(
+            sql_blocks=partition.sql_blocks,
+            host_variables=partition.host_variables,
+            cursor_map=partition.cursor_map,
+            transaction_points=partition.transaction_points,
+            global_context=partition.global_context,
+        )
+
+        # clang-tidy (EXEC SQL 제거 → 순수 C → stub header → clang-tidy)
+        ct_findings = self._proc_clang_tidy.analyze(file=file, source_file=file)
+        if ct_findings:
+            static_findings.extend(ct_findings)
+            for f in ct_findings:
+                self.rl.detect(
+                    f"[clang-tidy:{f.rule_id}] L{f.origin_line_start}: {f.title}"
+                )
+            logger.info(
+                f"ProC V3 [{filename}] clang-tidy: {len(ct_findings)}개 finding"
+            )
+
+        if static_findings:
+            for f in static_findings:
+                if not f.rule_id.startswith("CT-"):  # clang-tidy는 위에서 이미 출력
+                    self.rl.detect(
+                        f"[{f.rule_id}] L{f.origin_line_start}: {f.title}"
+                    )
+        logger.info(
+            f"ProC V3 [{filename}] Phase 1: {len(static_findings)}개 정적 finding"
+        )
+        static_ms = int((time.time() - static_start) * 1000)
+
+        # ── Phase 2: 교차 검사 (ProCCrossChecker) ──
+        cross_start = time.time()
+        self.rl.step("V3 Phase 2: 교차 검사 (7규칙)")
+        cross_findings = self._cross_checker.check(graph, partition)
+        if cross_findings:
+            for f in cross_findings:
+                self.rl.detect(
+                    f"[{f.rule_id}] L{f.origin_line_start}: {f.title}"
+                )
+        logger.info(
+            f"ProC V3 [{filename}] Phase 2: {len(cross_findings)}개 교차 finding"
+        )
+        cross_ms = int((time.time() - cross_start) * 1000)
+
+        all_findings = static_findings + cross_findings
+        total_before_llm = len(all_findings)
+        self.rl.scan(
+            f"정적+교차 합계: {total_before_llm}개 finding → LLM 검토 전달"
+        )
+
+        # ── Phase 3: LLM Reviewer ──
+        llm_start = time.time()
+        self.rl.step(f"V3 Phase 3: LLM 검토 ({total_before_llm}개 finding)")
+
+        # LLM Reviewer에 rl 전달
+        self._llm_reviewer.rl = self.rl
+
+        try:
+            llm_result = await self._llm_reviewer.review(
+                findings=all_findings,
+                partition=partition,
+                file_path=file,
+            )
+            llm_issues = llm_result["issues"]
+            tokens_used = llm_result["tokens_used"]
+        except Exception as llm_err:
+            logger.warning(f"LLM 검토 실패, 정적 findings만 사용: {llm_err}")
+            llm_issues = self._llm_reviewer.convert_findings_to_issues(
+                all_findings, file,
+            )
+            tokens_used = 0
+
+        llm_ms = int((time.time() - llm_start) * 1000)
+
+        # ── Phase 4: IssueMerger ──
+        merge_start = time.time()
+        self.rl.step("V3 Phase 4: Issue 병합")
+        final_issues = self._issue_merger.merge(
+            llm_issues=llm_issues,
+            static_findings=all_findings,
+            file_path=file,
+            partition=partition,
+        )
+        merge_ms = int((time.time() - merge_start) * 1000)
+
+        self.rl.scan(
+            f"최종: {len(final_issues)}개 이슈 "
+            f"(LLM 전: {total_before_llm}, LLM 후: {len(llm_issues)}, "
+            f"병합 후: {len(final_issues)})"
+        )
+
+        # ── _stats 수집 (CLI 요약 출력용) ──
+        elapsed = time.time() - pipeline_start
+        self._stats = {
+            "delivery_mode": "v3_pipeline",
+            "total_lines": partition.total_lines,
+            "total_tokens": tokens_used,
+            "total_groups": 0,
+            "group_stats": [],
+            "analysis_time_seconds": round(elapsed, 2),
+            "v3_phase_ms": {
+                "partition": partition_ms,
+                "graph": graph_ms,
+                "static": static_ms,
+                "cross": cross_ms,
+                "llm": llm_ms,
+                "merge": merge_ms,
+            },
+            "v3_findings": {
+                "static": len(static_findings),
+                "clang_tidy": len(ct_findings),
+                "cross": len(cross_findings),
+                "llm_output": len(llm_issues),
+                "final": len(final_issues),
+            },
+        }
+
+        # ── 결과 생성 ──
+        result = AnalysisResult.model_validate({
+            "task_id": task_id,
+            "file": file,
+            "language": language,
+            "agent": "ProCAnalyzerAgent",
+            "issues": final_issues,
+            "analysis_time_seconds": round(elapsed, 2),
+            "llm_tokens_used": tokens_used,
+        })
+        return result.model_dump()
+
+    # ──────────────────────────────────────────────
+    # V1 파이프라인 (fallback)
+    # ──────────────────────────────────────────────
+
+    async def _run_v1_pipeline(
+        self,
+        *,
+        task_id: str,
+        file: str,
+        language: str = "proc",
+    ) -> dict[str, Any]:
+        """V1 파이프라인 (기존 로직)."""
+        start_time = time.time()
+        logger.info(f"Pro*C V1 fallback 분석 시작: {file}")
 
         try:
             # ── 공통 파이프라인 ──
@@ -111,7 +358,7 @@ class ProCAnalyzerAgent(BaseAgent):
             lines = file_content.splitlines()
             line_count = len(lines)
             filename = Path(file).name
-            self.rl.scan(f"File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄)")
+            self.rl.scan(f"[V1] File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄)")
 
             proc_errors = self._run_proc(file)
             if proc_errors:
@@ -140,7 +387,7 @@ class ProCAnalyzerAgent(BaseAgent):
                 1 for b in sql_blocks if not b.get("has_sqlca_check", True)
             )
             logger.info(
-                f"ProC [{filename}] 도구: proc에러={len(proc_errors or [])}, "
+                f"ProC V1 [{filename}] 도구: proc에러={len(proc_errors or [])}, "
                 f"SQL블록={len(sql_blocks)}(SQLCA미검사={missing_sqlca}), "
                 f"Scanner={len(scanner_findings)}건 "
                 f"(ProC={len(proc_scanner_findings or [])}, C={len(c_scanner_findings or [])})"
@@ -192,7 +439,7 @@ class ProCAnalyzerAgent(BaseAgent):
                     "Decision: 전체 코드 단일 호출",
                     reason=f"{line_count}줄, 토큰 한계 내",
                 )
-                logger.info(f"ProC [{filename}] 경로: 단일 호출 | {line_count}줄")
+                logger.info(f"ProC V1 [{filename}] 경로: 단일 호출 | {line_count}줄")
                 issues = await self._run_single_call(**common_kwargs)
             else:
                 self.rl.decision(
@@ -200,7 +447,7 @@ class ProCAnalyzerAgent(BaseAgent):
                     reason=f"{line_count}줄, 토큰 초과 → 함수 그룹핑",
                 )
                 logger.info(
-                    f"ProC [{filename}] 경로: 스마트 그룹핑 | "
+                    f"ProC V1 [{filename}] 경로: 스마트 그룹핑 | "
                     f"{len(boundaries)}개 함수, {line_count}줄"
                 )
                 issues = await self._run_grouped_call(
@@ -228,14 +475,14 @@ class ProCAnalyzerAgent(BaseAgent):
             })
 
             logger.info(
-                f"Pro*C 분석 완료: {file} → {len(result.issues)}개 이슈, "
+                f"Pro*C V1 분석 완료: {file} → {len(result.issues)}개 이슈, "
                 f"{result.analysis_time_seconds}초"
             )
             return result.model_dump()
 
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"Pro*C 분석 실패: {file}: {e}")
+            logger.error(f"Pro*C V1 분석 실패: {file}: {e}")
             return AnalysisResult(
                 task_id=task_id,
                 file=file,

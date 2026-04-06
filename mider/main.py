@@ -390,7 +390,32 @@ def _print_single_stats(
     console.print(f"  모드: {mode}")
     console.print(f"  총 분석시간: {_format_duration(total_time)}")
 
-    if mode == "grouped":
+    if mode == "v3_pipeline":
+        # V3 파이프라인 전용 요약
+        console.print(f"  총 토큰: {total_tokens:,}")
+        console.print(f"  총 line 수: {total_lines:,}줄")
+        v3_findings = stats.get("v3_findings", {})
+        if v3_findings:
+            ct_count = v3_findings.get('clang_tidy', 0)
+            ct_label = f" (clang-tidy {ct_count}개 포함)" if ct_count else ""
+            console.print(
+                f"  Findings: 정적 {v3_findings.get('static', 0)}개{ct_label} + "
+                f"교차 {v3_findings.get('cross', 0)}개 → "
+                f"LLM {v3_findings.get('llm_output', 0)}개 → "
+                f"최종 {v3_findings.get('final', 0)}개"
+            )
+        phase_ms = stats.get("v3_phase_ms", {})
+        if phase_ms:
+            console.print(
+                f"  Phase별 소요: "
+                f"파티셔닝 {phase_ms.get('partition', 0)}ms, "
+                f"그래프 {phase_ms.get('graph', 0)}ms, "
+                f"정적 {phase_ms.get('static', 0)}ms, "
+                f"교차 {phase_ms.get('cross', 0)}ms, "
+                f"LLM {phase_ms.get('llm', 0)}ms, "
+                f"병합 {phase_ms.get('merge', 0)}ms"
+            )
+    elif mode == "grouped":
         gs = stats.get("group_stats", [])
         n = stats.get("total_groups", len(gs))
         console.print(f"  총 그룹 수: {n}")

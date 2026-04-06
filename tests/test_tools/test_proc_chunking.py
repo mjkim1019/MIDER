@@ -265,6 +265,8 @@ class TestSingleCallE2E:
     def agent(self):
         a = ProCAnalyzerAgent(model="gpt-5")
         a._llm_client = AsyncMock()
+        # V3 파이프라인 비활성화 → V1 fallback 테스트
+        a._run_v3_pipeline = AsyncMock(side_effect=Exception("V3 disabled"))
         return a
 
     @pytest.mark.asyncio
@@ -306,6 +308,8 @@ class TestGroupedCallE2E:
     def agent(self):
         a = ProCAnalyzerAgent(model="gpt-5")
         a._llm_client = AsyncMock()
+        # V3 파이프라인 비활성화 → V1 fallback 테스트
+        a._run_v3_pipeline = AsyncMock(side_effect=Exception("V3 disabled"))
         return a
 
     @pytest.mark.asyncio
