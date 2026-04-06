@@ -68,7 +68,6 @@ class SQLAnalyzerAgent(BaseAgent):
         self._ast_grep = AstGrepSearch()
         self._syntax_checker = SQLSyntaxChecker()
         self._explain_plan_parser = ExplainPlanParser()
-        self._stats: dict[str, Any] = {}
 
     async def run(
         self,
@@ -78,6 +77,7 @@ class SQLAnalyzerAgent(BaseAgent):
         language: str = "sql",
         file_context: dict[str, Any] | None = None,
         explain_plan_file: str | None = None,
+        file_content: str | None = None,
     ) -> dict[str, Any]:
         """SQL 파일을 분석한다.
 
@@ -87,6 +87,7 @@ class SQLAnalyzerAgent(BaseAgent):
             language: 파일 언어 ("sql")
             file_context: Phase 1에서 수집한 파일 컨텍스트
             explain_plan_file: Explain Plan 결과 파일 경로 (선택적)
+            file_content: 주석 제거된 파일 내용 (None이면 직접 읽음)
 
         Returns:
             AnalysisResult 형식의 딕셔너리
@@ -96,10 +97,14 @@ class SQLAnalyzerAgent(BaseAgent):
 
         try:
             # Step 1: 파일 읽기
-            read_result = self._file_reader.execute(path=file)
-            file_content = read_result.data["content"]
-            line_count = read_result.data.get("line_count", 0)
-            file_size = read_result.data.get("file_size", 0)
+            if file_content is None:
+                read_result = self._file_reader.execute(path=file)
+                file_content = read_result.data["content"]
+                line_count = read_result.data.get("line_count", 0)
+                file_size = read_result.data.get("file_size", 0)
+            else:
+                line_count = len(file_content.splitlines())
+                file_size = len(file_content.encode("utf-8"))
             token_estimate = len(file_content) // 4
             filename = Path(file).name
             self.rl.scan(f"File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄, ~{token_estimate:,} tokens)")
@@ -209,15 +214,6 @@ class SQLAnalyzerAgent(BaseAgent):
                 "analysis_time_seconds": round(elapsed, 2),
                 "llm_tokens_used": tokens_estimate,
             })
-
-            # 분석 요약 메트릭
-            self._stats = {
-                "delivery_mode": "single",
-                "total_lines": line_count,
-                "total_tokens": tokens_estimate,
-                "total_groups": 0,
-                "group_stats": [],
-            }
 
             logger.info(
                 f"SQL 분석 완료: {file} → {len(result.issues)}개 이슈, "

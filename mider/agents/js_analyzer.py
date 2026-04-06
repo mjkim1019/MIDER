@@ -20,7 +20,6 @@ from mider.config.settings_loader import (
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.static_analysis.eslint_runner import ESLintRunner
-from mider.tools.static_analysis.js_heuristic_scanner import JSHeuristicScanner
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,6 @@ class JavaScriptAnalyzerAgent(BaseAgent):
         )
         self._file_reader = FileReader()
         self._eslint_runner = ESLintRunner()
-        self._heuristic_scanner = JSHeuristicScanner()
 
     async def run(
         self,
@@ -58,6 +56,7 @@ class JavaScriptAnalyzerAgent(BaseAgent):
         file: str,
         language: str = "javascript",
         file_context: dict[str, Any] | None = None,
+        file_content: str | None = None,
     ) -> dict[str, Any]:
         """JavaScript 파일을 분석한다.
 
@@ -66,6 +65,7 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             file: 분석할 파일 경로
             language: 파일 언어 ("javascript")
             file_context: Phase 1에서 수집한 파일 컨텍스트
+            file_content: 주석 제거된 파일 내용 (None이면 직접 읽음)
 
         Returns:
             AnalysisResult 형식의 딕셔너리
@@ -75,8 +75,9 @@ class JavaScriptAnalyzerAgent(BaseAgent):
 
         try:
             # Step 1: 파일 읽기
-            read_result = self._file_reader.execute(path=file)
-            file_content = read_result.data["content"]
+            if file_content is None:
+                read_result = self._file_reader.execute(path=file)
+                file_content = read_result.data["content"]
             line_count = len(file_content.splitlines())
             filename = Path(file).name
             self.rl.scan(f"File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄)")
@@ -93,24 +94,11 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             else:
                 logger.info(f"JS [{filename}] ESLint: 없음 (코드만 분석)")
 
-            # Step 2.5: Heuristic Scanner (regex, 비용 0)
-            scanner_findings = self._run_heuristic_scanner(file)
-            if scanner_findings:
-                for finding in scanner_findings:
-                    self.rl.detect(
-                        f"Scanner [{finding['pattern_id']}] L{finding['line']}: "
-                        f"{finding['description'][:80]}"
-                    )
-                logger.info(
-                    f"JS [{filename}] Scanner: {len(scanner_findings)}건"
-                )
-
-            # Step 3: LLM 분석 (전체 코드 + ESLint + Scanner 결과)
+            # Step 3: LLM 분석 (단일 경로 — 전체 코드 + ESLint 결과)
             prompt, messages = self._build_messages(
                 file=file,
                 file_content=file_content,
                 eslint_data=eslint_data,
-                scanner_findings=scanner_findings,
                 file_context=file_context,
             )
 
@@ -175,27 +163,17 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             logger.warning(f"ESLint 실행 실패: {e}")
             return None
 
-    def _run_heuristic_scanner(self, file: str) -> list[dict[str, Any]]:
-        """Heuristic Scanner를 실행하여 findings를 반환한다."""
-        try:
-            result = self._heuristic_scanner.execute(file=file)
-            return result.data.get("findings", [])
-        except Exception as e:
-            logger.warning(f"JS Heuristic Scanner 실행 실패: {e}")
-            return []
-
     def _build_messages(
         self,
         *,
         file: str,
         file_content: str,
         eslint_data: dict[str, Any] | None,
-        scanner_findings: list[dict[str, Any]] | None = None,
         file_context: dict[str, Any] | None,
     ) -> tuple[str, list[dict[str, str]]]:
         """LLM 메시지를 구성한다.
 
-        파일 전체 코드 + ESLint + Scanner 결과를 단일 프롬프트로 전달한다.
+        파일 전체 코드 + ESLint 결과를 단일 프롬프트로 전달한다.
 
         Returns:
             (prompt_text, messages) 튜플
@@ -203,10 +181,6 @@ class JavaScriptAnalyzerAgent(BaseAgent):
         eslint_results_str = json.dumps(
             eslint_data, ensure_ascii=False, indent=2,
         ) if eslint_data else "ESLint 결과 없음"
-
-        scanner_str = json.dumps(
-            scanner_findings, ensure_ascii=False, indent=2,
-        ) if scanner_findings else "Scanner 결과 없음"
 
         file_context_str = json.dumps(
             file_context, ensure_ascii=False, indent=2,
@@ -217,7 +191,6 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             file_path=file,
             file_content=file_content,
             eslint_results=eslint_results_str,
-            scanner_findings=scanner_str,
             file_context=file_context_str,
         )
 

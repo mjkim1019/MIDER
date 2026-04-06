@@ -57,7 +57,6 @@ class XMLAnalyzerAgent(BaseAgent):
         self._xml_parser = XMLParser()
         self._file_reader = FileReader()
         self._js_analyzer = JavaScriptAnalyzerAgent()
-        self._stats: dict[str, Any] = {}
 
     async def run(
         self,
@@ -66,12 +65,16 @@ class XMLAnalyzerAgent(BaseAgent):
         file: str,
         language: str = "xml",
         file_context: dict[str, Any] | None = None,
+        file_content: str | None = None,
     ) -> dict[str, Any]:
         """XML 파일을 분석한다.
 
         1. XML 구조 파싱 (dataList, events, duplicate IDs)
         2. 인라인 JS 추출 → JSAnalyzer 위임
         3. XML 구조 이슈 + JS 코드 이슈 병합
+
+        Args:
+            file_content: 주석 제거된 파일 내용 (현재 미사용 — XML 파서가 직접 파일을 읽음)
 
         Returns:
             AnalysisResult 형식의 딕셔너리
@@ -81,10 +84,6 @@ class XMLAnalyzerAgent(BaseAgent):
 
         try:
             filename = Path(file).name
-
-            # Step 0: 파일 라인 수 집계
-            read_result = self._file_reader.execute(path=file)
-            line_count = read_result.data.get("line_count", 0)
 
             # Step 1: XML 파싱
             parse_result = self._xml_parser.execute(file=file)
@@ -120,7 +119,7 @@ class XMLAnalyzerAgent(BaseAgent):
                 logger.info(f"XML [{filename}] JS검증: 대응 JS 파일 없음")
 
             # Step 3: XML 구조 분석 (LLM)
-            xml_issues, xml_tokens = await self._analyze_xml_structure(
+            xml_issues = await self._analyze_xml_structure(
                 file=file,
                 parse_data=parse_data,
                 js_validation=js_validation,
@@ -128,7 +127,7 @@ class XMLAnalyzerAgent(BaseAgent):
             logger.info(f"XML [{filename}] 구조 이슈: {len(xml_issues)}건")
 
             # Step 4: 인라인 JS 추출 → JSAnalyzer 위임
-            js_issues, js_tokens = await self._analyze_inline_js(
+            js_issues = await self._analyze_inline_js(
                 file=file,
                 task_id=task_id,
             )
@@ -136,7 +135,6 @@ class XMLAnalyzerAgent(BaseAgent):
 
             # Step 5: 이슈 병합 + issue_id 재번호
             all_issues = self._merge_issues(xml_issues, js_issues)
-            total_tokens = xml_tokens + js_tokens
 
             # Step 6: AnalysisResult 생성
             elapsed = time.time() - start_time
@@ -147,17 +145,8 @@ class XMLAnalyzerAgent(BaseAgent):
                 "agent": "XMLAnalyzerAgent",
                 "issues": all_issues,
                 "analysis_time_seconds": round(elapsed, 2),
-                "llm_tokens_used": total_tokens,
+                "llm_tokens_used": 0,
             })
-
-            # 분석 요약 메트릭
-            self._stats = {
-                "delivery_mode": "single",
-                "total_lines": line_count,
-                "total_tokens": total_tokens,
-                "total_groups": 0,
-                "group_stats": [],
-            }
 
             logger.info(
                 f"XML 분석 완료: {file} → {len(result.issues)}개 이슈, "
@@ -185,12 +174,8 @@ class XMLAnalyzerAgent(BaseAgent):
         file: str,
         parse_data: dict[str, Any],
         js_validation: dict[str, Any],
-    ) -> tuple[list[dict], int]:
-        """XML 구조를 LLM으로 분석한다.
-
-        Returns:
-            (이슈 리스트, 추정 토큰 수)
-        """
+    ) -> list[dict]:
+        """XML 구조를 LLM으로 분석한다."""
         datalist_summary = build_datalist_summary(
             parse_data.get("data_lists", []),
         )
@@ -231,29 +216,24 @@ class XMLAnalyzerAgent(BaseAgent):
         ]
 
         response = await self.call_llm(messages, json_mode=True)
-        tokens_estimate = (len(prompt) + len(response)) // 4
         llm_result = json.loads(response)
 
         if isinstance(llm_result, dict):
-            return llm_result.get("issues", []), tokens_estimate
-        return [], tokens_estimate
+            return llm_result.get("issues", [])
+        return []
 
     async def _analyze_inline_js(
         self,
         *,
         file: str,
         task_id: str,
-    ) -> tuple[list[dict], int]:
-        """인라인 JS를 추출하여 JSAnalyzer에 위임한다.
-
-        Returns:
-            (이슈 리스트, JS analyzer 토큰 수)
-        """
+    ) -> list[dict]:
+        """인라인 JS를 추출하여 JSAnalyzer에 위임한다."""
         js_code, offset_map = XMLParser.extract_inline_scripts(file=file)
 
         if not js_code:
             logger.info(f"XML [{Path(file).name}] 인라인 JS 없음")
-            return [], 0
+            return []
 
         js_line_count = len(js_code.splitlines())
         logger.info(
@@ -279,10 +259,9 @@ class XMLAnalyzerAgent(BaseAgent):
 
         # 라인 번호 변환 + 파일 경로 원본으로 복원
         js_issues = js_result.get("issues", [])
-        js_tokens = js_result.get("llm_tokens_used", 0)
         self._remap_js_issues(js_issues, file, offset_map)
 
-        return js_issues, js_tokens
+        return js_issues
 
     @staticmethod
     def _remap_js_issues(

@@ -26,6 +26,7 @@ from mider.agents.sql_analyzer import SQLAnalyzerAgent
 from mider.agents.task_classifier import TaskClassifierAgent
 from mider.agents.xml_analyzer import XMLAnalyzerAgent
 from mider.tools.file_io.file_reader import FileReader
+from mider.tools.preprocessing.comment_remover import CommentRemover
 from mider.tools.search.glob_tool import GlobTool
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,7 @@ class OrchestratorAgent(BaseAgent):
         # Tools
         self._glob_tool = GlobTool()
         self._file_reader = FileReader()
+        self._comment_remover = CommentRemover()
 
         # Sub-Agents (lazy init in run)
         self._task_classifier: Optional[TaskClassifierAgent] = None
@@ -147,12 +149,15 @@ class OrchestratorAgent(BaseAgent):
         # Phase 0: Task Classification
         execution_plan = await self._run_phase0(valid_files)
 
+        # Phase 0.5: 주석 제거 전처리 (개인정보 보호)
+        cleaned_contents = self._preprocess_comments(execution_plan)
+
         # Phase 1: Context Collection
-        file_context = await self._run_phase1(execution_plan)
+        file_context = await self._run_phase1(execution_plan, cleaned_contents)
 
         # Phase 2: Sequential Analysis
-        analysis_results, total_lines, analysis_stats = await self._run_phase2(
-            execution_plan, file_context,
+        analysis_results, total_lines = await self._run_phase2(
+            execution_plan, file_context, cleaned_contents,
         )
 
         # Phase 3: Report Generation
@@ -173,10 +178,6 @@ class OrchestratorAgent(BaseAgent):
             f"{total_elapsed:.2f}초 소요"
         )
 
-        # 분석 요약에 전체 파이프라인 시간 주입
-        for stats in analysis_stats:
-            stats["analysis_time_seconds"] = round(pipeline_elapsed, 2)
-
         return {
             "session_id": self.session_id,
             "execution_plan": execution_plan,
@@ -185,7 +186,6 @@ class OrchestratorAgent(BaseAgent):
             "summary": report["summary"],
             "deployment_checklist": report["deployment_checklist"],
             "errors": file_errors,
-            "analysis_stats": analysis_stats,
         }
 
     # ──────────────────────────────────────────────
@@ -223,6 +223,7 @@ class OrchestratorAgent(BaseAgent):
     async def _run_phase1(
         self,
         execution_plan: dict[str, Any],
+        cleaned_contents: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Phase 1: ContextCollectorAgent로 파일 컨텍스트 수집."""
         self._report_progress(1, "컨텍스트 수집", 0, 1, "의존성/패턴 분석 중")
@@ -231,6 +232,7 @@ class OrchestratorAgent(BaseAgent):
         file_context = await self._call_agent(
             self._context_collector,  # type: ignore[arg-type]
             execution_plan=execution_plan,
+            cleaned_contents=cleaned_contents,
         )
 
         contexts = file_context.get("file_contexts", [])
@@ -245,11 +247,12 @@ class OrchestratorAgent(BaseAgent):
         self,
         execution_plan: dict[str, Any],
         file_context: dict[str, Any],
-    ) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
+        cleaned_contents: dict[str, str] | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
         """Phase 2: 언어별 Analyzer 순차 호출.
 
         Returns:
-            (analysis_results, total_lines, analysis_stats)
+            (analysis_results, total_lines)
         """
         sub_tasks = execution_plan.get("sub_tasks", [])
         total_tasks = len(sub_tasks)
@@ -301,6 +304,7 @@ class OrchestratorAgent(BaseAgent):
                 file=file_path,
                 language=language,
                 file_context=context_map.get(file_path),
+                file_content=cleaned_contents.get(file_path) if cleaned_contents else None,
             )
 
             analysis_results.append(result)
@@ -328,23 +332,47 @@ class OrchestratorAgent(BaseAgent):
         total_issues = sum(len(r.get("issues", [])) for r in analysis_results)
         logger.info(f"Phase 2 완료: {total_tasks}개 파일, {total_issues}개 이슈")
 
-        # 언어별 분석 메트릭 수집
-        all_analysis_stats: list[dict[str, Any]] = []
-        _LANGUAGE_LABELS = {
-            "proc": "Pro*C",
-            "c": "C",
-            "sql": "SQL",
-            "xml": "XML",
-            "javascript": "JavaScript",
-        }
-        for lang, analyzer in self._analyzers.items():
-            raw = getattr(analyzer, "_stats", None)
-            if isinstance(raw, dict) and raw:
-                stats = dict(raw)
-                stats["language"] = _LANGUAGE_LABELS.get(lang, lang)
-                all_analysis_stats.append(stats)
+        return analysis_results, total_lines
 
-        return analysis_results, total_lines, all_analysis_stats
+    def _preprocess_comments(
+        self,
+        execution_plan: dict[str, Any],
+    ) -> dict[str, str]:
+        """Phase 0.5: 모든 대상 파일에서 주석을 제거한다.
+
+        개인정보(이름, 사번) 보호를 위해 LLM에 전달하기 전
+        주석을 사전 제거한다. 줄번호는 보존된다.
+        """
+        self._report_progress(0, "주석 제거", 0, 1, "전처리 중")
+        self.rl.phase_header(0, "CommentRemover")
+
+        sub_tasks = execution_plan.get("sub_tasks", [])
+        cleaned: dict[str, str] = {}
+        total_removed = 0
+
+        for task in sub_tasks:
+            file_path = task.get("file", "")
+            language = task.get("language", "")
+            if not file_path or not language:
+                continue
+
+            try:
+                read_result = self._file_reader.execute(path=file_path)
+                original = read_result.data["content"]
+                result = self._comment_remover.execute(
+                    content=original, language=language,
+                )
+                cleaned[file_path] = result.data["content"]
+                total_removed += result.data.get("removed_count", 0)
+            except Exception as e:
+                logger.warning(f"주석 제거 실패, 원본 유지: {file_path}: {e}")
+                # 실패 시 원본 사용 (FileReader에서 다시 읽히도록 cleaned에 넣지 않음)
+
+        self.rl.result(f"Result: {len(cleaned)}개 파일, {total_removed}건 주석 제거")
+        self._report_progress(0, "주석 제거", 1, 1, f"{total_removed}건 제거 완료")
+
+        logger.info(f"주석 제거 완료: {len(cleaned)}개 파일, {total_removed}건")
+        return cleaned
 
     async def _run_phase3(
         self,
@@ -417,6 +445,7 @@ class OrchestratorAgent(BaseAgent):
         file: str,
         language: str,
         file_context: dict[str, Any] | None,
+        file_content: str | None = None,
     ) -> dict[str, Any]:
         """단일 파일을 적절한 Analyzer로 분석한다."""
         agent_cls = _LANGUAGE_AGENT_MAP.get(language)
@@ -452,6 +481,7 @@ class OrchestratorAgent(BaseAgent):
                 file=file,
                 language=language,
                 file_context=file_context,
+                file_content=file_content,
                 **extra_kwargs,
             )
         except Exception as e:
@@ -705,5 +735,4 @@ class OrchestratorAgent(BaseAgent):
                 "sections": [],
             },
             "errors": errors,
-            "analysis_stats": {},
         }
