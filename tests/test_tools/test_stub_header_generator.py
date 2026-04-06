@@ -18,7 +18,8 @@ def test_parse_includes(stub_gen):
 #include "my_header.h"
     """
     headers = stub_gen._parse_includes(content)
-    assert headers == ["my_header.h", "util/types.h"]
+    # <> 꺾쇠와 "" 쌍따옴표 모두 추출, 중복 제거, 정렬
+    assert headers == ["my_header.h", "stdio.h", "stdlib.h", "util/types.h"]
 
 def test_create_stub(stub_gen):
     with tempfile.TemporaryDirectory() as tmp_dir:

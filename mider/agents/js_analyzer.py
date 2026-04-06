@@ -20,11 +20,7 @@ from mider.config.settings_loader import (
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.static_analysis.eslint_runner import ESLintRunner
-from mider.tools.utility.token_optimizer import (
-    build_structure_summary,
-    extract_error_functions,
-    optimize_file_content,
-)
+from mider.tools.static_analysis.js_heuristic_scanner import JSHeuristicScanner
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +28,8 @@ logger = logging.getLogger(__name__)
 class JavaScriptAnalyzerAgent(BaseAgent):
     """Phase 2: JavaScript 파일을 분석하는 Agent.
 
-    ESLint 정적분석 결과를 기반으로 LLM이 심층 분석하여
-    Error-Focused 또는 Heuristic 경로로 이슈를 탐지한다.
+    ESLint 정적분석 결과와 파일 전체 코드를 LLM에 전달하여
+    장애 유발 패턴을 탐지한다.
     """
 
     def __init__(
@@ -53,6 +49,7 @@ class JavaScriptAnalyzerAgent(BaseAgent):
         )
         self._file_reader = FileReader()
         self._eslint_runner = ESLintRunner()
+        self._heuristic_scanner = JSHeuristicScanner()
 
     async def run(
         self,
@@ -81,7 +78,8 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             read_result = self._file_reader.execute(path=file)
             file_content = read_result.data["content"]
             line_count = len(file_content.splitlines())
-            self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄)")
+            filename = Path(file).name
+            self.rl.scan(f"File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄)")
 
             # Step 2: ESLint 정적분석
             eslint_data = self._run_eslint(file)
@@ -89,16 +87,30 @@ class JavaScriptAnalyzerAgent(BaseAgent):
                 err_count = len(eslint_data.get("errors", []))
                 warn_count = len(eslint_data.get("warnings", []))
                 self.rl.scan(f"ESLint: errors={err_count}, warnings={warn_count}")
-                self.rl.decision("Decision: Error-Focused path",
-                                 reason=f"ESLint errors={err_count}, warnings={warn_count}")
+                logger.info(
+                    f"JS [{filename}] ESLint: errors={err_count}, warnings={warn_count}"
+                )
             else:
-                self.rl.decision("Decision: Heuristic path", reason="ESLint 경고 없음")
+                logger.info(f"JS [{filename}] ESLint: 없음 (코드만 분석)")
 
-            # Step 3: LLM 분석
+            # Step 2.5: Heuristic Scanner (regex, 비용 0)
+            scanner_findings = self._run_heuristic_scanner(file)
+            if scanner_findings:
+                for finding in scanner_findings:
+                    self.rl.detect(
+                        f"Scanner [{finding['pattern_id']}] L{finding['line']}: "
+                        f"{finding['description'][:80]}"
+                    )
+                logger.info(
+                    f"JS [{filename}] Scanner: {len(scanner_findings)}건"
+                )
+
+            # Step 3: LLM 분석 (전체 코드 + ESLint + Scanner 결과)
             prompt, messages = self._build_messages(
                 file=file,
                 file_content=file_content,
                 eslint_data=eslint_data,
+                scanner_findings=scanner_findings,
                 file_context=file_context,
             )
 
@@ -148,18 +160,29 @@ class JavaScriptAnalyzerAgent(BaseAgent):
     def _run_eslint(self, file: str) -> dict[str, Any] | None:
         """ESLint를 실행하여 결과를 반환한다.
 
-        실행 실패 시 None을 반환한다 (Heuristic 모드로 전환).
+        실행 실패 시 None을 반환한다.
         """
         try:
             result = self._eslint_runner.execute(file=file)
+            if result.data.get("skipped"):
+                return None
             errors = result.data.get("errors", [])
             warnings = result.data.get("warnings", [])
             if errors or warnings:
                 return {"errors": errors, "warnings": warnings}
             return None
         except Exception as e:
-            logger.warning(f"ESLint 실행 실패, Heuristic 모드로 전환: {e}")
+            logger.warning(f"ESLint 실행 실패: {e}")
             return None
+
+    def _run_heuristic_scanner(self, file: str) -> list[dict[str, Any]]:
+        """Heuristic Scanner를 실행하여 findings를 반환한다."""
+        try:
+            result = self._heuristic_scanner.execute(file=file)
+            return result.data.get("findings", [])
+        except Exception as e:
+            logger.warning(f"JS Heuristic Scanner 실행 실패: {e}")
+            return []
 
     def _build_messages(
         self,
@@ -167,63 +190,36 @@ class JavaScriptAnalyzerAgent(BaseAgent):
         file: str,
         file_content: str,
         eslint_data: dict[str, Any] | None,
+        scanner_findings: list[dict[str, Any]] | None = None,
         file_context: dict[str, Any] | None,
     ) -> tuple[str, list[dict[str, str]]]:
-        """프롬프트 경로를 선택하고 LLM 메시지를 구성한다.
+        """LLM 메시지를 구성한다.
+
+        파일 전체 코드 + ESLint + Scanner 결과를 단일 프롬프트로 전달한다.
 
         Returns:
             (prompt_text, messages) 튜플
         """
-        if eslint_data:
-            # Error-Focused 경로
-            eslint_errors_str = json.dumps(
-                eslint_data, ensure_ascii=False, indent=2,
-            )
-            file_context_str = json.dumps(
-                file_context, ensure_ascii=False, indent=2,
-            ) if file_context else "컨텍스트 정보 없음"
+        eslint_results_str = json.dumps(
+            eslint_data, ensure_ascii=False, indent=2,
+        ) if eslint_data else "ESLint 결과 없음"
 
-            # 에러 라인 추출
-            error_lines = []
-            for item in eslint_data.get("errors", []):
-                if isinstance(item, dict) and "line" in item:
-                    error_lines.append(item["line"])
-            for item in eslint_data.get("warnings", []):
-                if isinstance(item, dict) and "line" in item:
-                    error_lines.append(item["line"])
+        scanner_str = json.dumps(
+            scanner_findings, ensure_ascii=False, indent=2,
+        ) if scanner_findings else "Scanner 결과 없음"
 
-            # 토큰 최적화: 구조 요약 + 에러 함수 추출
-            structure_summary = build_structure_summary(
-                file_content, file_context, "javascript",
-            )
-            error_blocks = extract_error_functions(
-                file_content, error_lines, "javascript",
-            )
-            error_functions_str = "\n\n".join(
-                f"[{block.line_start}~{block.line_end}줄]\n{block.content}"
-                for block in error_blocks
-            ) if error_blocks else optimize_file_content(
-                file_content, file_context, "javascript",
-            )
+        file_context_str = json.dumps(
+            file_context, ensure_ascii=False, indent=2,
+        ) if file_context else "컨텍스트 정보 없음"
 
-            prompt = load_prompt(
-                "js_analyzer_error_focused",
-                eslint_errors=eslint_errors_str,
-                file_path=file,
-                structure_summary=structure_summary,
-                error_functions=error_functions_str,
-                file_context=file_context_str,
-            )
-        else:
-            # Heuristic 경로
-            file_content_optimized = optimize_file_content(
-                file_content, file_context, "javascript",
-            )
-            prompt = load_prompt(
-                "js_analyzer_heuristic",
-                file_path=file,
-                file_content_optimized=file_content_optimized,
-            )
+        prompt = load_prompt(
+            "js_analyzer",
+            file_path=file,
+            file_content=file_content,
+            eslint_results=eslint_results_str,
+            scanner_findings=scanner_str,
+            file_context=file_context_str,
+        )
 
         messages = [
             {

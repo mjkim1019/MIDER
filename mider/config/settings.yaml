@@ -30,6 +30,9 @@ llm:
     proc_analyzer:
       model: "gpt-5"
       fallback: "gpt-5-mini"
+      # dispatch 그룹핑 줄 수 기준
+      group_target_lines: 2000   # 목표 그룹 크기 (줄)
+      group_hard_cap_lines: 2400 # 허용 상한 (줄)
     sql_analyzer:
       model: "gpt-5"
       fallback: "gpt-5-mini"

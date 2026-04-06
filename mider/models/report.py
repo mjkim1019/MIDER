@@ -95,7 +95,7 @@ class IssueSummary(BaseModel):
 class RiskAssessment(BaseModel):
     """배포 위험도 평가."""
 
-    deployment_risk: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"] = Field(
+    deployment_risk: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNABLE_TO_ANALYZE"] = Field(
         description="배포 위험 등급"
     )
     deployment_allowed: bool = Field(

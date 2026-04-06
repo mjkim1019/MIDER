@@ -248,3 +248,81 @@
 - **Scanner 위치**: `mider/tools/static_analysis/proc_heuristic_scanner.py`
 - **연동**: ProCAnalyzerAgent에서 Scanner 결과 > 0이면 Error-Focused 강제 진입
 - **프롬프트**: 장애 사례 few-shot으로 LLM 판정 정확도 향상
+
+## T31 설계 결정 (CAnalyzer 통합 개선, T22 흡수)
+- **문제 1 (2-Pass 블라인드 스팟)**: regex 히트 함수만 Pass 1에 전달 → 미히트 함수의 결함 누락
+- **문제 2 (경로 분리)**: clang-tidy 있으면 regex 안 돌림, ≤500줄이면 regex 안 돌림 → 탐지 기회 상실
+- **해결**: CHeuristicScanner를 **모든 경로에서 항상 실행**, 결과를 각 경로별 프롬프트에 추가 전달
+  - Error-Focused: clang-tidy 경고 + regex findings 병합 (기존 T22 흡수)
+  - Heuristic (≤500줄): 전체 코드 + regex findings
+  - 2-Pass (>500줄): 전체 함수 시그니처 + regex findings → gpt-5-mini 선별
+- **추가 토큰 비용**: regex findings ~10줄, 함수 시그니처 ~40줄 → gpt-5-mini 비용 무시 가능
+- **중복 제거 (Error-Focused)**: clang-tidy 경고와 regex findings 동일 라인(±2) + 동일 카테고리 → clang-tidy 우선
+
+| 2026-03-25 | 5개 Analyzer에 분석 경로/도구 결과/후처리 표준 logger.info 추가 | ReasoningLogger(verbose=True만)에만 있던 정보를 표준 로그에도 출력 — 로그 파일에서 에이전트별 동작 차이 확인 가능 |
+| 2026-03-25 | 리뷰: `_fn`/`filename` 이중 선언 → `filename` 1회로 통합 (proc/sql/xml) | 리뷰 반영 — 같은 메서드 내 동일 값 중복 계산 제거 |
+| 2026-03-25 | 리뷰: `_tp_count`/`tuning_count` 중복 → `tuning_count` 1회로 통합 (sql) | 리뷰 반영 — 동일 expression 중복 계산 제거 |
+| 2026-03-25 | 리뷰: 루프 변수 `f` → `finding` (c_analyzer Scanner 집계) | 리뷰 반영 — f-string 접두사와 혼동 방지 |
+
+| 2026-03-25 | T31 구현: `build_all_functions_summary()` 추가 (token_optimizer.py) | 2-Pass Pass 1에서 LLM이 전체 함수 목록을 파악하여 regex 미히트 함수도 선별 가능 |
+| 2026-03-25 | T31 구현: Scanner를 `run()` 시작부에서 항상 실행 | 모든 경로(Error-Focused, Heuristic, 2-Pass)에서 regex 결과 확보 |
+| 2026-03-25 | T31 구현: >500줄 → 항상 2-Pass (clang 유무 무관) | clang-tidy 있어도 대형 파일에서 Error-Focused만 하면 clang 미탐지 영역 누락 |
+| 2026-03-25 | T31 구현: Error-Focused/Heuristic에 scanner_findings 병합 | clang 경고만으로 놓치는 UNINIT_VAR, UNSAFE_FUNC 등을 regex가 보충 |
+| 2026-03-25 | T31 구현: 2-Pass에 clang 경고 통합 (Pass 1 선별 + Pass 2 함수별 전달) | 대형 파일에서 clang + scanner 양쪽 정보를 LLM에 전달하여 정밀도 향상 |
+| 2026-03-25 | T31: Level 1(bugprone) 저가치 필터링 제거 | StubHeaderGenerator가 기본 타입을 제공하므로 Level 1도 신뢰 가능 → 헤더 에러만 제거, 나머지 유지 |
+| 2026-03-25 | T31: `_is_level2_warning()` + `_LEVEL2_CHECK_PREFIX` 제거 | Level 1/2 구분 로직이 더 이상 필요 없음 — dead code 정리 |
+
+| 2026-03-25 | c_prescan_fewshot.txt few-shot 예시를 실제 장애 사례로 교체 (placeholder → 실제) | 사용자 제공 장애 데이터 기반 — UNINIT_VAR(루프 미초기화), BOUNDED_FUNC(memset sizeof 불일치), FORMAT_STRING(%s에 long 전달) 위험 3건 + 안전 2건 |
+
+## T33 설계 결정 (ProC 함수별 청킹 + 커서 맵 + 2-Pass)
+- **문제 1 (Error-Focused 사각지대)**: 에러 없는 함수의 로직 결함 누락 — Error-Focused는 에러 함수만 LLM에 전달
+- **문제 2 (Heuristic 중간 누락)**: >500줄 파일에서 head 200 + tail 100만 전달 → 중간 코드 분석 불가 (8000줄이면 96% 누락)
+- **문제 3 (커서 크로스레퍼런스)**: DECLARE→OPEN은 b10, FETCH는 b20에 분산 → 함수별 분석 시 CLOSE 누락을 못 잡음
+- **문제 4 (비용)**: 7958줄/111함수를 전부 gpt-4o로 호출하면 비용/시간 과다
+- **해결**: 함수별 청킹 + 커서 라이프사이클 맵 + 2-Pass 선별
+  - 커서 맵: regex로 DECLARE/OPEN/FETCH/CLOSE 위치+함수 추적 (비용 0)
+  - 2-Pass: mini로 위험 함수 선별 → primary로 개별 함수 분석
+  - C analyzer의 `_run_two_pass()` + `_analyze_single_function()` 패턴 재사용
+- **전략 비교 (호출 그래프 기반 그룹핑 기각)**: 그룹이 커지면 Issue #003 "대형 함수 압도" 문제 재발. b10(1204줄)+b20(144줄)+b30(138줄) 그룹 = 1486줄 → 소형 함수 누락 위험
+- **함수별 청킹의 장점**: 평균 72줄/함수(sample_inv 기준), 개별 LLM attention 분산 없음
+- **진행률 로그**: 25% 단위 4회 출력 — 111함수 개별 로그는 과다, 사용자가 진행 상황 확인 가능
+
+| 2026-03-31 | T33 구현: `extract_proc_global_context()` + `build_cursor_lifecycle_map()` 신규 (token_optimizer.py) | 함수별 청킹 시 글로벌 변수/커서 추적에 필수 |
+| 2026-03-31 | T33 구현: SQLExtractor에 `function` 필드 추가 | 함수별 SQL 블록 필터링 위해 — `_find_enclosing_function()` 패턴 |
+| 2026-03-31 | T33 구현: `_run_function_chunked()` 2-Pass (mini 선별 → 함수별 LLM) | C analyzer `_run_two_pass()` 패턴 재사용, 함수 ≥2 AND >500줄 조건 |
+| 2026-03-31 | T33 구현: 기존 Error-Focused/Heuristic 분기는 ≤500줄 파일에서 유지 | 소형 파일은 청킹 오버헤드만 증가 |
+| 2026-03-31 | T33 리뷰: proc_analyzer_function.txt `{{{{` → `{{` 수정 | 이중 에스케이프로 LLM에 `{{ }}` 전달 → JSON 파싱 실패 (CRITICAL) |
+| 2026-03-31 | T33 리뷰: 진행률 로그 `if` → `while` 변경 | 마일스톤 건너뛰기 방지 (HIGH) |
+| 2026-03-31 | T33 리뷰: `__import__("re")` → `import re` | 컨벤션 위반 (MEDIUM) |
+| 2026-03-31 | T33 리뷰: typedef/struct 함수 내부 필터링 추가 | 함수 안 typedef가 글로벌 컨텍스트에 포함되는 버그 방지 (MEDIUM) |
+
+## T33 재설계 결정 (전체 코드 전달 + 스마트 그룹핑)
+- **기존 T33 문제**: 함수별 개별 분석 → Scanner가 못 잡는 버그를 LLM도 못 잡음 (에러 함수만 추출)
+- **핵심 변경**: Error-Focused/Heuristic 분기 제거 → 전체 코드를 LLM에 직접 전달
+- **토큰 한계 대응**: 24개 샘플 중 22개는 단일 호출 가능, 2개(~130K~176K tokens)만 그룹핑 필요
+- **스마트 그룹핑 (대형 파일)**: ProC 함수 패턴 분석 결과 3가지 분류
+  - 계층형(b10+b20+b30): 커서/변수 흐름 공유 → 형제 그룹핑
+  - 디스패치형(work_proc1~11): 독립적 → 개별 분석
+  - 유틸(z+s계열): 접두사별 그룹핑
+- **Pass 1 역할 변경**: 위험 함수 "선별" → 위험 함수 "태깅" (전체 분석하되 중점 표시)
+- **기존 유틸 재사용**: 글로벌 컨텍스트, 커서 맵, SQL 함수 매핑, Pass 1 프롬프트
+
+| 2026-03-31 | T33 재설계: proc_analyzer.txt 통합 프롬프트 (error_focused+heuristic 2개→1개) | 전체 코드 전달이므로 분기 불필요 |
+| 2026-03-31 | T33 재설계: classify_proc_functions 함수 패턴 분류기 | 계층형/디스패치형/유틸/보일러플레이트 자동 분류 |
+| 2026-03-31 | T33 재설계: _decide_delivery_mode (100K 토큰 기준 분기) | 128K 한계에서 프롬프트+응답 여유분 확보 |
+| 2026-03-31 | T33 재설계: _run_single_call — 전체 코드 단일 호출 | Scanner 한계 해결: LLM이 전체 코드에서 직접 버그 탐지 |
+| 2026-03-31 | T33 재설계: _run_grouped_call — 스마트 그룹핑 | 대형 파일(>100K tok) Lost-in-the-Middle 최소화 |
+| 2026-03-31 | T33 리뷰: json.loads에 try-except 추가 3곳 | LLM 응답 파싱 실패 시 graceful degradation (CRITICAL) |
+| 2026-03-31 | T33 리뷰: 진행률 카운터에 asyncio.Lock 추가 | 병렬 태스크 간 중복 마일스톤 로그 방지 (CRITICAL) |
+| 2026-03-31 | T33 리뷰: proc_analyzer_function.txt 삭제 | 미사용 dead code (HIGH) |
+
+| 2026-03-31 | T34 구현: XMLParser에 extract_inline_scripts + ScriptBlock + js_line_to_xml_line | 인라인 JS(파일의 78%)를 추출하여 분석 가능하게 |
+| 2026-03-31 | T34 구현: build_datalist_summary (45K→1.5K 토큰, 97% 절감) | dataList 전체 JSON은 토큰 낭비, 이름+컬럼수 요약으로 충분 |
+| 2026-03-31 | T34 구현: XML Analyzer 재구조화 — 인라인 JS를 JS Analyzer에 위임 | JS 분석 파이프라인(ESLint + Few-Shot) 재사용, 코드 중복 방지 |
+| 2026-03-31 | T34 구현: XML 프롬프트 2개→1개 통합, Error-Focused/Heuristic 제거 | T32 JS와 동일한 단순화 |
+| 2026-03-31 | T34 리뷰: tempfile.mktemp → NamedTemporaryFile | TOCTOU race condition 방지 (HIGH) |
+| 2026-03-31 | T34 리뷰: 한 줄짜리 CDATA offset_map 누락 수정 | offset_map에 등록 안 되면 라인 매핑 실패 (HIGH) |
+| 2026-03-31 | T34 리뷰: import re 함수 내부 → 파일 상단 이동 | 컨벤션 위반 (MEDIUM) |
+
+## T35 설계 검토 사항
+- **주석 처리**: 제거 시 라인번호 깨짐 CRITICAL, 3~20% 토큰 절감 — 선택적 제거(헤더 주석만) 또는 현행 유지 권장

@@ -1,0 +1,71 @@
+당신은 Oracle Pro*C 코드 안전성 전문가입니다.
+아래 Pro*C 파일의 함수 목록과 각 함수에서 탐지된 위험 패턴을 분석하여,
+**심층 분석이 필요한 함수**만 선별하세요.
+
+## 분석 대상 파일
+파일: {file_path}
+총 {total_functions}개 함수, {total_findings}개 위험 패턴 탐지
+
+## 전체 함수 목록 (시그니처 + 위치)
+{all_functions_summary}
+
+## 함수별 위험 패턴 요약 (Scanner + proc 에러)
+{function_findings_summary}
+
+## 커서 라이프사이클 맵
+{cursor_lifecycle_map}
+
+## 판단 기준 (Few-Shot 예시)
+
+### 예시 1: 위험 — 심층 분석 필요
+함수: c200_update_proc
+탐지 패턴:
+- SQLCA 미검사 SQL 블록 2개 (L340, L355)
+- Scanner: MEMSET_SIZEOF_MISMATCH L320
+판정: **위험** — DML 문 실행 후 SQLCA 체크 없이 다음 로직이 진행되어 데이터 불일치 장애 가능. memset 크기 불일치로 이전 트랜잭션 데이터 잔류 위험.
+
+### 예시 2: 위험 — 심층 분석 필요
+함수: b20_fetch_cursor
+탐지 패턴:
+- 커서 맵에서 C_read_A의 CLOSE가 ⚠ 미발견
+- FETCH 루프 존재
+판정: **위험** — 커서 CLOSE 누락으로 DB 자원 누수. 장시간 배치 시 ORA-01000 (maximum open cursors exceeded) 발생 가능.
+
+### 예시 3: 안전 — 생략
+함수: a000_init_proc
+탐지 패턴:
+- Scanner: 없음
+- proc 에러: 없음
+- 커서: 사용 안 함
+판정: **안전** — 초기화 함수로 EXEC SQL 없음. 정적 패턴 없음.
+
+### 예시 4: 안전 — 생략
+함수: z999_err_exit_proc
+탐지 패턴:
+- Scanner: 없음
+- SQLCA 검사 완비
+판정: **안전** — 에러 처리 전용 함수. ROLLBACK 후 EXIT하며 SQLCA 검사 완비.
+
+## 출력 형식
+반드시 아래 JSON으로 응답하세요:
+{{
+  "risky_functions": [
+    {{
+      "function_name": "함수명",
+      "reason": "위험 판단 이유 (한국어, 1줄)"
+    }}
+  ]
+}}
+
+## 주의사항
+- 실제 위험이 있는 함수만 선별하세요.
+- SQLCA 미검사 SQL 블록이 있는 함수는 반드시 포함하세요.
+- 커서 라이프사이클 맵에서 ⚠ 미발견이 있는 함수는 포함하세요.
+- Scanner 탐지 패턴이 있는 함수는 포함하세요.
+- proc 에러가 있는 함수는 포함하세요.
+- EXEC SQL이 없는 순수 C 함수는 Scanner 탐지가 없으면 제외합니다.
+- 의심스러우면 포함하세요 — Pass 2에서 LLM이 정밀 분석합니다.
+
+## ⛔ 선별 제외 대상
+- 초기화/종료 함수 (a000_init, z999_exit 등)에서 패턴이 없는 경우
+- Proframe 표준 패턴 (long rc; 후 즉시 대입, sizeof(타입명) 일치 등)

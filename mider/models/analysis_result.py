@@ -3,9 +3,9 @@
 각 AnalyzerAgent(JS/C/ProC/SQL)가 생성하여 OrchestratorAgent에 반환하는 분석 결과.
 """
 
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Location(BaseModel):
@@ -24,6 +24,12 @@ class CodeFix(BaseModel):
     before: str = Field(description="수정 전 코드 (1-3줄)")
     after: str = Field(description="수정 후 코드 (1-3줄)")
     description: str = Field(description="한국어 수정 설명")
+
+
+_VALID_CATEGORIES = frozenset({
+    "memory_safety", "null_safety", "data_integrity",
+    "error_handling", "security", "performance", "code_quality",
+})
 
 
 class Issue(BaseModel):
@@ -55,6 +61,16 @@ class Issue(BaseModel):
     static_rule: Optional[str] = Field(
         default=None, description="정적 분석 규칙명"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_category(cls, data: Any) -> Any:
+        """LLM이 허용 목록 밖의 category를 반환하면 code_quality로 폴백."""
+        if isinstance(data, dict):
+            cat = data.get("category", "")
+            if cat not in _VALID_CATEGORIES:
+                data["category"] = "code_quality"
+        return data
 
 
 class AnalysisResult(BaseModel):

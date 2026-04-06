@@ -1,56 +1,55 @@
 # 작업 계획서
 
 ## 개요
-Pro*C 전용 Heuristic Scanner + 2-Pass 전략 — 실제 장애 유발 패턴 3종(포맷 문자열 타입 불일치, memset sizeof 불일치, 루프 초기화 누락)을 regex로 사전 스캔하고 LLM에 집중 분석 요청.
-
-## 실제 장애 사례 (탐지 대상)
-
-| 패턴 | 파일 | 장애 | 현재 탐지 |
-|------|------|------|-----------|
-| `%s`에 구조체 전달 | zordbs0401882.pc:1174 | Core Dump + 문자 미발송 | ✗ |
-| memset sizeof 불일치 | zordms03s0200.c:272 | 구조체 일부만 초기화 → 이전 데이터 잔류 | ✗ |
-| 루프 내 초기화 누락 | zinvbreps8030.pc:2915 | 이전 데이터 누적 → 금액 오표기 | ✗ |
-| fclose 누락 | zordbs0401549.pc:238 | 파일 핸들 릭 | ✗ (이슈 #008) |
-
-## 진행 예정 Task
-
-### T30: Pro*C Heuristic Scanner 구현
-
-#### T30.1: ProCHeuristicScanner Tool → 대상: `mider/tools/static_analysis/proc_heuristic_scanner.py`
-- `CHeuristicScanner` 구조 재사용 (BaseTool 상속)
-- 패턴 4종:
-  1. **FORMAT_STRUCT**: `PFM_DSP/printf`의 `%s`에 배열 인덱스만 전달 (`.멤버` 접근 없음)
-     - regex: `(PFM_DSP|PFM_ERR|printf|sprintf)\s*\(.*%s.*,\s*\w+\.\w+\.\w+\[\d+\]\s*[,)]`
-  2. **MEMSET_SIZEOF_MISMATCH**: memset 변수명과 sizeof 타입명의 핵심 부분 불일치
-     - regex: `memset\s*\(&?\s*(\w+)\s*,.*sizeof\s*\((\w+)\)`
-     - 검증: 변수명에서 추출한 핵심 이름 ≠ sizeof 타입에서 추출한 핵심 이름
-  3. **LOOP_INIT_MISSING**: while/for 루프 내 구조체 사용하지만 INIT2VCHAR/memset 없음
-     - 루프 시작~끝 범위에서 구조체 쓰기는 있지만 초기화 호출 없음
-  4. **FCLOSE_MISSING**: fopen이 있지만 대응 fclose 없음
-     - 전체 파일에서 fopen 호출 수 > fclose 호출 수
-
-#### T30.2: ProCAnalyzerAgent에 Scanner 연동 → 대상: `mider/agents/proc_analyzer.py`
-- Scanner 결과를 Error-Focused 프롬프트에 전달
-- Scanner findings > 0이면 Error-Focused 경로 강제 진입
-- 추론 로그: Scanner 결과 표시
-
-#### T30.3: Pro*C 프롬프트에 장애 사례 Few-shot 추가 → 대상: `mider/config/prompts/proc_analyzer_error_focused.txt`
-- 3개 장애 사례를 few-shot 예시로 추가
-- Scanner가 전달한 의심 위치를 LLM이 판정하도록 유도
-
-#### T30.4: 단위 테스트 → 대상: `tests/test_tools/test_proc_heuristic_scanner.py`
-- 각 패턴별 탐지/미탐지 테스트
-- 실제 장애 코드 패턴으로 검증
-
-#### T30.5: 통합 테스트 → 대상: `tests/test_agents/test_proc_analyzer.py`
-- Scanner 결과가 Error-Focused 경로로 유도되는지 확인
-- Scanner + LLM 결과 합산 확인
+Version 1.0.0 릴리스 정리 — 미사용 파일 제거, README 리라이트, 시스템 아키텍처 문서화, 버전 범프, 브랜치 정리, 릴리스 태그
 
 ---
 
-## 일정 요약
-| Task | 의존성 | 상태 |
-|------|--------|------|
-| T1~T29, T19 | - | ✅ 완료 |
-| T30 | T29 | **다음** — Pro*C Heuristic Scanner |
-| T15 | T30 | 대기 (마지막) |
+## Task 목록
+
+### T40: 미사용 파일 정리
+- T40.1: 미사용 ProC 프롬프트 삭제 → `config/prompts/proc_analyzer_error_focused.txt`, `proc_analyzer_heuristic.txt`
+- T40.2: 프롬프트 개수 테스트 수정 (15개 → 13개) → 관련 테스트 파일
+
+### T41: README v1 리라이트
+- T41.1: XML(.xml) 지원 언어 추가 → `README.md`
+- T41.2: 모델명 gpt-4o → gpt-5 업데이트 → `README.md`
+- T41.3: 아키텍처 섹션 추가 (Multi-Agent, Phase 흐름, Agent/Tool 목록) → `README.md`
+- T41.4: 분석 전략 섹션 추가 (2-Pass, 스마트 그룹핑, 하이브리드) → `README.md`
+
+### T43: 시스템 아키텍처 문서 (docs/architecture/)
+- T43.1: `system_overview.md` — 전체 시스템 구조 (Multi-Agent, Phase 흐름, 데이터 파이프라인) → `docs/architecture/`
+- T43.2: `js_analysis_pipeline.md` — JS 분석 파이프라인 (ESLint + 전체코드 단일호출) → `docs/architecture/`
+- T43.3: `proc_analysis_pipeline.md` — ProC 분석 파이프라인 (스마트 그룹핑 + 전체코드) → `docs/architecture/`
+- T43.4: `sql_analysis_pipeline.md` — SQL 분석 파이프라인 (sqlparse + Explain Plan + LLM) → `docs/architecture/`
+- T43.5: `xml_analysis_pipeline.md` — XML 분석 파이프라인 (인라인 JS 위임 + 구조 검증) → `docs/architecture/`
+- T43.6: 기존 `c_analysis_pipeline.md` 최신화 (모델명 등) → `docs/architecture/`
+
+### T42: 버전 1.0.0 릴리스 (depends: T40, T41, T43)
+- T42.1: 버전 범프 0.1.0 → 1.0.0 → `mider/__init__.py`, `pyproject.toml`
+- T42.2: 머지된 로컬 브랜치 29개 삭제
+- T42.3: 미머지 로컬 브랜치 9개 검토 및 정리
+- T42.4: 원격 머지된 브랜치 정리
+- T42.5: v1.0.0 Git 태그 + GitHub Release
+
+---
+
+## 설계 결정
+
+| 결정 | 이유 |
+|------|------|
+| 미사용 프롬프트 삭제 | T33에서 proc_analyzer.txt로 통합 완료, 코드에서 참조 0건 |
+| README 리라이트 | XML 지원 누락, 모델명 불일치, 아키텍처 개요 없음 |
+| 아키텍처 문서 분리 | README는 Quick Start 중심, 상세 파이프라인은 docs/architecture/에서 관리 |
+| 언어별 파이프라인 문서 | C 문서만 있고 JS/ProC/SQL/XML 없음 — v1 기준 전체 커버 필요 |
+| 1.0.0 버전 | T1~T36 핵심 기능 완료, 773 테스트 통과, 통합 테스트 완료 |
+| 브랜치 정리 | 38개 로컬 브랜치 누적 — main만 유지하여 클린 상태 |
+
+## 의존성
+
+| Task | 의존 | 비고 |
+|------|------|------|
+| T40 | 없음 | 파일 정리 |
+| T41 | 없음 | 문서 |
+| T43 | 없음 | 문서 |
+| T42 | T40, T41, T43 | 릴리스 (정리 완료 후) |

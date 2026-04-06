@@ -110,6 +110,11 @@ class ReporterAgent(BaseAgent):
                 analysis_results, generated_at, session_id,
             )
 
+            # 분석 에러 감지 (에러 발생 시 분석불가 판정)
+            analysis_errors = [
+                r for r in analysis_results if r.get("error")
+            ]
+
             # Step 4: Summary 생성 (LLM으로 risk_description 생성)
             total_llm_tokens = sum(
                 r.get("llm_tokens_used", 0) for r in analysis_results
@@ -122,6 +127,7 @@ class ReporterAgent(BaseAgent):
                 total_lines=total_lines,
                 analysis_duration_seconds=analysis_duration_seconds,
                 total_llm_tokens=total_llm_tokens,
+                analysis_errors=analysis_errors,
             )
 
             # Step 5: 배포 체크리스트 생성
@@ -260,6 +266,7 @@ class ReporterAgent(BaseAgent):
         total_lines: int,
         analysis_duration_seconds: float,
         total_llm_tokens: int,
+        analysis_errors: list[dict[str, Any]] | None = None,
     ) -> Summary:
         """Summary 모델을 생성한다. LLM으로 risk_description을 작성한다."""
         # 통계 집계
@@ -291,27 +298,36 @@ class ReporterAgent(BaseAgent):
         high_count = by_severity.get("high", 0)
         risk_assessment = self._determine_risk(
             critical_count, high_count, sorted_issues,
+            analysis_errors=analysis_errors,
         )
 
         allowed = risk_assessment["deployment_allowed"]
         risk = risk_assessment["deployment_risk"]
-        status = "가능" if allowed else "차단"
-        if critical_count > 0:
-            block_reason = "(CRITICAL>0 차단)"
-        elif high_count >= 3:
-            block_reason = "(HIGH>=3 차단)"
-        else:
-            block_reason = ""
-        self.rl.decision(
-            f"Decision: 배포 {status} ({risk})",
-            reason=f"CRITICAL={critical_count}, HIGH={high_count} {block_reason}".rstrip(),
-        )
 
-        # LLM으로 risk_description 생성
-        risk_description = await self._generate_risk_description(
-            by_severity, risk_assessment["deployment_risk"], generated_at,
-        )
-        risk_assessment["risk_description"] = risk_description
+        if risk == "UNABLE_TO_ANALYZE":
+            self.rl.decision(
+                "Decision: 분석불가",
+                reason="분석 중 오류 발생 → 배포 판정 불가",
+            )
+            # risk_description은 _determine_risk에서 이미 생성됨, LLM 호출 스킵
+        else:
+            status = "가능" if allowed else "차단"
+            if critical_count > 0:
+                block_reason = "(CRITICAL>0 차단)"
+            elif high_count >= 3:
+                block_reason = "(HIGH>=3 차단)"
+            else:
+                block_reason = ""
+            self.rl.decision(
+                f"Decision: 배포 {status} ({risk})",
+                reason=f"CRITICAL={critical_count}, HIGH={high_count} {block_reason}".rstrip(),
+            )
+
+            # LLM으로 risk_description 생성
+            risk_description = await self._generate_risk_description(
+                by_severity, risk_assessment["deployment_risk"], generated_at,
+            )
+            risk_assessment["risk_description"] = risk_description
 
         metadata = AnalysisMetadata(
             session_id=session_id,
@@ -341,8 +357,31 @@ class ReporterAgent(BaseAgent):
         critical_count: int,
         high_count: int,
         sorted_issues: list[dict[str, Any]],
+        analysis_errors: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """RiskAssessment 필드를 결정한다 (risk_description 제외)."""
+        # 분석 에러가 있으면 분석불가 판정
+        if analysis_errors:
+            error_files = [r.get("file", "unknown") for r in analysis_errors]
+            error_details = [r.get("error", "") for r in analysis_errors]
+            logger.warning(
+                f"분석 에러 발견 ({len(analysis_errors)}건) → 분석불가 판정: "
+                f"{error_files}"
+            )
+            return {
+                "deployment_risk": "UNABLE_TO_ANALYZE",
+                "deployment_allowed": False,
+                "blocking_issues": [],
+                "risk_description": (
+                    f"분석 중 오류가 발생하여 배포 판정을 내릴 수 없습니다. "
+                    f"오류 파일 {len(analysis_errors)}건: "
+                    + "; ".join(
+                        f"{f} ({e[:80]})"
+                        for f, e in zip(error_files, error_details)
+                    )
+                ),
+            }
+
         blocking_issues: list[str] = []
 
         if critical_count > 0:

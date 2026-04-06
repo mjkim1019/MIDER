@@ -120,10 +120,10 @@
   - [x] T21.2: 함수별 프롬프트 최적화
   - [x] T21.3: asyncio.gather 병렬 호출
   - [x] T21.4: 단위 테스트
-- [ ] T22: clang-tidy + Heuristic 하이브리드 분석
-  - [ ] T22.1: Error-Focused 경로에 Heuristic Scanner 추가
-  - [ ] T22.2: 합산 로직 구현 (`_merge_warnings`)
-  - [ ] T22.3: 단위 테스트
+- [x] T22: clang-tidy + Heuristic 하이브리드 분석 (T31에 흡수)
+  - [x] T22.1: Error-Focused 경로에 Heuristic Scanner 추가 → T31.2+T31.3
+  - [x] T22.2: 합산 로직 구현 → T31.3 (scanner_findings 병합)
+  - [x] T22.3: 단위 테스트 → T31.6
 - [x] T19: Proframe XML 지원
   - [x] T19.1: XML 파서/분석 도구
   - [x] T19.2: XMLAnalyzerAgent 구현
@@ -166,14 +166,69 @@
   - [x] T29.1: `_deduplicate_issues()` 구현
   - [x] T29.2: 이슈 로그 작성
   - [x] T29.3: 단위 테스트
-- [ ] T30: Pro*C Heuristic Scanner (2-Pass)
+- [x] T30: Pro*C Heuristic Scanner (2-Pass)
   - [x] T30.1: ProCHeuristicScanner Tool 구현
   - [x] T30.2: ProCAnalyzerAgent에 Scanner 연동
   - [x] T30.3: Pro*C 프롬프트 Few-shot 추가
   - [x] T30.4: Scanner 단위 테스트
   - [x] T30.5: Agent 통합 테스트
-- [ ] T15: Integration Test
-  - [ ] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
-  - [ ] T15.2: E2E 테스트
-  - [ ] T15.3: Exit code 검증
-  - [ ] T15.4: 출력 파일 검증 (4개 JSON)
+- [x] T31: CAnalyzer 통합 개선 (T22 흡수)
+  - [x] T31.1: build_all_functions_summary() 구현 (token_optimizer.py)
+  - [x] T31.2: Scanner 항상 실행 + 라우팅 변경 (>500→2-Pass, ≤500+clang→EF, ≤500→Heuristic)
+  - [x] T31.3: Error-Focused에 scanner findings 병합 (≤500줄+clang)
+  - [x] T31.4: Heuristic(≤500줄)에 scanner findings 추가
+  - [x] T31.5: 2-Pass에 clang 데이터 + all_functions_summary 통합 (>500줄)
+  - [x] T31.6: 단위 테스트 (6개 추가, 기존 27개 호환)
+- [x] T32: JS 긴 파일 전략 — ESLint + 전체 코드 단일 호출
+  - [x] T32.1: ESLint 에러 포함 + 전체 코드 전달 방식 구현
+  - [x] T32.2: 프롬프트 통합 (Error-Focused/Heuristic → 단일)
+- [x] T33-old: ProC 유틸리티 (글로벌 컨텍스트, 커서 맵, SQL 함수 매핑, Pass 1 프롬프트)
+- [x] T33: ProC 분석 재설계 — 전체 코드 전달 + 스마트 그룹핑
+  - [x] T33.1: 프롬프트 통합 (Error-Focused/Heuristic → 단일) → proc_analyzer.txt
+  - [x] T33.2: 함수 패턴 분류기 (`classify_proc_functions`) → token_optimizer.py
+  - [x] T33.3: 토큰 기반 전달 분기 (`_decide_delivery_mode`) → proc_analyzer.py
+  - [x] T33.4: 단일 호출 경로 (`_run_single_call`) → proc_analyzer.py
+  - [x] T33.5: 그룹핑 호출 경로 (`_run_grouped_call`) → proc_analyzer.py
+  - [x] T33.6: `run()` 리팩토링 (통일 파이프라인) → proc_analyzer.py
+  - [x] T33.7: 단위 테스트
+- [x] T34: XML 분석 강화 — 인라인 JS 추출 + JS Analyzer 위임 + dataList 요약
+  - [x] T34.1: XMLParser에 `<script>` CDATA 추출 + 라인 오프셋 맵
+  - [x] T34.2: dataList 요약 함수 (`build_datalist_summary`)
+  - [x] T34.3: XML Analyzer 재구조화 (JS Analyzer 위임 + 라인 변환 + 병합)
+  - [x] T34.4: XML 프롬프트 통합 (2개 → 1개)
+  - [x] T34.5: 단위 테스트
+- ~~T35: 주석 처리 전략 검토~~ (v1 범위 제외)
+- [x] T36: Agent 표준 로그 개선 — 언어별 동작 차이 가시화
+  - [x] T36.1: 분석 경로 선택 로그 추가 (5개 Analyzer)
+  - [x] T36.2: 도구 실행 결과 로그 추가 (5개 Analyzer)
+  - [x] T36.3: 후처리 로그 추가 (C dedup, SQL merge)
+  - [x] T36.4: 단위 테스트 (caplog 검증)
+- [x] T15: Integration Test
+  - [x] T15.1: 샘플 파일 5개 (JS, C, ProC, SQL, XML)
+  - [x] T15.2: E2E 테스트
+  - [x] T15.3: Exit code 검증
+  - [x] T15.4: 출력 파일 검증 (4개 JSON)
+
+---
+
+## v1 릴리스 정리
+
+- [x] T40: 미사용 파일 정리
+  - [x] T40.1: 미사용 ProC 프롬프트 삭제
+  - [x] T40.2: 프롬프트 개수 테스트 수정
+- [x] T41: README v1 리라이트
+  - [x] T41.1: XML 지원 추가 + 모델명 업데이트
+  - [x] T41.2: 아키텍처 & 분석 전략 섹션 추가
+  - [x] T41.3: 사용자 매뉴얼 섹션 추가
+- [x] T43: 시스템 아키텍처 문서 (docs/architecture/)
+  - [x] T43.1: system_overview.md — 전체 시스템 구조
+  - [x] T43.2: js_analysis_pipeline.md — JS 분석 파이프라인
+  - [x] T43.3: proc_analysis_pipeline.md — ProC 분석 파이프라인
+  - [x] T43.4: sql_analysis_pipeline.md — SQL 분석 파이프라인
+  - [x] T43.5: xml_analysis_pipeline.md — XML 분석 파이프라인
+  - [x] T43.6: c_analysis_pipeline.md 최신화
+- [ ] T42: 버전 1.0.0 릴리스 (depends: T40, T41, T43)
+  - [ ] T42.1: 버전 범프 (0.1.0 → 1.0.0)
+  - [ ] T42.2: 로컬 브랜치 정리 (38개)
+  - [ ] T42.3: 원격 브랜치 정리
+  - [ ] T42.4: v1.0.0 태그 + GitHub Release
