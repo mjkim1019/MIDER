@@ -161,7 +161,7 @@ class ReporterAgent(BaseAgent):
         self,
         analysis_results: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """모든 AnalysisResult에서 이슈를 통합한다."""
+        """모든 AnalysisResult에서 이슈를 통합한다 (Medium 이상만)."""
         all_issues: list[dict[str, Any]] = []
 
         for result in analysis_results:
@@ -169,12 +169,17 @@ class ReporterAgent(BaseAgent):
             language = result.get("language", "")
 
             for issue in result.get("issues", []):
+                severity = issue.get("severity", "low").lower()
+                # Medium 이상의 이슈만 수집 (low 제외)
+                if severity == "low":
+                    continue
+
                 issue_item = {
                     "issue_id": issue.get("issue_id", ""),
                     "file": file_path,
                     "language": language,
                     "category": issue.get("category", "code_quality"),
-                    "severity": issue.get("severity", "low"),
+                    "severity": severity,
                     "title": issue.get("title", ""),
                     "description": issue.get("description", ""),
                     "location": issue.get("location", {

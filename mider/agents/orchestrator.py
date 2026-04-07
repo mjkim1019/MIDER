@@ -388,14 +388,17 @@ class OrchestratorAgent(BaseAgent):
         self._report_progress(3, "리포트 생성", 0, 1, "리포트 생성 중")
         self.rl.phase_header(3, "ReporterAgent")
 
-        # 이슈 집계 로그
-        all_issues = [i for r in analysis_results for i in r.get("issues", [])]
+        # 이슈 집계 로그 (Medium 이상만)
+        all_issues = [
+            i for r in analysis_results for i in r.get("issues", [])
+            if i.get("severity", "low").lower() != "low"
+        ]
         severity_counts = {}
         for issue in all_issues:
             sev = issue.get("severity", "unknown")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
         sev_str = " ".join(f"{k.upper()}:{v}" for k, v in severity_counts.items())
-        self.rl.scan(f"Input: {total_files} files, {len(all_issues)} issues ({sev_str})")
+        self.rl.scan(f"Input: {total_files} files, {len(all_issues)} issues (Medium+ only: {sev_str})")
 
         report = await self._call_agent(
             self._reporter,  # type: ignore[arg-type]
