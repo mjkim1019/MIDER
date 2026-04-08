@@ -395,21 +395,35 @@ def _remove_xml_comments(content: str) -> tuple[str, int]:
     """XML 주석(<!-- -->)을 제거한다.
 
     CDATA 섹션(<![CDATA[...]]>) 내부는 보존한다.
+    단, <script> 태그 내부의 CDATA 섹션에 포함된 JS 주석은 제거한다.
     """
     result: list[str] = []
     state = _State.CODE
     i = 0
     length = len(content)
     removed_count = 0
+    in_script_tag = False
+    cdata_buffer: list[str] = []
 
     while i < length:
         ch = content[i]
 
         if state == _State.CODE:
+            # <script 태그 감지 (대소문자 무시)
+            if content[i : i + 7].lower() == "<script" and (
+                i + 7 >= length or content[i + 7] in (" ", ">", "\t", "\n", "\r")
+            ):
+                in_script_tag = True
+            # </script> 태그 감지 (대소문자 무시)
+            elif content[i : i + 9].lower() == "</script>":
+                in_script_tag = False
+
             # CDATA 시작
             if content[i : i + 9] == "<![CDATA[":
                 state = _State.CDATA
                 result.append(content[i : i + 9])
+                if in_script_tag:
+                    cdata_buffer = []
                 i += 9
                 continue
 
@@ -436,11 +450,25 @@ def _remove_xml_comments(content: str) -> tuple[str, int]:
 
         elif state == _State.CDATA:
             if content[i : i + 3] == "]]>":
+                if in_script_tag:
+                    # script CDATA 내용에서 JS 주석 제거
+                    cdata_content = "".join(cdata_buffer)
+                    cleaned, js_removed = _remove_c_style_comments(
+                        cdata_content,
+                        support_backtick=True,
+                        support_regex=True,
+                    )
+                    result.append(cleaned)
+                    removed_count += js_removed
+                    cdata_buffer = []
                 result.append("]]>")
                 state = _State.CODE
                 i += 3
                 continue
-            result.append(ch)
+            if in_script_tag:
+                cdata_buffer.append(ch)
+            else:
+                result.append(ch)
             i += 1
 
         else:
