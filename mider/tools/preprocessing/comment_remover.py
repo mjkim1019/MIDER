@@ -29,6 +29,29 @@ class _State(Enum):
 
 
 # ──────────────────────────────────────────────
+# SQL 힌트 판별
+# ──────────────────────────────────────────────
+
+
+def _is_sql_hint(content: str, i: int) -> bool:
+    """content[i:i+2] == '/*' 확인된 상태에서 SQL 힌트인지 판별한다.
+
+    /*+ 뒤에 공백/영문자/따옴표 → 힌트 (보존)
+    /*+ 뒤에 +, *, -, = → 구분선 주석 (제거)
+    """
+    if i + 2 >= len(content) or content[i + 2] != '+':
+        return False
+    if i + 3 >= len(content):
+        return False
+    next_ch = content[i + 3]
+    if next_ch in ('+', '*', '-', '='):
+        return False
+    if next_ch == ' ' or next_ch.isalpha() or next_ch == '"':
+        return True
+    return False
+
+
+# ──────────────────────────────────────────────
 # C 스타일 주석 제거 (C, JavaScript 공통 기반)
 # ──────────────────────────────────────────────
 
@@ -149,6 +172,22 @@ def _remove_c_style_comments(
                         continue
                     # /* 블록 주석
                     if next_ch == "*":
+                        if _is_sql_hint(content, i):
+                            # SQL 힌트 보존: */ 까지 그대로 출력
+                            j = i + 2
+                            while j < length:
+                                if content[j] == '*' and j + 1 < length and content[j + 1] == '/':
+                                    result.append(content[i:j + 2])
+                                    j += 2
+                                    break
+                                j += 1
+                            else:
+                                result.append(content[i:])
+                                j = length
+                            # last_significant_char 업데이트 (JS 정규식 판별용)
+                            last_significant_char = '/'
+                            i = j
+                            continue
                         state = _State.BLOCK_COMMENT
                         removed_count += 1
                         i += 2  # '/*' 건너뜀
@@ -341,6 +380,19 @@ def _remove_sql_comments(content: str) -> tuple[str, int]:
 
             # /* 블록 주석
             if ch == "/" and i + 1 < length and content[i + 1] == "*":
+                if _is_sql_hint(content, i):
+                    j = i + 2
+                    while j < length:
+                        if content[j] == '*' and j + 1 < length and content[j + 1] == '/':
+                            result.append(content[i:j + 2])
+                            j += 2
+                            break
+                        j += 1
+                    else:
+                        result.append(content[i:])
+                        j = length
+                    i = j
+                    continue
                 state = _State.BLOCK_COMMENT
                 removed_count += 1
                 i += 2
