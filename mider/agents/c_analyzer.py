@@ -332,8 +332,14 @@ class CAnalyzerAgent(BaseAgent):
                 tokens_estimate = (len(prompt) + len(response)) // 4
 
             # Step 4: AnalysisResult 생성
-            elapsed = time.time() - start_time
+            # Low 등급 원천 차단 필터링
+            issues = [
+                issue for issue in issues
+                if issue.get("severity", "low").lower() != "low"
+            ]
 
+            # ── 결과 생성 ──
+            elapsed = time.time() - start_time
             result = AnalysisResult.model_validate({
                 "task_id": task_id,
                 "file": file,
@@ -341,7 +347,7 @@ class CAnalyzerAgent(BaseAgent):
                 "agent": "CAnalyzerAgent",
                 "issues": issues,
                 "analysis_time_seconds": round(elapsed, 2),
-                "llm_tokens_used": tokens_estimate,
+                "llm_tokens_used": total_tokens,
             })
 
             logger.info(

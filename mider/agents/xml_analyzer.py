@@ -136,14 +136,20 @@ class XMLAnalyzerAgent(BaseAgent):
             # Step 5: 이슈 병합 + issue_id 재번호
             all_issues = self._merge_issues(xml_issues, js_issues)
 
-            # Step 6: AnalysisResult 생성
+            # Low 등급 원천 차단 필터링
+            issues = [
+                issue for issue in all_issues
+                if issue.get("severity", "low").lower() != "low"
+            ]
+
+            # Step 4: AnalysisResult 생성
             elapsed = time.time() - start_time
             result = AnalysisResult.model_validate({
                 "task_id": task_id,
                 "file": file,
                 "language": language,
                 "agent": "XMLAnalyzerAgent",
-                "issues": all_issues,
+                "issues": issues,
                 "analysis_time_seconds": round(elapsed, 2),
                 "llm_tokens_used": 0,
             })

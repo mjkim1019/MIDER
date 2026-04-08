@@ -285,12 +285,19 @@ class ProCAnalyzerAgent(BaseAgent):
         # ── Phase 4: IssueMerger ──
         merge_start = time.time()
         self.rl.step("V3 Phase 4: Issue 병합")
-        final_issues = self._issue_merger.merge(
+        merged_issues = self._issue_merger.merge(
             llm_issues=llm_issues,
             static_findings=all_findings,
             file_path=file,
             partition=partition,
         )
+        
+        # Low 등급 원천 차단 필터링
+        final_issues = [
+            issue for issue in merged_issues
+            if issue.get("severity", "low").lower() != "low"
+        ]
+        
         merge_ms = int((time.time() - merge_start) * 1000)
 
         self.rl.scan(
@@ -458,11 +465,16 @@ class ProCAnalyzerAgent(BaseAgent):
                     func_names=func_names,
                 )
 
-            # ── source 필드 보정 ──
+            # ── source 필드 보정 및 Low 등급 필터링 ──
             _VALID_SOURCES = {"static_analysis", "llm", "hybrid"}
+            filtered_issues = []
             for issue in issues:
+                if issue.get("severity", "low").lower() == "low":
+                    continue
                 if issue.get("source") not in _VALID_SOURCES:
                     issue["source"] = "llm"
+                filtered_issues.append(issue)
+            issues = filtered_issues
 
             # ── 결과 생성 ──
             elapsed = time.time() - start_time

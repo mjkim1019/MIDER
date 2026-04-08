@@ -126,6 +126,12 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             issues = llm_result.get("issues", [])
 
             # Step 4: AnalysisResult 생성
+            # Low 등급 원천 차단 필터링
+            issues = [
+                issue for issue in issues
+                if issue.get("severity", "low").lower() != "low"
+            ]
+
             elapsed = time.time() - start_time
             tokens_estimate = (len(prompt) + len(response)) // 4
 

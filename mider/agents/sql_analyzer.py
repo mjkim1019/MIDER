@@ -201,6 +201,12 @@ class SQLAnalyzerAgent(BaseAgent):
                     f"정적 {len(static_issues)}건 → 최종 {len(issues)}건"
                 )
 
+            # Low 등급 원천 차단 필터링
+            issues = [
+                issue for issue in issues
+                if issue.get("severity", "low").lower() != "low"
+            ]
+
             # Step 6: AnalysisResult 생성
             elapsed = time.time() - start_time
             tokens_estimate = (len(prompt) + len(response)) // 4

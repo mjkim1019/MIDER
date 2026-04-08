@@ -175,12 +175,17 @@ Scanner 결과가 없더라도 Step 6에서 독립적으로 찾은 이슈는 보
 }}
 
 ## 주의사항
+- **[중요] Low severity(단순 가독성, 스타일, 경미한 가이드 준수 등) 이슈는 절대 보고하지 마세요.** 오직 Medium 이상의 실질적인 위험 요소만 추출합니다.
 - 이슈 ID는 PC-001부터 순차적으로 부여합니다.
 - Pro*C는 데이터 무결성이 가장 중요합니다. SQLCA 미검사, 커서 미닫힘은 severity를 높게 책정합니다.
 - title과 description은 반드시 한국어로 작성합니다.
 - fix의 before/after는 1-3줄만 포함합니다.
 - 발견된 이슈가 없으면 `"issues": []`로 응답합니다.
 - **⚠ 중점 분석 대상 함수는 일반 함수보다 더 꼼꼼하게 분석하세요.**
+- severity 기준:
+  - critical: 즉시 장애 발생 가능성, 데이터 유실, 보안 크래시
+  - high: 특정 조건에서 로직 오작동, 트랜잭션 무결성 저해
+  - medium: 품질 저하, 잠재적 버그, 유지보수 위험
 - **[Proframe 환경] 아래 패턴은 이슈로 보고하지 마세요:**
   - INDICATOR 변수 누락 — Proframe은 WHENEVER SQLERROR + NVL()로 NULL을 처리
   - memset에서 sizeof(타입명) 사용 — Proframe 표준 관행이며 타입명과 변수 타입이 일치
