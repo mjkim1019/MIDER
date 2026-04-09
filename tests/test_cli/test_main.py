@@ -14,9 +14,11 @@ from mider.main import (
     EXIT_OK,
     build_parser,
     determine_exit_code,
+    get_base_dir,
     print_file_list,
     print_issues,
     print_summary,
+    resolve_input_files,
     resolve_model,
     run_analysis,
     validate_api_key,
@@ -51,10 +53,16 @@ class TestBuildParser:
         assert args.files == ["a.c", "b.pc", "c.sql"]
 
     def test_output_default(self):
-        """--output 기본값은 ./output."""
+        """--output 기본값은 output_default 인자를 따른다."""
         parser = build_parser()
         args = parser.parse_args(["--files", "test.js"])
         assert args.output == "./output"
+
+    def test_output_default_custom(self):
+        """output_default 인자로 기본값을 변경할 수 있다."""
+        parser = build_parser(output_default="/app/output")
+        args = parser.parse_args(["--files", "test.js"])
+        assert args.output == "/app/output"
 
     def test_output_custom(self):
         """--output 커스텀 경로."""
@@ -551,6 +559,89 @@ class TestRunAnalysis:
 
 
 # ──────────────────────────────────────────────
+# get_base_dir
+# ──────────────────────────────────────────────
+
+
+class TestGetBaseDir:
+    """get_base_dir() 테스트."""
+
+    def test_dev_environment(self):
+        """개발 환경에서는 프로젝트 루트를 반환한다."""
+        base = get_base_dir()
+        # main.py의 parent.parent = 프로젝트 루트
+        expected = Path(__file__).resolve().parent.parent.parent
+        assert base == expected
+
+    def test_frozen_environment(self, monkeypatch, tmp_path):
+        """PyInstaller frozen 환경에서는 실행파일 디렉토리를 반환한다."""
+        fake_exe = tmp_path / "dist" / "mider.exe"
+        fake_exe.parent.mkdir(parents=True, exist_ok=True)
+        fake_exe.touch()
+        monkeypatch.setattr("sys.frozen", True, raising=False)
+        monkeypatch.setattr("sys.executable", str(fake_exe))
+        base = get_base_dir()
+        assert base == fake_exe.parent
+
+
+# ──────────────────────────────────────────────
+# resolve_input_files
+# ──────────────────────────────────────────────
+
+
+class TestResolveInputFiles:
+    """resolve_input_files() 테스트."""
+
+    def test_absolute_path_passthrough(self, tmp_path):
+        """절대경로 파일은 그대로 반환한다."""
+        f = tmp_path / "test.js"
+        f.write_text("// test")
+        result = resolve_input_files(tmp_path, [str(f)])
+        assert result == [str(f.resolve())]
+
+    def test_input_folder_resolution(self, tmp_path):
+        """input 폴더 내 파일명을 절대경로로 변환한다."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        f = input_dir / "app.c"
+        f.write_text("int main() {}")
+        result = resolve_input_files(tmp_path, ["app.c"])
+        assert result == [str(f.resolve())]
+
+    def test_input_folder_auto_created(self, tmp_path):
+        """input 폴더가 없으면 자동 생성한다."""
+        base = tmp_path / "myapp"
+        base.mkdir()
+        # input 폴더 없는 상태에서 존재하지 않는 파일 → 에러 + 폴더 생성
+        with pytest.raises(SystemExit):
+            resolve_input_files(base, ["nonexistent.js"])
+        assert (base / "input").is_dir()
+
+    def test_missing_file_error(self, tmp_path):
+        """존재하지 않는 파일은 에러 메시지를 출력하고 exit한다."""
+        with pytest.raises(SystemExit) as exc_info:
+            resolve_input_files(tmp_path, ["no_such_file.c"])
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+    def test_mixed_existing_and_missing(self, tmp_path):
+        """존재하는 파일과 존재하지 않는 파일이 섞인 경우 존재하는 파일만 반환한다."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        f = input_dir / "good.js"
+        f.write_text("// ok")
+        result = resolve_input_files(tmp_path, ["good.js", "bad.js"])
+        assert result == [str(f.resolve())]
+
+    def test_relative_path_existing_file(self, tmp_path, monkeypatch):
+        """현재 디렉토리 기준 상대경로 파일이 존재하면 그대로 사용한다."""
+        f = tmp_path / "local.sql"
+        f.write_text("SELECT 1")
+        monkeypatch.chdir(tmp_path)
+        result = resolve_input_files(tmp_path, ["local.sql"])
+        assert result == [str(f.resolve())]
+
+
+# ──────────────────────────────────────────────
 # main (통합)
 # ──────────────────────────────────────────────
 
@@ -566,7 +657,7 @@ class TestMain:
             "sys.argv", ["mider", "--files", "test.js"],
         )
         # load_dotenv()가 .env 파일에서 키를 로드하지 않도록 차단
-        monkeypatch.setattr("mider.main.load_dotenv", lambda: None)
+        monkeypatch.setattr("mider.main.load_dotenv", lambda **kwargs: None)
         with pytest.raises(SystemExit) as exc_info:
             from mider.main import main
             main()
