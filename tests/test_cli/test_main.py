@@ -144,15 +144,31 @@ class TestValidateApiKey:
 
     def _clear_all_keys(self, monkeypatch):
         """모든 API 키 환경변수 제거."""
-        for key in ["AICA_API_KEY", "AICA_ENDPOINT", "AICA_SSO_SESSION"]:
+        for key in ["API_PROVIDER", "AICA_API_KEY", "AICA_ENDPOINT",
+                     "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
+                     "OPENAI_API_KEY"]:
             monkeypatch.delenv(key, raising=False)
 
-    def test_aica_key(self, monkeypatch):
-        """AICA_API_KEY + AICA_ENDPOINT가 설정된 경우 정상 통과."""
+    def test_openai_key(self, monkeypatch):
+        """OpenAI 키가 설정된 경우 정상 통과."""
         self._clear_all_keys(monkeypatch)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        validate_api_key()
+
+    def test_azure_key(self, monkeypatch):
+        """Azure 키가 설정된 경우 정상 통과."""
+        self._clear_all_keys(monkeypatch)
+        monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
+        monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com/")
+        validate_api_key()
+
+    def test_aica_key(self, monkeypatch):
+        """AICA 키가 설정된 경우 정상 통과."""
+        self._clear_all_keys(monkeypatch)
+        monkeypatch.setenv("API_PROVIDER", "aica")
         monkeypatch.setenv("AICA_API_KEY", "test-key")
         monkeypatch.setenv("AICA_ENDPOINT", "http://aica.test.com:3000")
-        validate_api_key()  # 예외 없이 통과
+        validate_api_key()
 
     def test_no_key_exits(self, monkeypatch):
         """어떤 키도 없으면 exit code 3."""
@@ -161,19 +177,11 @@ class TestValidateApiKey:
             validate_api_key()
         assert exc_info.value.code == EXIT_LLM_ERROR
 
-    def test_key_without_endpoint_exits(self, monkeypatch):
-        """AICA_API_KEY만 있고 AICA_ENDPOINT가 없으면 exit code 3."""
+    def test_aica_key_without_endpoint_exits(self, monkeypatch):
+        """AICA에서 ENDPOINT 없으면 exit code 3."""
         self._clear_all_keys(monkeypatch)
+        monkeypatch.setenv("API_PROVIDER", "aica")
         monkeypatch.setenv("AICA_API_KEY", "test-key")
-        with pytest.raises(SystemExit) as exc_info:
-            validate_api_key()
-        assert exc_info.value.code == EXIT_LLM_ERROR
-
-    def test_empty_key_exits(self, monkeypatch):
-        """빈 API 키 시 exit code 3."""
-        self._clear_all_keys(monkeypatch)
-        monkeypatch.setenv("AICA_API_KEY", "")
-        monkeypatch.setenv("AICA_ENDPOINT", "")
         with pytest.raises(SystemExit) as exc_info:
             validate_api_key()
         assert exc_info.value.code == EXIT_LLM_ERROR
@@ -556,7 +564,9 @@ class TestMain:
 
     def test_main_exits_without_api_key(self, monkeypatch):
         """API 키 없으면 exit 3."""
-        for key in ["AICA_API_KEY", "AICA_ENDPOINT", "AICA_SSO_SESSION"]:
+        for key in ["API_PROVIDER", "AICA_API_KEY", "AICA_ENDPOINT",
+                     "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
+                     "OPENAI_API_KEY"]:
             monkeypatch.delenv(key, raising=False)
         monkeypatch.setattr(
             "sys.argv", ["mider", "--files", "test.js"],

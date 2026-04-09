@@ -810,3 +810,13 @@
 - `2026-04-09 14:11:23` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider.spec`
 - `2026-04-09 14:11:56` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/tests/test_cli/test_main.py`
 - `2026-04-09 14:26:36` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider/config/llm_client.py`
+- `2026-04-09 14:40:33` [feat/deploy-setup] **Write**: `/Users/mjkim/development/MIDER/mider/config/llm_client.py`
+- `2026-04-09 14:40:49` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider/main.py`
+- `2026-04-09 14:41:08` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider/main.py`
+- `2026-04-09 14:41:25` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider/main.py`
+- `2026-04-09 14:41:37` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/requirements.txt`
+- `2026-04-09 14:41:48` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/pyproject.toml`
+- `2026-04-09 14:42:03` [feat/deploy-setup] **Write**: `/Users/mjkim/development/MIDER/.env.example`
+- `2026-04-09 14:43:16` [feat/deploy-setup] **Write**: `/Users/mjkim/development/MIDER/tests/test_config/test_llm_client.py`
+- `2026-04-09 14:43:41` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/tests/test_cli/test_main.py`
+- `2026-04-09 14:43:58` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/tests/test_cli/test_main.py`
