@@ -33,6 +33,7 @@ Thumbs.db
 
 # 샘플데이터
 tests/fixtures/*
+input/*
 
 # log
 *.log

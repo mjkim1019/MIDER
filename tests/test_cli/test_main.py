@@ -18,6 +18,7 @@ from mider.main import (
     print_file_list,
     print_issues,
     print_summary,
+    prompt_for_files,
     resolve_input_files,
     resolve_model,
     run_analysis,
@@ -34,16 +35,16 @@ from mider.main import (
 class TestBuildParser:
     """argparse 파서 테스트."""
 
-    def test_required_files(self):
-        """--files는 필수 인자."""
+    def test_no_args_ok(self):
+        """인자 없이 실행 가능 (인터랙티브 모드)."""
         parser = build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args([])
+        args = parser.parse_args([])
+        assert args.files is None
 
     def test_files_single(self):
         """단일 파일 지정."""
         parser = build_parser()
-        args = parser.parse_args(["--files", "test.js"])
+        args = parser.parse_args(["-f", "test.js"])
         assert args.files == ["test.js"]
 
     def test_files_multiple(self):
@@ -55,49 +56,49 @@ class TestBuildParser:
     def test_output_default(self):
         """--output 기본값은 ./output."""
         parser = build_parser()
-        args = parser.parse_args(["--files", "test.js"])
+        args = parser.parse_args([])
         assert args.output == "./output"
 
     def test_output_custom(self):
         """--output 커스텀 경로."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js", "-o", "/tmp/reports"])
+        args = parser.parse_args(["-o", "/tmp/reports"])
         assert args.output == "/tmp/reports"
 
     def test_model_option(self):
         """--model 옵션."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js", "-m", "gpt-4o-mini"])
+        args = parser.parse_args(["-m", "gpt-4o-mini"])
         assert args.model == "gpt-4o-mini"
 
     def test_model_default_none(self):
         """--model 미지정 시 None."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js"])
+        args = parser.parse_args([])
         assert args.model is None
 
     def test_verbose_flag(self):
         """--verbose 플래그."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js", "-v"])
+        args = parser.parse_args(["-v"])
         assert args.verbose is True
 
     def test_verbose_default_false(self):
         """--verbose 미지정 시 False."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js"])
+        args = parser.parse_args([])
         assert args.verbose is False
 
     def test_explain_plan_option(self):
         """--explain-plan 옵션."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.sql", "-e", "/tmp/plan.txt"])
+        args = parser.parse_args(["-e", "/tmp/plan.txt"])
         assert args.explain_plan == "/tmp/plan.txt"
 
     def test_explain_plan_default_none(self):
         """--explain-plan 미지정 시 None."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.sql"])
+        args = parser.parse_args([])
         assert args.explain_plan is None
 
     def test_version(self):
@@ -106,6 +107,34 @@ class TestBuildParser:
         with pytest.raises(SystemExit) as exc_info:
             parser.parse_args(["--version"])
         assert exc_info.value.code == 0
+
+
+class TestPromptForFiles:
+    """인터랙티브 파일 입력 테스트."""
+
+    def test_single_file(self, monkeypatch):
+        """단건 파일 입력."""
+        monkeypatch.setattr("builtins.input", lambda _: "test.c")
+        result = prompt_for_files()
+        assert result == ["test.c"]
+
+    def test_multiple_files(self, monkeypatch):
+        """다건 파일 입력 (쉼표 구분)."""
+        monkeypatch.setattr("builtins.input", lambda _: "a.c, b.pc, c.sql")
+        result = prompt_for_files()
+        assert result == ["a.c", "b.pc", "c.sql"]
+
+    def test_empty_input_exits(self, monkeypatch):
+        """빈 입력 시 종료."""
+        monkeypatch.setattr("builtins.input", lambda _: "")
+        with pytest.raises(SystemExit):
+            prompt_for_files()
+
+    def test_eof_exits(self, monkeypatch):
+        """EOF 시 종료."""
+        monkeypatch.setattr("builtins.input", MagicMock(side_effect=EOFError))
+        with pytest.raises(SystemExit):
+            prompt_for_files()
 
 
 # ──────────────────────────────────────────────
@@ -568,23 +597,13 @@ class TestMain:
                      "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
                      "OPENAI_API_KEY"]:
             monkeypatch.delenv(key, raising=False)
-        monkeypatch.setattr(
-            "sys.argv", ["mider", "--files", "test.js"],
-        )
+        monkeypatch.setattr("sys.argv", ["mider", "-f", "test.js"])
         # load_dotenv()가 .env 파일에서 키를 로드하지 않도록 차단
         monkeypatch.setattr("mider.main.load_dotenv", lambda **kwargs: None)
         with pytest.raises(SystemExit) as exc_info:
             from mider.main import main
             main()
         assert exc_info.value.code == EXIT_LLM_ERROR
-
-    def test_main_no_files_exits(self, monkeypatch):
-        """--files 없으면 exit 2."""
-        monkeypatch.setattr("sys.argv", ["mider"])
-        with pytest.raises(SystemExit) as exc_info:
-            from mider.main import main
-            main()
-        assert exc_info.value.code == 2  # argparse exit code
 
 
 # ──────────────────────────────────────────────

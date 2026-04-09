@@ -120,23 +120,23 @@ def build_parser(output_default: str = "./output") -> argparse.ArgumentParser:
     parser.add_argument(
         "--files", "-f",
         nargs="+",
-        required=True,
-        help="분석할 파일 경로 (1개 이상, glob 지원)\n예: mider -f ordsb0100010t01.c zinvbpre01140.pc zord_svc_f101.sql",
+        required=False,
+        help="분석할 파일명 (input/ 폴더 기준, 미지정 시 인터랙티브 모드)",
     )
     parser.add_argument(
         "--output", "-o",
         default=output_default,
-        help=f"결과 출력 디렉토리 (기본: {output_default})\n예: mider -f ordsb0100010t01.c -o ./reports",
+        help=f"결과 출력 디렉토리 (기본: {output_default})",
     )
     parser.add_argument(
         "--model", "-m",
         default=None,
-        help="사용할 LLM 모델명 (기본: MIDER_MODEL 환경변수 또는 settings.yaml)\n예: mider -f ordsb0100010t01.c -m gpt-5",
+        help="사용할 LLM 모델명 (기본: MIDER_MODEL 환경변수 또는 settings.yaml)",
     )
     parser.add_argument(
         "--explain-plan", "-e",
         default=None,
-        help="Explain Plan 결과 파일 경로 (SQL 분석 시 사용)\n예: mider -f zord_svc_f101.sql -e zord_svc_f101_plan.txt",
+        help="Explain Plan 결과 파일 경로 (SQL 분석 시 사용)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -575,6 +575,22 @@ async def run_analysis(
     return determine_exit_code(result)
 
 
+def prompt_for_files() -> list[str]:
+    """인터랙티브 모드: 사용자에게 파일명을 입력받는다."""
+    print("\n분석하고자 하는 소스파일을 입력해주세요. 예시) ordsb0100010t01.c")
+    try:
+        user_input = input("> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        sys.exit(0)
+
+    if not user_input:
+        print("파일명이 입력되지 않았습니다. 종료합니다.")
+        sys.exit(0)
+
+    return [f.strip() for f in user_input.split(",") if f.strip()]
+
+
 def main() -> None:
     """CLI 메인 함수."""
     base_dir = get_base_dir()
@@ -604,8 +620,11 @@ def main() -> None:
     # 모델 결정
     model = resolve_model(args.model)
 
+    # -f 인자가 있으면 사용, 없으면 인터랙티브 모드
+    file_args = args.files if args.files else prompt_for_files()
+
     # 파일 경로 해석 (input 폴더 기준)
-    resolved_files = resolve_input_files(base_dir, args.files)
+    resolved_files = resolve_input_files(base_dir, file_args)
 
     # 파일 목록 출력
     print_file_list(console, resolved_files)
