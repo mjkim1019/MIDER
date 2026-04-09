@@ -33,6 +33,7 @@ jobs:
 
       - name: Create .env from secrets
         run: |
+          echo "API_PROVIDER=aica" >> .env
           echo "AICA_API_KEY=${{ secrets.AICA_API_KEY }}" >> .env
           echo "AICA_ENDPOINT=${{ secrets.AICA_ENDPOINT }}" >> .env
         shell: bash
