@@ -16,13 +16,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from dotenv import load_dotenv
-from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError
+import httpx
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 from mider import __version__
 from mider.agents.orchestrator import OrchestratorAgent
+from mider.config.llm_client import AICAError
 from mider.config.logging_config import setup_logging
 from mider.config.reasoning_logger import ReasoningLogger
 from mider.tools.utility.markdown_report_formatter import format_markdown_report
@@ -159,42 +160,27 @@ def resolve_model(args_model: str | None) -> str:
     return get_agent_model("orchestrator")
 
 
-def validate_api_key() -> str | None:
-    """LLM API 키를 검증한다.
+def validate_api_key() -> None:
+    """AICA LLM API 키를 검증한다.
 
-    우선순위:
-    1. AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT (Azure)
-    2. MIDER_API_KEY → OPENAI_API_KEY 브리징
-    3. OPENAI_API_KEY (직접 설정)
-
-    Returns:
-        MIDER_API_KEY 값 (Azure 경로면 None)
+    필수 환경 변수:
+    - AICA_API_KEY: API 키
+    - AICA_ENDPOINT: AICA 서버 주소
 
     Raises:
-        SystemExit: 어떤 API 키도 없으면 exit code 3으로 종료
+        SystemExit: 환경 변수가 없으면 exit code 3으로 종료
     """
-    # Azure 경로: AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT
-    azure_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
-    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
-    if azure_key and azure_endpoint:
-        return None  # LLMClient가 Azure 변수를 직접 읽음
+    api_key = os.environ.get("AICA_API_KEY", "")
+    endpoint = os.environ.get("AICA_ENDPOINT", "")
 
-    # OpenAI 경로: MIDER_API_KEY → OPENAI_API_KEY 브리징
-    mider_key = os.environ.get("MIDER_API_KEY", "")
-    if mider_key:
-        return mider_key
-
-    # OPENAI_API_KEY 직접 설정
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    if openai_key:
-        return None  # 이미 설정됨
+    if api_key and endpoint:
+        return
 
     console = Console(stderr=True)
     console.print(
         "[red bold]오류:[/] LLM API 키가 설정되지 않았습니다.",
     )
-    console.print("  Azure: AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT")
-    console.print("  OpenAI: MIDER_API_KEY 또는 OPENAI_API_KEY")
+    console.print("  AICA_API_KEY와 AICA_ENDPOINT를 환경 변수로 설정하세요.")
     sys.exit(EXIT_LLM_ERROR)
 
 
@@ -600,17 +586,10 @@ def main() -> None:
     console.print(f"Mider v{__version__}")
 
     # API 키 검증
-    api_key = validate_api_key()
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
+    validate_api_key()
 
     # 모델 결정
     model = resolve_model(args.model)
-
-    # API Base URL 설정
-    api_base = os.environ.get("MIDER_API_BASE")
-    if api_base:
-        os.environ["OPENAI_BASE_URL"] = api_base
 
     # 파일 경로 해석 (input 폴더 기준)
     resolved_files = resolve_input_files(base_dir, args.files)
@@ -641,7 +620,7 @@ def main() -> None:
     except KeyboardInterrupt:
         console.print("\n[yellow]분석이 사용자에 의해 중단되었습니다.[/]")
         sys.exit(130)
-    except (APIError, APIConnectionError, RateLimitError, APITimeoutError, EnvironmentError) as e:
+    except (AICAError, httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException, EnvironmentError) as e:
         logger.error(f"LLM API 오류: {e}")
         console.print(f"[red bold]LLM API 오류:[/] {e}")
         sys.exit(EXIT_LLM_ERROR)

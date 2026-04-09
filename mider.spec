@@ -66,7 +66,6 @@ a = Analysis(
         "mider.models",
         "pydantic",
         "rich",
-        "openai",
         "httpx",
         "sqlparse",
         "dotenv",

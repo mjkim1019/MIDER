@@ -53,3 +53,46 @@ Version 1.0.0 릴리스 정리 — 미사용 파일 제거, README 리라이트,
 | T41 | 없음 | 문서 |
 | T43 | 없음 | 문서 |
 | T42 | T40, T41, T43 | 릴리스 (정리 완료 후) |
+
+---
+
+## AICA API 전환
+
+### 개요
+Azure OpenAI/OpenAI API를 SKT AICA 사내 API로 전환한다.
+AICA는 `http://aica.sktelecom.com:3000/api/agent/v1/chats`로 POST 호출하며, SSO 세션은 별도 작업에서 처리한다.
+
+### Task 목록
+
+#### T47: LLM Client AICA API 전환
+- T47.1: `llm_client.py` — openai SDK 제거, httpx 기반 AICA API 클라이언트 구현 → `mider/config/llm_client.py`
+- T47.2: 모델명 매핑 (gpt-5 → GPT5_2 등) + settings.yaml 업데이트 → `mider/config/settings.yaml`
+- T47.3: 단위 테스트 수정 → `tests/test_config/test_llm_client.py`
+
+#### T48: 환경 변수 및 CLI 업데이트 (depends: T47)
+- T48.1: `main.py` — validate_api_key() AICA 방식으로 변경 → `mider/main.py`
+- T48.2: `.env.example` — AICA 환경 변수로 변경 → `.env.example`
+- T48.3: `settings.yaml` api 섹션 업데이트 → `mider/config/settings.yaml`
+
+#### T49: CI/빌드/문서 업데이트 (depends: T48)
+- T49.1: `build-windows-exe.yml` — secrets 이름 변경 → `.github/workflows/build-windows-exe.yml`
+- T49.2: `build_exe.py` — 안내 메시지 업데이트 → `scripts/build_exe.py`
+- T49.3: `USER_MANUAL.md` — API 관련 내용 업데이트 → `docs/USER_MANUAL.md`
+- T49.4: 기존 테스트 호환성 확인 → `tests/`
+
+### 설계 결정
+
+| 결정 | 이유 |
+|------|------|
+| openai SDK → httpx 직접 호출 | AICA API는 OpenAI 호환 형식이 아닌 자체 API 형식 사용 |
+| SSO 세션 미구현 | 별도 작업에서 처리 예정, SSOSESSION 쿠키 전달 인터페이스만 준비 |
+| model_cd 매핑 테이블 | settings.yaml 모델명(gpt-5)을 AICA model_cd(GPT5_2)로 변환 필요 |
+| AICA_API_KEY + AICA_ENDPOINT 환경 변수 | 기존 Azure/OpenAI 키 3종 → 단일 키로 단순화 |
+
+### 의존성
+
+| Task | 의존 | 비고 |
+|------|------|------|
+| T47 | 없음 | LLM Client 핵심 변경 |
+| T48 | T47 | 환경 변수는 Client 변경 후 |
+| T49 | T48 | CI/문서는 마지막 |

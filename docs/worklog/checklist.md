@@ -246,3 +246,21 @@
   - [x] T45.3: .env.example 업데이트
 - [x] T46: 사용자 매뉴얼
   - [x] T46.1: docs/USER_MANUAL.md 작성
+
+---
+
+## AICA API 전환
+
+- [ ] T47: LLM Client AICA API 전환
+  - [ ] T47.1: llm_client.py — httpx 기반 AICA API 클라이언트 구현
+  - [ ] T47.2: 모델명 매핑 + settings.yaml 업데이트
+  - [ ] T47.3: 단위 테스트 수정
+- [ ] T48: 환경 변수 및 CLI 업데이트
+  - [ ] T48.1: main.py validate_api_key() AICA 방식 변경
+  - [ ] T48.2: .env.example AICA 환경 변수로 변경
+  - [ ] T48.3: settings.yaml api 섹션 업데이트
+- [ ] T49: CI/빌드/문서 업데이트
+  - [ ] T49.1: build-windows-exe.yml secrets 변경
+  - [ ] T49.2: build_exe.py 안내 메시지 업데이트
+  - [ ] T49.3: USER_MANUAL.md API 관련 업데이트
+  - [ ] T49.4: 기존 테스트 호환성 확인

@@ -44,11 +44,12 @@ llm:
       fallback: "gpt-4.1"
 
 api:
-  provider: "azure"  # "azure" 또는 "openai"
-  # Azure OpenAI 설정
-  azure_endpoint: ""  # 환경변수 AZURE_OPENAI_ENDPOINT로 설정
-  api_version: "2024-12-01-preview"
-  # API 키는 환경변수 AZURE_OPENAI_API_KEY로 설정
+  provider: "aica"  # SKT AICA LLM Gateway
+  # AICA 설정 (환경변수로 설정)
+  # AICA_API_KEY: X-AGENT-API-KEY 헤더 값
+  # AICA_ENDPOINT: 서버 주소 (예: http://aica.sktelecom.com:3000)
+  # AICA_SSO_SESSION: SSO 세션 쿠키 (선택)
+  # AICA_USER_ID: 사용자 ID (기본: mider_agent)
 
 static_analysis:
   # 경로는 mider 패키지 디렉토리 기준 상대경로 (런타임에 Path(__file__).parent로 resolve)

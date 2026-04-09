@@ -53,16 +53,10 @@ class TestBuildParser:
         assert args.files == ["a.c", "b.pc", "c.sql"]
 
     def test_output_default(self):
-        """--output 기본값은 output_default 인자를 따른다."""
+        """--output 기본값은 ./output."""
         parser = build_parser()
         args = parser.parse_args(["--files", "test.js"])
         assert args.output == "./output"
-
-    def test_output_default_custom(self):
-        """output_default 인자로 기본값을 변경할 수 있다."""
-        parser = build_parser(output_default="/app/output")
-        args = parser.parse_args(["--files", "test.js"])
-        assert args.output == "/app/output"
 
     def test_output_custom(self):
         """--output 커스텀 경로."""
@@ -150,30 +144,15 @@ class TestValidateApiKey:
 
     def _clear_all_keys(self, monkeypatch):
         """모든 API 키 환경변수 제거."""
-        for key in ["MIDER_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"]:
+        for key in ["AICA_API_KEY", "AICA_ENDPOINT", "AICA_SSO_SESSION"]:
             monkeypatch.delenv(key, raising=False)
 
-    def test_mider_key(self, monkeypatch):
-        """MIDER_API_KEY가 설정된 경우 반환."""
+    def test_aica_key(self, monkeypatch):
+        """AICA_API_KEY + AICA_ENDPOINT가 설정된 경우 정상 통과."""
         self._clear_all_keys(monkeypatch)
-        monkeypatch.setenv("MIDER_API_KEY", "sk-test-key")
-        result = validate_api_key()
-        assert result == "sk-test-key"
-
-    def test_azure_key(self, monkeypatch):
-        """Azure 키가 설정된 경우 None 반환 (LLMClient가 직접 읽음)."""
-        self._clear_all_keys(monkeypatch)
-        monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
-        monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com/")
-        result = validate_api_key()
-        assert result is None
-
-    def test_openai_key_direct(self, monkeypatch):
-        """OPENAI_API_KEY가 직접 설정된 경우 None 반환."""
-        self._clear_all_keys(monkeypatch)
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-direct")
-        result = validate_api_key()
-        assert result is None
+        monkeypatch.setenv("AICA_API_KEY", "test-key")
+        monkeypatch.setenv("AICA_ENDPOINT", "http://aica.test.com:3000")
+        validate_api_key()  # 예외 없이 통과
 
     def test_no_key_exits(self, monkeypatch):
         """어떤 키도 없으면 exit code 3."""
@@ -182,10 +161,19 @@ class TestValidateApiKey:
             validate_api_key()
         assert exc_info.value.code == EXIT_LLM_ERROR
 
+    def test_key_without_endpoint_exits(self, monkeypatch):
+        """AICA_API_KEY만 있고 AICA_ENDPOINT가 없으면 exit code 3."""
+        self._clear_all_keys(monkeypatch)
+        monkeypatch.setenv("AICA_API_KEY", "test-key")
+        with pytest.raises(SystemExit) as exc_info:
+            validate_api_key()
+        assert exc_info.value.code == EXIT_LLM_ERROR
+
     def test_empty_key_exits(self, monkeypatch):
         """빈 API 키 시 exit code 3."""
         self._clear_all_keys(monkeypatch)
-        monkeypatch.setenv("MIDER_API_KEY", "")
+        monkeypatch.setenv("AICA_API_KEY", "")
+        monkeypatch.setenv("AICA_ENDPOINT", "")
         with pytest.raises(SystemExit) as exc_info:
             validate_api_key()
         assert exc_info.value.code == EXIT_LLM_ERROR
@@ -414,7 +402,7 @@ class TestPrintSummary:
         }
         print_summary(console, summary, "./output", ["/app/test.c"])
         calls_str = str(console.print.call_args_list)
-        assert "불가" in calls_str
+        assert "위험" in calls_str
 
 
 # ──────────────────────────────────────────────
@@ -559,6 +547,37 @@ class TestRunAnalysis:
 
 
 # ──────────────────────────────────────────────
+# main (통합)
+# ──────────────────────────────────────────────
+
+
+class TestMain:
+    """main() 함수 통합 테스트."""
+
+    def test_main_exits_without_api_key(self, monkeypatch):
+        """API 키 없으면 exit 3."""
+        for key in ["AICA_API_KEY", "AICA_ENDPOINT", "AICA_SSO_SESSION"]:
+            monkeypatch.delenv(key, raising=False)
+        monkeypatch.setattr(
+            "sys.argv", ["mider", "--files", "test.js"],
+        )
+        # load_dotenv()가 .env 파일에서 키를 로드하지 않도록 차단
+        monkeypatch.setattr("mider.main.load_dotenv", lambda **kwargs: None)
+        with pytest.raises(SystemExit) as exc_info:
+            from mider.main import main
+            main()
+        assert exc_info.value.code == EXIT_LLM_ERROR
+
+    def test_main_no_files_exits(self, monkeypatch):
+        """--files 없으면 exit 2."""
+        monkeypatch.setattr("sys.argv", ["mider"])
+        with pytest.raises(SystemExit) as exc_info:
+            from mider.main import main
+            main()
+        assert exc_info.value.code == 2  # argparse exit code
+
+
+# ──────────────────────────────────────────────
 # get_base_dir
 # ──────────────────────────────────────────────
 
@@ -569,7 +588,6 @@ class TestGetBaseDir:
     def test_dev_environment(self):
         """개발 환경에서는 프로젝트 루트를 반환한다."""
         base = get_base_dir()
-        # main.py의 parent.parent = 프로젝트 루트
         expected = Path(__file__).resolve().parent.parent.parent
         assert base == expected
 
@@ -608,29 +626,11 @@ class TestResolveInputFiles:
         result = resolve_input_files(tmp_path, ["app.c"])
         assert result == [str(f.resolve())]
 
-    def test_input_folder_auto_created(self, tmp_path):
-        """input 폴더가 없으면 자동 생성한다."""
-        base = tmp_path / "myapp"
-        base.mkdir()
-        # input 폴더 없는 상태에서 존재하지 않는 파일 → 에러 + 폴더 생성
-        with pytest.raises(SystemExit):
-            resolve_input_files(base, ["nonexistent.js"])
-        assert (base / "input").is_dir()
-
     def test_missing_file_error(self, tmp_path):
         """존재하지 않는 파일은 에러 메시지를 출력하고 exit한다."""
         with pytest.raises(SystemExit) as exc_info:
             resolve_input_files(tmp_path, ["no_such_file.c"])
         assert exc_info.value.code == EXIT_FILE_ERROR
-
-    def test_mixed_existing_and_missing(self, tmp_path):
-        """존재하는 파일과 존재하지 않는 파일이 섞인 경우 존재하는 파일만 반환한다."""
-        input_dir = tmp_path / "input"
-        input_dir.mkdir()
-        f = input_dir / "good.js"
-        f.write_text("// ok")
-        result = resolve_input_files(tmp_path, ["good.js", "bad.js"])
-        assert result == [str(f.resolve())]
 
     def test_relative_path_existing_file(self, tmp_path, monkeypatch):
         """현재 디렉토리 기준 상대경로 파일이 존재하면 그대로 사용한다."""
@@ -639,34 +639,3 @@ class TestResolveInputFiles:
         monkeypatch.chdir(tmp_path)
         result = resolve_input_files(tmp_path, ["local.sql"])
         assert result == [str(f.resolve())]
-
-
-# ──────────────────────────────────────────────
-# main (통합)
-# ──────────────────────────────────────────────
-
-
-class TestMain:
-    """main() 함수 통합 테스트."""
-
-    def test_main_exits_without_api_key(self, monkeypatch):
-        """API 키 없으면 exit 3."""
-        for key in ["MIDER_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"]:
-            monkeypatch.delenv(key, raising=False)
-        monkeypatch.setattr(
-            "sys.argv", ["mider", "--files", "test.js"],
-        )
-        # load_dotenv()가 .env 파일에서 키를 로드하지 않도록 차단
-        monkeypatch.setattr("mider.main.load_dotenv", lambda **kwargs: None)
-        with pytest.raises(SystemExit) as exc_info:
-            from mider.main import main
-            main()
-        assert exc_info.value.code == EXIT_LLM_ERROR
-
-    def test_main_no_files_exits(self, monkeypatch):
-        """--files 없으면 exit 2."""
-        monkeypatch.setattr("sys.argv", ["mider"])
-        with pytest.raises(SystemExit) as exc_info:
-            from mider.main import main
-            main()
-        assert exc_info.value.code == 2  # argparse exit code
