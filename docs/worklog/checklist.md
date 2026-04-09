@@ -232,3 +232,17 @@
   - [ ] T42.2: 로컬 브랜치 정리 (38개)
   - [ ] T42.3: 원격 브랜치 정리
   - [ ] T42.4: v1.0.0 태그 + GitHub Release
+
+---
+
+## 배포용 실행파일 환경 구축
+
+- [x] T44: 고정 입력 폴더 기반 파일 경로 처리
+  - [x] T44.1: get_base_dir() + resolve_input_files() + main() 수정
+  - [x] T44.2: 기존 테스트 호환성 확인 및 수정
+- [x] T45: Windows 실행파일 빌드 스크립트
+  - [x] T45.1: mider.spec PyInstaller spec 파일
+  - [x] T45.2: scripts/build_exe.py 빌드 스크립트
+  - [x] T45.3: .env.example 업데이트
+- [x] T46: 사용자 매뉴얼
+  - [x] T46.1: docs/USER_MANUAL.md 작성
