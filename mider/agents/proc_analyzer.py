@@ -148,6 +148,7 @@ class ProCAnalyzerAgent(BaseAgent):
             try:
                 return await self._run_v1_pipeline(
                     task_id=task_id, file=file, language=language,
+                    file_content=file_content,
                 )
             except Exception as v1_err:
                 elapsed = time.time() - start_time
@@ -354,6 +355,7 @@ class ProCAnalyzerAgent(BaseAgent):
         task_id: str,
         file: str,
         language: str = "proc",
+        file_content: str | None = None,
     ) -> dict[str, Any]:
         """V1 파이프라인 (기존 로직)."""
         start_time = time.time()

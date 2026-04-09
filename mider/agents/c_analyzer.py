@@ -347,7 +347,7 @@ class CAnalyzerAgent(BaseAgent):
                 "agent": "CAnalyzerAgent",
                 "issues": issues,
                 "analysis_time_seconds": round(elapsed, 2),
-                "llm_tokens_used": total_tokens,
+                "llm_tokens_used": tokens_estimate,
             })
 
             logger.info(
