@@ -791,3 +791,12 @@
 - `2026-04-09 10:43:41` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider/main.py`
 - `2026-04-09 10:44:20` [feat/deploy-setup] **Write**: `/Users/mjkim/development/MIDER/scripts/build_exe.py`
 - `2026-04-09 10:49:22` [feat/deploy-setup] **Write**: `/Users/mjkim/development/MIDER/.github/workflows/build-windows-exe.yml`
+- `2026-04-09 11:00:06` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
+- `2026-04-09 11:00:16` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
+- `2026-04-09 11:00:27` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
+- `2026-04-09 11:00:34` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
+- `2026-04-09 11:00:40` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
+- `2026-04-09 11:00:51` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
+- `2026-04-09 11:00:59` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
+- `2026-04-09 11:01:07` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
+- `2026-04-09 11:01:15` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
