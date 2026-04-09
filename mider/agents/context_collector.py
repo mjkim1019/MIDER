@@ -115,11 +115,14 @@ class ContextCollectorAgent(BaseAgent):
         self,
         *,
         execution_plan: dict[str, Any],
+        cleaned_contents: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """ExecutionPlan에서 파일 컨텍스트를 수집한다.
 
         Args:
             execution_plan: ExecutionPlan.model_dump() 형식의 딕셔너리
+            cleaned_contents: 주석 제거된 파일 내용 (파일 경로 → 내용).
+                              제공된 경우 FileReader 대신 우선 사용한다.
 
         Returns:
             FileContext 형식의 딕셔너리
@@ -145,6 +148,7 @@ class ContextCollectorAgent(BaseAgent):
         for task in sub_tasks:
             ctx = self._collect_single_file(
                 task["file"], task["language"], all_files,
+                cleaned_contents=cleaned_contents,
             )
             file_contexts.append(ctx)
 
@@ -178,6 +182,7 @@ class ContextCollectorAgent(BaseAgent):
             refined = await self._refine_with_llm(
                 execution_plan=execution_plan,
                 tool_result=tool_result,
+                cleaned_contents=cleaned_contents,
             )
             self.rl.llm_response("LLM 컨텍스트 보정 완료")
         else:
@@ -206,11 +211,16 @@ class ContextCollectorAgent(BaseAgent):
         file_path: str,
         language: str,
         all_files: set[str],
+        *,
+        cleaned_contents: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """단일 파일의 컨텍스트를 Tool로 수집한다."""
         try:
-            read_result = self._file_reader.execute(path=file_path)
-            content = read_result.data["content"]
+            if cleaned_contents and file_path in cleaned_contents:
+                content = cleaned_contents[file_path]
+            else:
+                read_result = self._file_reader.execute(path=file_path)
+                content = read_result.data["content"]
         except Exception as e:
             logger.warning(f"파일 읽기 실패: {file_path}: {e}")
             return {
@@ -416,13 +426,15 @@ class ContextCollectorAgent(BaseAgent):
         *,
         execution_plan: dict[str, Any],
         tool_result: dict[str, Any],
+        cleaned_contents: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """LLM으로 Tool 결과를 보정한다.
 
         LLM 실패 시 Tool 결과를 그대로 반환한다 (graceful degradation).
         """
         file_contents = self._read_file_contents(
-            [task["file"] for task in execution_plan.get("sub_tasks", [])]
+            [task["file"] for task in execution_plan.get("sub_tasks", [])],
+            cleaned_contents=cleaned_contents,
         )
         if not file_contents:
             logger.warning("모든 파일 읽기 실패, LLM 보정 건너뜀")
@@ -624,13 +636,18 @@ class ContextCollectorAgent(BaseAgent):
     def _read_file_contents(
         self,
         files: list[str],
+        *,
+        cleaned_contents: dict[str, str] | None = None,
     ) -> dict[str, str]:
         """파일 내용을 읽어서 딕셔너리로 반환한다."""
         contents: dict[str, str] = {}
         for file_path in files:
             try:
-                result = self._file_reader.execute(path=file_path)
-                content = result.data["content"]
+                if cleaned_contents and file_path in cleaned_contents:
+                    content = cleaned_contents[file_path]
+                else:
+                    result = self._file_reader.execute(path=file_path)
+                    content = result.data["content"]
                 lines = content.split("\n")
                 if len(lines) > 500:
                     head = "\n".join(lines[:250])

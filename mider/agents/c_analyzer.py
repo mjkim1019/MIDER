@@ -220,7 +220,6 @@ class CAnalyzerAgent(BaseAgent):
         self._file_reader = FileReader()
         self._clang_tidy_runner = ClangTidyRunner()
         self._heuristic_scanner = CHeuristicScanner()
-        self._stats: dict[str, Any] = {}
 
     async def run(
         self,
@@ -229,6 +228,7 @@ class CAnalyzerAgent(BaseAgent):
         file: str,
         language: str = "c",
         file_context: dict[str, Any] | None = None,
+        file_content: str | None = None,
     ) -> dict[str, Any]:
         """C 파일을 분석한다.
 
@@ -237,6 +237,7 @@ class CAnalyzerAgent(BaseAgent):
             file: 분석할 파일 경로
             language: 파일 언어 ("c")
             file_context: Phase 1에서 수집한 파일 컨텍스트
+            file_content: 주석 제거된 파일 내용 (None이면 직접 읽음)
 
         Returns:
             AnalysisResult 형식의 딕셔너리
@@ -246,8 +247,9 @@ class CAnalyzerAgent(BaseAgent):
 
         try:
             # Step 1: 파일 읽기
-            read_result = self._file_reader.execute(path=file)
-            file_content = read_result.data["content"]
+            if file_content is None:
+                read_result = self._file_reader.execute(path=file)
+                file_content = read_result.data["content"]
             line_count = len(file_content.splitlines())
             self.rl.scan(f"File: [sky_blue2]{Path(file).name}[/sky_blue2] ({line_count}줄, ~{line_count * 10 // 1000}K tokens)")
 
@@ -341,15 +343,6 @@ class CAnalyzerAgent(BaseAgent):
                 "analysis_time_seconds": round(elapsed, 2),
                 "llm_tokens_used": tokens_estimate,
             })
-
-            # 분석 요약 메트릭
-            self._stats = {
-                "delivery_mode": "single",
-                "total_lines": line_count,
-                "total_tokens": tokens_estimate,
-                "total_groups": 0,
-                "group_stats": [],
-            }
 
             logger.info(
                 f"C 분석 완료: {file} → {len(result.issues)}개 이슈, "

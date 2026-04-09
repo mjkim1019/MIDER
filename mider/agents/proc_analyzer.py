@@ -99,6 +99,7 @@ class ProCAnalyzerAgent(BaseAgent):
         file: str,
         language: str = "proc",
         file_context: dict[str, Any] | None = None,
+        file_content: str | None = None,
     ) -> dict[str, Any]:
         """Pro*C 파일을 분석한다."""
         start_time = time.time()
@@ -106,8 +107,9 @@ class ProCAnalyzerAgent(BaseAgent):
 
         try:
             # ── 공통 파이프라인 ──
-            read_result = self._file_reader.execute(path=file)
-            file_content = read_result.data["content"]
+            if file_content is None:
+                read_result = self._file_reader.execute(path=file)
+                file_content = read_result.data["content"]
             lines = file_content.splitlines()
             line_count = len(lines)
             filename = Path(file).name

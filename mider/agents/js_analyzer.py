@@ -58,6 +58,7 @@ class JavaScriptAnalyzerAgent(BaseAgent):
         file: str,
         language: str = "javascript",
         file_context: dict[str, Any] | None = None,
+        file_content: str | None = None,
     ) -> dict[str, Any]:
         """JavaScript 파일을 분석한다.
 
@@ -66,6 +67,7 @@ class JavaScriptAnalyzerAgent(BaseAgent):
             file: 분석할 파일 경로
             language: 파일 언어 ("javascript")
             file_context: Phase 1에서 수집한 파일 컨텍스트
+            file_content: 주석 제거된 파일 내용 (None이면 직접 읽음)
 
         Returns:
             AnalysisResult 형식의 딕셔너리
@@ -75,8 +77,9 @@ class JavaScriptAnalyzerAgent(BaseAgent):
 
         try:
             # Step 1: 파일 읽기
-            read_result = self._file_reader.execute(path=file)
-            file_content = read_result.data["content"]
+            if file_content is None:
+                read_result = self._file_reader.execute(path=file)
+                file_content = read_result.data["content"]
             line_count = len(file_content.splitlines())
             filename = Path(file).name
             self.rl.scan(f"File: [sky_blue2]{filename}[/sky_blue2] ({line_count}줄)")
