@@ -136,6 +136,7 @@ class LLMClient:
             "message": message,
             "usecase_mode": "GENERAL",
             "stream": False,
+            "context": "mider",
         }
 
         logger.debug(

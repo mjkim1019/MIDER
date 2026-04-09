@@ -809,3 +809,4 @@
 - `2026-04-09 14:11:05` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/tests/test_cli/test_main.py`
 - `2026-04-09 14:11:23` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider.spec`
 - `2026-04-09 14:11:56` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/tests/test_cli/test_main.py`
+- `2026-04-09 14:26:36` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider/config/llm_client.py`
