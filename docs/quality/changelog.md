@@ -776,3 +776,14 @@
 - `2026-03-31 17:05:31` [feat/T33-proc-function-chunking] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_config/test_prompt_templates.py`
 - `2026-03-31 17:05:50` [feat/T33-proc-function-chunking] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_analyzer_logging.py`
 - `2026-03-31 17:05:59` [feat/T33-proc-function-chunking] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_analyzer_logging.py`
+- `2026-04-09 00:50:13` [feat/deploy-setup] **Edit**: `/home/user/MIDER/mider/main.py`
+- `2026-04-09 00:50:26` [feat/deploy-setup] **Edit**: `/home/user/MIDER/mider/main.py`
+- `2026-04-09 00:50:45` [feat/deploy-setup] **Edit**: `/home/user/MIDER/mider/main.py`
+- `2026-04-09 00:51:16` [feat/deploy-setup] **Edit**: `/home/user/MIDER/tests/test_cli/test_main.py`
+- `2026-04-09 00:51:26` [feat/deploy-setup] **Edit**: `/home/user/MIDER/tests/test_cli/test_main.py`
+- `2026-04-09 00:51:44` [feat/deploy-setup] **Edit**: `/home/user/MIDER/tests/test_cli/test_main.py`
+- `2026-04-09 00:51:54` [feat/deploy-setup] **Edit**: `/home/user/MIDER/tests/test_cli/test_main.py`
+- `2026-04-09 00:53:27` [feat/deploy-setup] **Write**: `/home/user/MIDER/mider.spec`
+- `2026-04-09 00:53:41` [feat/deploy-setup] **Write**: `/home/user/MIDER/scripts/build_exe.py`
+- `2026-04-09 00:54:04` [feat/deploy-setup] **Write**: `/home/user/MIDER/.env.example`
+- `2026-04-09 00:55:40` [feat/deploy-setup] **Write**: `/home/user/MIDER/docs/USER_MANUAL.md`
