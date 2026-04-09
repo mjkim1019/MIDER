@@ -29,6 +29,64 @@ from mider.tools.utility.markdown_report_formatter import format_markdown_report
 
 logger = logging.getLogger(__name__)
 
+
+def get_base_dir() -> Path:
+    """실행 환경에 따른 기준 디렉토리를 반환한다.
+
+    - PyInstaller frozen 환경: 실행파일이 위치한 디렉토리
+    - 개발 환경: 프로젝트 루트 (main.py 기준 한 단계 상위)
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parent.parent
+
+
+def resolve_input_files(base_dir: Path, filenames: list[str]) -> list[str]:
+    """input 폴더 기준으로 파일명을 절대경로로 변환한다.
+
+    이미 절대경로이거나 존재하는 상대경로인 파일은 그대로 사용한다.
+    그 외에는 base_dir / 'input' / filename으로 해석한다.
+
+    Args:
+        base_dir: 기준 디렉토리 (get_base_dir() 반환값)
+        filenames: CLI에서 전달받은 파일명 목록
+
+    Returns:
+        절대경로로 변환된 파일 목록
+    """
+    input_dir = base_dir / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    console = Console(stderr=True)
+    resolved: list[str] = []
+    has_error = False
+
+    for name in filenames:
+        p = Path(name)
+        # 이미 절대경로이거나 현재 위치에서 존재하는 상대경로
+        if p.is_absolute() or p.exists():
+            resolved.append(str(p.resolve()))
+            continue
+        # input 폴더 기준으로 해석
+        input_path = input_dir / name
+        if input_path.exists():
+            resolved.append(str(input_path.resolve()))
+        else:
+            console.print(
+                f"[red bold]오류:[/] 파일을 찾을 수 없습니다: {name}"
+            )
+            console.print(f"  확인 경로: {input_path}")
+            has_error = True
+
+    if has_error and not resolved:
+        console.print(
+            "\n[yellow]input 폴더에 분석할 파일을 넣어주세요:[/]"
+            f" {input_dir}"
+        )
+        sys.exit(EXIT_FILE_ERROR)
+
+    return resolved
+
 # 종료 코드
 EXIT_OK = 0
 EXIT_CRITICAL_FOUND = 1
@@ -46,8 +104,12 @@ _SEVERITY_COLORS = {
 _SEVERITY_ORDER = ["critical", "high", "medium", "low"]
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """CLI 인자 파서를 생성한다."""
+def build_parser(output_default: str = "./output") -> argparse.ArgumentParser:
+    """CLI 인자 파서를 생성한다.
+
+    Args:
+        output_default: --output 옵션의 기본값
+    """
     parser = argparse.ArgumentParser(
         prog="mider",
         description="Mider - 폐쇄망 소스코드 분석 CLI",
@@ -61,8 +123,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output", "-o",
-        default="./output",
-        help="결과 출력 디렉토리 (기본: ./output)\n예: mider -f ordsb0100010t01.c -o ./reports",
+        default=output_default,
+        help=f"결과 출력 디렉토리 (기본: {output_default})\n예: mider -f ordsb0100010t01.c -o ./reports",
     )
     parser.add_argument(
         "--model", "-m",
@@ -516,10 +578,13 @@ async def run_analysis(
 
 def main() -> None:
     """CLI 메인 함수."""
-    # .env 파일 로드 (있으면)
-    load_dotenv()
+    base_dir = get_base_dir()
 
-    parser = build_parser()
+    # .env 파일 로드 (base_dir 기준)
+    env_path = base_dir / ".env"
+    load_dotenv(dotenv_path=env_path)
+
+    parser = build_parser(output_default=str(base_dir / "output"))
     args = parser.parse_args()
 
     # 로깅 설정
@@ -542,8 +607,11 @@ def main() -> None:
     if api_base:
         os.environ["OPENAI_BASE_URL"] = api_base
 
+    # 파일 경로 해석 (input 폴더 기준)
+    resolved_files = resolve_input_files(base_dir, args.files)
+
     # 파일 목록 출력
-    print_file_list(console, args.files)
+    print_file_list(console, resolved_files)
 
     # Explain Plan 파일 검증
     explain_plan = getattr(args, "explain_plan", None)
@@ -557,7 +625,7 @@ def main() -> None:
     try:
         exit_code = asyncio.run(
             run_analysis(
-                files=args.files,
+                files=resolved_files,
                 output_dir=args.output,
                 model=model,
                 console=console,
