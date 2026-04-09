@@ -580,8 +580,13 @@ def main() -> None:
     """CLI 메인 함수."""
     base_dir = get_base_dir()
 
-    # .env 파일 로드 (base_dir 기준)
-    env_path = base_dir / ".env"
+    # .env 파일 로드
+    # PyInstaller onefile 모드: 번들된 .env는 _MEIPASS 임시 디렉토리에 풀림
+    if getattr(sys, "frozen", False):
+        meipass = Path(getattr(sys, "_MEIPASS", ""))
+        env_path = meipass / ".env"
+    else:
+        env_path = base_dir / ".env"
     load_dotenv(dotenv_path=env_path)
 
     parser = build_parser(output_default=str(base_dir / "output"))

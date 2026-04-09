@@ -5,7 +5,7 @@
     pyinstaller mider.spec
 
 결과:
-    dist/mider/ 디렉토리에 실행파일 + 리소스 생성
+    dist/mider (단일 실행파일) 생성
 """
 
 import os
@@ -18,6 +18,11 @@ ROOT = Path(SPECPATH)
 
 # 번들 대상 데이터 파일
 datas = []
+
+# .env 파일 (API 키 내장 — 빌드 시점에 존재해야 함)
+env_file = ROOT / ".env"
+if env_file.exists():
+    datas.append((str(env_file), "."))
 
 # settings.yaml
 settings_yaml = ROOT / "mider" / "config" / "settings.yaml"
@@ -86,26 +91,18 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# onefile 모드: 단일 실행파일로 빌드
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name="mider",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=True,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name="mider",
 )

@@ -787,3 +787,7 @@
 - `2026-04-09 00:53:41` [feat/deploy-setup] **Write**: `/home/user/MIDER/scripts/build_exe.py`
 - `2026-04-09 00:54:04` [feat/deploy-setup] **Write**: `/home/user/MIDER/.env.example`
 - `2026-04-09 00:55:40` [feat/deploy-setup] **Write**: `/home/user/MIDER/docs/USER_MANUAL.md`
+- `2026-04-09 10:43:07` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider.spec`
+- `2026-04-09 10:43:41` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/mider/main.py`
+- `2026-04-09 10:44:20` [feat/deploy-setup] **Write**: `/Users/mjkim/development/MIDER/scripts/build_exe.py`
+- `2026-04-09 10:49:22` [feat/deploy-setup] **Write**: `/Users/mjkim/development/MIDER/.github/workflows/build-windows-exe.yml`
