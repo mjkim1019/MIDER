@@ -687,6 +687,7 @@ class OrchestratorAgent(BaseAgent):
                     "title": f"개인정보 하드코딩: {f.get('type_name', f.get('pattern_id', 'PID'))}",
                     "file": file_path,
                     "location": {
+                        "file": file_path,
                         "line_start": f.get("line", 0),
                         "line_end": f.get("line", 0),
                         "column_start": f.get("col", 0),
@@ -698,7 +699,7 @@ class OrchestratorAgent(BaseAgent):
                     "fix": {
                         "before": f.get("code", ""),
                         "after": "",
-                        "explanation": (
+                        "description": (
                             "소스코드에서 개인정보를 제거하거나 환경변수/설정 파일로 분리하세요. "
                             f"탐지된 값: {f.get('detected_value', '***')}"
                         ),
