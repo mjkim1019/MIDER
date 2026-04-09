@@ -194,6 +194,8 @@ def proc_file(tmp_path):
 def proc_agent():
     agent = ProCAnalyzerAgent(model="gpt-4o")
     agent._llm_client = AsyncMock()
+    # V3 파이프라인 비활성화 → V1 fallback 테스트
+    agent._run_v3_pipeline = AsyncMock(side_effect=Exception("V3 disabled for V1 test"))
     return agent
 
 

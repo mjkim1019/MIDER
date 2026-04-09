@@ -20,6 +20,20 @@ from mider.models.file_context import (
     PatternInfo,
     SingleFileContext,
 )
+from mider.models.proc_partition import (
+    CSegment,
+    CursorLifecycleEvent,
+    CursorUnit,
+    EmbeddedSQLUnit,
+    Finding,
+    FunctionUnit,
+    GlobalContext,
+    HostVarUnit,
+    PartitionResult,
+    SQLKind,
+    TransactionPoint,
+    WheneverDirective,
+)
 from mider.models.report import (
     AnalysisMetadata,
     Checklist,
@@ -52,6 +66,19 @@ __all__ = [
     "CodeFix",
     "Issue",
     "AnalysisResult",
+    # proc_partition (V3)
+    "PartitionResult",
+    "GlobalContext",
+    "FunctionUnit",
+    "CSegment",
+    "EmbeddedSQLUnit",
+    "SQLKind",
+    "HostVarUnit",
+    "CursorUnit",
+    "CursorLifecycleEvent",
+    "TransactionPoint",
+    "WheneverDirective",
+    "Finding",
     # report
     "IssueListItem",
     "IssueList",

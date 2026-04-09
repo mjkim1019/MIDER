@@ -28,6 +28,7 @@ from mider.agents.xml_analyzer import XMLAnalyzerAgent
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.preprocessing.comment_remover import CommentRemover
 from mider.tools.search.glob_tool import GlobTool
+from mider.tools.static_analysis.pid_scanner import PIDScanner
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,7 @@ class OrchestratorAgent(BaseAgent):
         self._glob_tool = GlobTool()
         self._file_reader = FileReader()
         self._comment_remover = CommentRemover()
+        self._pid_scanner = PIDScanner()
 
         # Sub-Agents (lazy init in run)
         self._task_classifier: Optional[TaskClassifierAgent] = None
@@ -159,6 +161,10 @@ class OrchestratorAgent(BaseAgent):
         analysis_results, total_lines = await self._run_phase2(
             execution_plan, file_context, cleaned_contents,
         )
+
+        # Phase 2.5: PID 개인정보 스캔 (전체 파일 대상)
+        pid_results = self._run_pid_scan(valid_files)
+        analysis_results.extend(pid_results)
 
         # Phase 3: Report Generation
         pipeline_elapsed = time.time() - pipeline_start
@@ -388,14 +394,17 @@ class OrchestratorAgent(BaseAgent):
         self._report_progress(3, "리포트 생성", 0, 1, "리포트 생성 중")
         self.rl.phase_header(3, "ReporterAgent")
 
-        # 이슈 집계 로그
-        all_issues = [i for r in analysis_results for i in r.get("issues", [])]
+        # 이슈 집계 로그 (Medium 이상만)
+        all_issues = [
+            i for r in analysis_results for i in r.get("issues", [])
+            if i.get("severity", "low").lower() != "low"
+        ]
         severity_counts = {}
         for issue in all_issues:
             sev = issue.get("severity", "unknown")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
         sev_str = " ".join(f"{k.upper()}:{v}" for k, v in severity_counts.items())
-        self.rl.scan(f"Input: {total_files} files, {len(all_issues)} issues ({sev_str})")
+        self.rl.scan(f"Input: {total_files} files, {len(all_issues)} issues (Medium+ only: {sev_str})")
 
         report = await self._call_agent(
             self._reporter,  # type: ignore[arg-type]
@@ -639,6 +648,79 @@ class OrchestratorAgent(BaseAgent):
                 if resolved != file_path:
                     context_map[file_path] = ctx
         return context_map
+
+    def _run_pid_scan(
+        self,
+        file_paths: list[str],
+    ) -> list[dict[str, Any]]:
+        """전체 파일에 대해 PID 개인정보 스캔을 실행한다.
+
+        전처리(숫자 리터럴 마스킹) → PID 탐지 → 후처리(오탐 필터) 순으로 실행하며
+        발견된 개인정보를 analysis_results 형식으로 반환한다.
+
+        Returns:
+            파일별 PID 분석 결과 리스트 (이슈가 없으면 빈 리스트)
+        """
+        results: list[dict[str, Any]] = []
+
+        for file_path in file_paths:
+            try:
+                tool_result = self._pid_scanner.execute(file=file_path)
+            except Exception as e:
+                logger.warning(f"PID 스캔 예외: {file_path}: {e}")
+                continue
+
+            if not tool_result.success:
+                logger.debug(f"PID 스캔 실패 (건너뜀): {file_path}: {tool_result.error}")
+                continue
+
+            findings = tool_result.data.get("findings", [])
+
+            if not findings:
+                continue
+
+            # findings → MIDER 이슈 형식 변환
+            issues: list[dict[str, Any]] = []
+            for idx, f in enumerate(findings, start=1):
+                issues.append({
+                    "issue_id": f"PID-{Path(file_path).stem.upper()}-{idx:03d}",
+                    "title": f"개인정보 하드코딩: {f.get('type_name', f.get('pattern_id', 'PID'))}",
+                    "file": file_path,
+                    "location": {
+                        "file": file_path,
+                        "line_start": f.get("line", 0),
+                        "line_end": f.get("line", 0),
+                        "column_start": f.get("col", 0),
+                        "column_end": f.get("col", 0),
+                    },
+                    "severity": f.get("severity", "high"),
+                    "category": "personal_information",
+                    "description": f.get("description", ""),
+                    "fix": {
+                        "before": f.get("code", ""),
+                        "after": "",
+                        "description": (
+                            "소스코드에서 개인정보를 제거하거나 환경변수/설정 파일로 분리하세요. "
+                            f"탐지된 값: {f.get('detected_value', '***')}"
+                        ),
+                    },
+                    "source": "pid_scanner",
+                })
+
+            file_stem = Path(file_path).stem
+            results.append({
+                "task_id": f"pid_{file_stem}",
+                "file": file_path,
+                "language": Path(file_path).suffix.lstrip(".") or "unknown",
+                "agent": "PIDScanner",
+                "issues": issues,
+                "analysis_time_seconds": 0.0,
+                "llm_tokens_used": 0,
+            })
+
+            logger.info(f"PID 스캔: {file_path} → {len(issues)}개 이슈")
+
+        return results
 
     def _collect_first_lines(
         self,
