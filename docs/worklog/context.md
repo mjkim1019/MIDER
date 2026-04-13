@@ -326,3 +326,13 @@
 
 ## T35 설계 검토 사항
 - **주석 처리**: 제거 시 라인번호 깨짐 CRITICAL, 3~20% 토큰 절감 — 선택적 제거(헤더 주석만) 또는 현행 유지 권장
+
+## T54 설계 결정 (C Analyzer 스마트 라우팅)
+- **문제**: 874줄 C 파일 분석에 160초 소요. 2-Pass(Pass1 mini + Pass2 함수별 N회)로 LLM 호출 5~6회. 호출당 TTFT 15초 병목
+- **해결**: `line_count > 500` 하드코딩 → 토큰 추정(len//3) + 함수 크기 균일성(max/median ≤ 5배) 기반 라우팅
+- **토큰 한계**: 100K (Pro*C `_TOKEN_LIMIT`과 동일). 128K context - 28K 여유
+- **함수 크기 균일성**: 최대/중앙값 > 5배 → 편차 큼 → per_function. T21의 636줄 vs 127줄 = 5배 경계
+- **비용보다 속도+정확도 우선**: 사용자 명시 요구
+
+| 2026-04-13 | T54: `line_count > 500` → `_decide_c_delivery_mode()` 토큰+함수크기 기반 라우팅 | 874줄 파일 160초 → ~40초 목표. 균일 파일은 single(1회), 편차 큰 파일만 per_function(N회) |
+| 2026-04-13 | T54 리뷰: docstring 업데이트 + `language` 파라미터 전달 + mojibake 수정 | MEDIUM 2건 + LOW 2건 반영 |
