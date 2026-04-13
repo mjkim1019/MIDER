@@ -106,6 +106,80 @@ _SEVERITY_COLORS = {
 _SEVERITY_ORDER = ["critical", "high", "medium", "low"]
 
 
+def get_base_dir() -> Path:
+    """실행 환경에 따른 기준 디렉토리를 반환한다.
+
+    - PyInstaller frozen 환경: 실행파일이 위치한 디렉토리
+    - 개발 환경: 프로젝트 루트 (main.py 기준 한 단계 상위)
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parent.parent
+
+
+def resolve_input_files(base_dir: Path, filenames: list[str]) -> list[str]:
+    """input 폴더 기준으로 파일명을 절대경로로 변환한다.
+
+    검색 순서:
+    1. 절대경로 또는 CWD 기준 존재하는 상대경로 → 그대로 사용
+    2. base_dir/input/ 폴더 → 사용
+    3. base_dir 하위 전체 rglob 검색 → 유일하면 사용, 복수면 에러
+    4. 못 찾음 → 에러
+
+    Args:
+        base_dir: 기준 디렉토리 (get_base_dir() 반환값)
+        filenames: CLI에서 전달받은 파일명 목록
+
+    Returns:
+        절대경로로 변환된 파일 목록
+    """
+    input_dir = base_dir / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    console = Console(stderr=True)
+    resolved: list[str] = []
+    has_error = False
+
+    for name in filenames:
+        p = Path(name)
+        # 이미 절대경로이거나 현재 위치에서 존재하는 상대경로
+        if p.is_absolute() or p.exists():
+            resolved.append(str(p.resolve()))
+            continue
+        # input 폴더 기준으로 해석
+        input_path = input_dir / name
+        if input_path.exists():
+            resolved.append(str(input_path.resolve()))
+            continue
+        # base_dir 하위 전체에서 파일명으로 검색
+        matches = list(base_dir.rglob(name))
+        if len(matches) == 1:
+            resolved.append(str(matches[0].resolve()))
+            continue
+        elif len(matches) > 1:
+            console.print(f"[yellow]'{name}' 파일이 {len(matches)}개 발견되었습니다:[/]")
+            for i, m in enumerate(matches, 1):
+                console.print(f"  {i}. {m.relative_to(base_dir)}")
+            console.print("[yellow]상대경로로 정확히 지정해주세요.[/]")
+            has_error = True
+            continue
+        # 어디에서도 찾을 수 없음
+        console.print(
+            f"[red bold]오류:[/] 파일을 찾을 수 없습니다: {name}"
+        )
+        console.print(f"  확인 경로: {input_path}")
+        has_error = True
+
+    if has_error and not resolved:
+        console.print(
+            "\n[yellow]input 폴더에 분석할 파일을 넣어주세요:[/]"
+            f" {input_dir}"
+        )
+        sys.exit(EXIT_FILE_ERROR)
+
+    return resolved
+
+
 def build_parser(output_default: str = "./output") -> argparse.ArgumentParser:
     """CLI 인자 파서를 생성한다.
 
@@ -636,7 +710,6 @@ def prompt_for_files() -> list[str]:
 def main() -> None:
     """CLI 메인 함수."""
     base_dir = get_base_dir()
-
     # .env 파일 로드
     # PyInstaller onefile 모드: 번들된 .env는 _MEIPASS 임시 디렉토리에 풀림
     if getattr(sys, "frozen", False):
@@ -689,7 +762,7 @@ def main() -> None:
     # -f 인자가 있으면 사용, 없으면 인터랙티브 모드
     file_args = args.files if args.files else prompt_for_files()
 
-    # 파일 경로 해석 (input 폴더 기준)
+    # 파일 경로 해석 (input 폴더 + workspace 재귀 검색)
     resolved_files = resolve_input_files(base_dir, file_args)
 
     # 파일 목록 출력

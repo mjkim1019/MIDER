@@ -277,8 +277,8 @@
   - [x] T51.2: SSO user_id 연동 (SSOAuthenticator → payload user_id)
   - [x] T51.3: SSO 만료 감지 + 자동 재인증
   - [x] T51.4: 단위 테스트 수정 (test_llm_client.py)
-- [ ] T52: CLI 및 설정 업데이트
-  - [ ] T52.1: main.py — --sso CLI 옵션 + validate_api_key() SSO 분기
+- [ ] T52: CLI 로그인 UX + 설정 업데이트
+  - [ ] T52.1: main.py — 인터랙티브 `login` 명령어 + 시작 시 세션 체크
   - [ ] T52.2: settings.yaml — SSO 설정 섹션 추가
   - [ ] T52.3: requirements.txt — selenium 의존성 추가
   - [ ] T52.4: .env.example + USER_MANUAL.md SSO 관련 업데이트

@@ -360,7 +360,7 @@
 - **만료 감지**: AICA 응답이 `text/html` 또는 `<` 시작 → SSO 리다이렉트로 판단
 - **자동 재인증**: 만료 시 1회만 재시도, 무한 루프 방지
 - **`app_env` 필드**: 데모 스크립트의 `"app_env": "prd"` — llm_client.py payload에 추가 필요
-- **`--sso` CLI 플래그**: 명시적 SSO 모드 활성화, 기존 AICA_SSO_SESSION 환경변수 방식과 하위 호환
+- **인터랙티브 `login` 명령어**: `--sso` 플래그 제거 → 프롬프트에서 `login` 입력으로 SSO 로그인. 시작 시 세션 없으면 안내 메시지 출력
 - **chromedriver 경로**: settings.yaml SSO 섹션 + `CHROME_DRIVER_PATH` 환경변수 override
 - **GUI 필수**: Selenium 브라우저 로그인은 GUI 환경 필요, headless CI에서는 환경변수 fallback
 - **`.sso_session.json` 보안**: `.gitignore`에 추가 필수 (민감 정보)
@@ -375,3 +375,4 @@
 | 2026-04-13 | T51: `_chat_aica()` → `_chat_aica_once()` 분리 + SSO 만료 시 1회 재시도 | HTML 응답 감지로 세션 만료 판단 → SSOAuthenticator force_login → 재시도 |
 | 2026-04-13 | T51 리뷰: `sso_authenticator: object` → `SSOAuthenticator` (TYPE_CHECKING) | duck typing으로 AttributeError 위험 — 정적 타입 체크 활성화 |
 | 2026-04-13 | T51 리뷰: `_is_sso_expired_response()`에 application/json early return | 정상 JSON 응답에서 불필요한 text 파싱 방지 — 대형 응답 성능 개선 |
+| 2026-04-13 | T52 설계 변경: `--sso` 플래그 → 인터랙티브 `login` 명령어 | 사용자 피드백: 매번 `--sso` 붙이는 것보다 프롬프트에서 `login` 입력이 직관적. 시작 시 세션 없으면 자동 안내 |

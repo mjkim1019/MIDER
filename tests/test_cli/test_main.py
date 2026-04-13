@@ -668,3 +668,101 @@ class TestResolveInputFiles:
         monkeypatch.chdir(tmp_path)
         result = resolve_input_files(tmp_path, ["local.sql"])
         assert result == [str(f.resolve())]
+
+
+# ──────────────────────────────────────────────
+# get_base_dir
+# ──────────────────────────────────────────────
+
+
+class TestGetBaseDir:
+    """get_base_dir() 테스트."""
+
+    def test_dev_environment(self):
+        """개발 환경에서는 프로젝트 루트를 반환한다."""
+        base = get_base_dir()
+        expected = Path(__file__).resolve().parent.parent.parent
+        assert base == expected
+
+    def test_frozen_environment(self, monkeypatch, tmp_path):
+        """PyInstaller frozen 환경에서는 실행파일 디렉토리를 반환한다."""
+        fake_exe = tmp_path / "dist" / "mider.exe"
+        fake_exe.parent.mkdir(parents=True, exist_ok=True)
+        fake_exe.touch()
+        monkeypatch.setattr("sys.frozen", True, raising=False)
+        monkeypatch.setattr("sys.executable", str(fake_exe))
+        base = get_base_dir()
+        assert base == fake_exe.parent
+
+
+# ──────────────────────────────────────────────
+# resolve_input_files (rglob)
+# ──────────────────────────────────────────────
+
+
+class TestResolveInputFilesRglob:
+    """resolve_input_files() rglob 테스트."""
+
+    def test_absolute_path_passthrough(self, tmp_path: Path):
+        """절대경로 파일은 그대로 반환한다."""
+        f = tmp_path / "test.js"
+        f.write_text("// test")
+        result = resolve_input_files(tmp_path, [str(f)])
+        assert result == [str(f.resolve())]
+
+    def test_input_folder_resolution(self, tmp_path: Path):
+        """input 폴더 내 파일명을 절대경로로 변환한다."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        f = input_dir / "app.c"
+        f.write_text("int main() {}")
+        result = resolve_input_files(tmp_path, ["app.c"])
+        assert result == [str(f.resolve())]
+
+    def test_rglob_finds_file_in_subdirectory(self, tmp_path: Path):
+        """base_dir 하위 서브디렉토리에 있는 파일을 이름만으로 찾는다."""
+        sub_dir = tmp_path / "src" / "module"
+        sub_dir.mkdir(parents=True)
+        f = sub_dir / "deep_file.c"
+        f.write_text("int x;")
+        result = resolve_input_files(tmp_path, ["deep_file.c"])
+        assert result == [str(f.resolve())]
+
+    def test_rglob_multiple_matches_error(self, tmp_path: Path):
+        """동일 파일명이 여러 서브디렉토리에 있으면 에러."""
+        dir_a = tmp_path / "src" / "a"
+        dir_b = tmp_path / "src" / "b"
+        dir_a.mkdir(parents=True)
+        dir_b.mkdir(parents=True)
+        (dir_a / "dup.c").write_text("int a;")
+        (dir_b / "dup.c").write_text("int b;")
+        with pytest.raises(SystemExit) as exc_info:
+            resolve_input_files(tmp_path, ["dup.c"])
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+    def test_missing_file_error(self, tmp_path: Path):
+        """어디에도 없는 파일은 에러 메시지를 출력하고 exit한다."""
+        with pytest.raises(SystemExit) as exc_info:
+            resolve_input_files(tmp_path, ["no_such_file.c"])
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+    def test_input_folder_takes_precedence_over_rglob(self, tmp_path: Path):
+        """input/ 폴더에 파일이 있으면 rglob보다 우선한다."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        input_file = input_dir / "priority.c"
+        input_file.write_text("int input_ver;")
+        other_dir = tmp_path / "src"
+        other_dir.mkdir()
+        (other_dir / "priority.c").write_text("int other_ver;")
+        result = resolve_input_files(tmp_path, ["priority.c"])
+        assert result == [str(input_file.resolve())]
+
+    def test_mixed_found_and_not_found(self, tmp_path: Path):
+        """일부 파일만 찾을 수 있는 경우: 찾은 파일은 반환."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        f = input_dir / "found.c"
+        f.write_text("int ok;")
+        result = resolve_input_files(tmp_path, ["found.c", "missing.c"])
+        assert result == [str(f.resolve())]
