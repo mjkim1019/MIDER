@@ -264,3 +264,25 @@
   - [ ] T49.2: build_exe.py 안내 메시지 업데이트
   - [ ] T49.3: USER_MANUAL.md API 관련 업데이트
   - [ ] T49.4: 기존 테스트 호환성 확인
+
+---
+
+## SSO 인증 연동
+
+- [ ] T50: SSO 인증 모듈 구현
+  - [ ] T50.1: sso_auth.py — SSOAuthenticator 클래스 (Selenium 로그인, 세션 캐싱, 만료 감지)
+  - [ ] T50.2: 단위 테스트 (test_sso_auth.py)
+- [ ] T51: LLM Client AICA 응답 파싱 수정 + SSO 연동
+  - [ ] T51.1: _chat_aica() 응답 파싱 수정 (token.data → choices[0].message.content) + app_env 추가
+  - [ ] T51.2: SSO user_id 연동 (SSOAuthenticator → payload user_id)
+  - [ ] T51.3: SSO 만료 감지 + 자동 재인증
+  - [ ] T51.4: 단위 테스트 수정 (test_llm_client.py)
+- [ ] T52: CLI 및 설정 업데이트
+  - [ ] T52.1: main.py — --sso CLI 옵션 + validate_api_key() SSO 분기
+  - [ ] T52.2: settings.yaml — SSO 설정 섹션 추가
+  - [ ] T52.3: requirements.txt — selenium 의존성 추가
+  - [ ] T52.4: .env.example + USER_MANUAL.md SSO 관련 업데이트
+- [ ] T53: 파일 탐색 개선 — input 유지 + workspace 재귀 검색 추가
+  - [ ] T53.1: resolve_input_files() — base_dir rglob 검색 단계 추가 (input 유지)
+  - [ ] T53.2: USER_MANUAL.md 파일 입력 방법 업데이트
+  - [ ] T53.3: 단위 테스트 수정

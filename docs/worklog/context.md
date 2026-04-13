@@ -352,3 +352,21 @@
 - **환경 변수 단순화**: Azure 3종(KEY+ENDPOINT+VERSION) + OpenAI 2종 → AICA_API_KEY + AICA_ENDPOINT
 - **서버 환경**: STG(aicas.sktelecom.com:3000), PRD(aica.sktelecom.com:3000)
 - **에러 처리**: status_code 50011(한도 오류), 50012(개인정보 검출) 대응 필요
+
+## T50~T52 설계 결정 (SSO 인증 연동)
+- **SSOAuthenticator 별도 모듈**: `mider/config/sso_auth.py` — LLMClient와 분리하여 단일 책임 유지
+- **selenium optional import**: `try: from selenium import webdriver` 패턴, 미설치 시 ImportError 안내
+- **세션 캐싱**: JSON 파일 (issued_at, sso_session, user_id, name), 1시간 TTL
+- **만료 감지**: AICA 응답이 `text/html` 또는 `<` 시작 → SSO 리다이렉트로 판단
+- **자동 재인증**: 만료 시 1회만 재시도, 무한 루프 방지
+- **`app_env` 필드**: 데모 스크립트의 `"app_env": "prd"` — llm_client.py payload에 추가 필요
+- **`--sso` CLI 플래그**: 명시적 SSO 모드 활성화, 기존 AICA_SSO_SESSION 환경변수 방식과 하위 호환
+- **chromedriver 경로**: settings.yaml SSO 섹션 + `CHROME_DRIVER_PATH` 환경변수 override
+- **GUI 필수**: Selenium 브라우저 로그인은 GUI 환경 필요, headless CI에서는 환경변수 fallback
+- **`.sso_session.json` 보안**: `.gitignore`에 추가 필수 (민감 정보)
+
+| 2026-04-13 | SSO 연동 계획 수립 (T50~T52) | 사용자 요청: 데모 스크립트 기반 SSO 인증 자동화 통합 |
+| 2026-04-13 | **BUG 발견**: `_chat_aica()` 응답 파싱 오류 — `token.data` → `choices[0].message.content` | 실제 AICA 응답이 OpenAI 호환 형식(`choices[].message.content`)인데 `token.data`로 파싱 중이었음 |
+| 2026-04-13 | payload에 `app_env: "prd"` 필드 추가 필요 | 데모 스크립트 request/response 확인 — 현재 llm_client.py에 누락 |
+| 2026-04-13 | SSO user_id를 payload에 전달하도록 변경 | AICA API가 실제 사번을 `user_id`로 요구 — 기존 "mider_agent" 하드코딩 대체 |
+| 2026-04-13 | T53 추가: `input/` 폴더 제거 + `base_dir` rglob 검색 | ProFrame workspace에서 파일이 서브디렉토리(AATDD069261CN/ 등)에 위치 — input 복사 불필요, 파일명만 입력하면 자동 탐색 |
