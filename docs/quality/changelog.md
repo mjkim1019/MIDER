@@ -853,3 +853,8 @@
 - `2026-04-09 17:15:46` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/tests/test_cli/test_main.py`
 - `2026-04-09 17:16:29` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
 - `2026-04-09 17:17:50` [feat/deploy-setup] **Edit**: `/Users/mjkim/development/MIDER/docs/USER_MANUAL.md`
+- `2026-04-13 12:45:28` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/sso_auth.py`
+- `2026-04-13 12:45:38` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/sso_auth.py`
+- `2026-04-13 12:46:01` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_config/test_sso_auth.py`
+- `2026-04-13 12:48:41` [feat/deploy-setup] **Write**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
+- `2026-04-13 12:49:45` [feat/deploy-setup] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_config/test_llm_client.py`
