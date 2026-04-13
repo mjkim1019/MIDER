@@ -744,7 +744,7 @@ class CAnalyzerAgent(BaseAgent):
 
         return "\n".join(parts)
 
-    _HIGH_PRIORITY_PATTERNS = {"UNINIT_VAR", "UNSAFE_FUNC", "MALLOC_NO_CHECK", "FORMAT_STRING"}
+    _HIGH_PRIORITY_PATTERNS = {"UNINIT_VAR", "UNSAFE_FUNC", "MALLOC_NO_CHECK", "FORMAT_STRING", "MEMSET_SIZE_MISMATCH"}
 
     def _build_grouped_warnings(
         self,

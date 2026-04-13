@@ -254,7 +254,7 @@ class CHeuristicScanner(BaseTool):
                 var_name = ms.group(1)      # e.g. zord_abn_sale_spc_u0010_in
                 sizeof_type = ms.group(2)   # e.g. zord_abn_sale_spc_s0009_in_t
                 # ProFrame 로컬 변수 접두사(ll_, lc_, ld_, ls_) 제거 후 비교
-                stripped_var = re.sub(r"^[ld][lcds]_", "", var_name)
+                stripped_var = re.sub(r"^l[lcds]_", "", var_name)
                 expected_type = stripped_var + "_t"
                 if expected_type != sizeof_type:
                     func_name = self._find_enclosing_function(
