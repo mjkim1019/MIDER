@@ -913,3 +913,6 @@
 - `2026-04-13 14:44:53` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
 - `2026-04-13 14:45:00` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
 - `2026-04-13 14:45:34` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_cli/test_main.py`
+- `2026-04-13 14:48:00` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/USER_MANUAL.md`
+- `2026-04-13 14:48:11` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/USER_MANUAL.md`
+- `2026-04-13 14:48:20` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/USER_MANUAL.md`
