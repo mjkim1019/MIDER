@@ -3,10 +3,10 @@
 clang-tidy 정적분석 + Heuristic Scanner(regex) + LLM 심층분석을 결합하여
 C 파일의 메모리 안전성 및 장애 유발 패턴을 탐지한다.
 
-분석 경로:
-  >500줄 → 2-Pass (clang + scanner → mini 선별 → 함수별 LLM)
-  ≤500줄 + clang 있음 → Error-Focused (clang + scanner 병합 → 단일 LLM)
-  ≤500줄 + clang 없음 → Heuristic (전체 코드 + scanner → 단일 LLM)
+분석 경로 (토큰 + 함수 크기 기반 스마트 라우팅):
+  토큰 초과 또는 함수 크기 편차 > 5배 → per_function (2-Pass: mini 선별 → 함수별 LLM)
+  토큰 이내 + 함수 균일 + clang 있음 → single (Error-Focused: clang + scanner → 단일 LLM)
+  토큰 이내 + 함수 균일 + clang 없음 → single (Heuristic: 전체 코드 + scanner → 단일 LLM)
 """
 
 import asyncio
@@ -272,7 +272,7 @@ class CAnalyzerAgent(BaseAgent):
 
             # Step 4: 분석 경로 선택 (토큰 + 함수 크기 기반)
             tokens_estimate = 0
-            delivery_mode = self._decide_c_delivery_mode(file_content, "c")
+            delivery_mode = self._decide_c_delivery_mode(file_content, language)
 
             clang_info = ""
             if clang_data:
@@ -377,7 +377,7 @@ class CAnalyzerAgent(BaseAgent):
 
     # 토큰 한계 (128K context에서 프롬프트+응답 여유분 확보)
     _TOKEN_LIMIT = 100_000
-    # 프롬프트 오버헤드 (시스템 메시지 + 프��프트 템플릿)
+    # 프롬프트 오버헤드 (시스템 메시지 + 프롬프트 템플릿)
     _PROMPT_OVERHEAD = 3_000
     # 함수 크기 편차 기준: 최대/중앙값 > 이 값이면 per_function
     _FUNC_SIZE_RATIO_THRESHOLD = 5
@@ -439,7 +439,7 @@ class CAnalyzerAgent(BaseAgent):
         findings = scanner_findings or []
 
         if not findings and not clang_data:
-            # >500줄이라도 분석 단서 0개이면 mini 모델 호출이 무의미 → Heuristic fallback
+            # per_function 경로라도 분석 단서 0개이면 mini 모델 호출이 무의미 → Heuristic fallback
             logger.info(f"C [{filename}] Scanner/clang 모두 없음 → Heuristic fallback")
             return await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
