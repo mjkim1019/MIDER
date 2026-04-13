@@ -32,63 +32,6 @@ from mider.tools.utility.markdown_report_formatter import format_markdown_report
 logger = logging.getLogger(__name__)
 
 
-def get_base_dir() -> Path:
-    """실행 환경에 따른 기준 디렉토리를 반환한다.
-
-    - PyInstaller frozen 환경: 실행파일이 위치한 디렉토리
-    - 개발 환경: 프로젝트 루트 (main.py 기준 한 단계 상위)
-    """
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
-
-
-def resolve_input_files(base_dir: Path, filenames: list[str]) -> list[str]:
-    """input 폴더 기준으로 파일명을 절대경로로 변환한다.
-
-    이미 절대경로이거나 존재하는 상대경로인 파일은 그대로 사용한다.
-    그 외에는 base_dir / 'input' / filename으로 해석한다.
-
-    Args:
-        base_dir: 기준 디렉토리 (get_base_dir() 반환값)
-        filenames: CLI에서 전달받은 파일명 목록
-
-    Returns:
-        절대경로로 변환된 파일 목록
-    """
-    input_dir = base_dir / "input"
-    input_dir.mkdir(parents=True, exist_ok=True)
-
-    console = Console(stderr=True)
-    resolved: list[str] = []
-    has_error = False
-
-    for name in filenames:
-        p = Path(name)
-        # 이미 절대경로이거나 현재 위치에서 존재하는 상대경로
-        if p.is_absolute() or p.exists():
-            resolved.append(str(p.resolve()))
-            continue
-        # input 폴더 기준으로 해석
-        input_path = input_dir / name
-        if input_path.exists():
-            resolved.append(str(input_path.resolve()))
-        else:
-            console.print(
-                f"[red bold]오류:[/] 파일을 찾을 수 없습니다: {name}"
-            )
-            console.print(f"  확인 경로: {input_path}")
-            has_error = True
-
-    if has_error and not resolved:
-        console.print(
-            "\n[yellow]input 폴더에 분석할 파일을 넣어주세요:[/]"
-            f" {input_dir}"
-        )
-        sys.exit(EXIT_FILE_ERROR)
-
-    return resolved
-
 # 종료 코드
 EXIT_OK = 0
 EXIT_CRITICAL_FOUND = 1
@@ -792,8 +735,6 @@ def prompt_for_explain_plan(
 
     # 파일 경로 해석 (resolve_input_files와 동일 로직)
     p = Path(user_input)
-    if p.is_absolute() and p.exists():
-        return str(p.resolve())
     if p.exists():
         return str(p.resolve())
 

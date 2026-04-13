@@ -743,31 +743,6 @@ class TestResolveInputFiles:
 
 
 # ──────────────────────────────────────────────
-# get_base_dir
-# ──────────────────────────────────────────────
-
-
-class TestGetBaseDir:
-    """get_base_dir() 테스트."""
-
-    def test_dev_environment(self):
-        """개발 환경에서는 프로젝트 루트를 반환한다."""
-        base = get_base_dir()
-        expected = Path(__file__).resolve().parent.parent.parent
-        assert base == expected
-
-    def test_frozen_environment(self, monkeypatch, tmp_path):
-        """PyInstaller frozen 환경에서는 실행파일 디렉토리를 반환한다."""
-        fake_exe = tmp_path / "dist" / "mider.exe"
-        fake_exe.parent.mkdir(parents=True, exist_ok=True)
-        fake_exe.touch()
-        monkeypatch.setattr("sys.frozen", True, raising=False)
-        monkeypatch.setattr("sys.executable", str(fake_exe))
-        base = get_base_dir()
-        assert base == fake_exe.parent
-
-
-# ──────────────────────────────────────────────
 # resolve_input_files (rglob)
 # ──────────────────────────────────────────────
 
