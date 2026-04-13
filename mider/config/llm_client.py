@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import httpx
 from openai import AsyncAzureOpenAI, AsyncOpenAI
+
+if TYPE_CHECKING:
+    from mider.config.sso_auth import SSOAuthenticator
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +54,7 @@ class LLMClient:
     - "aica": AICA_API_KEY + AICA_ENDPOINT
     """
 
-    def __init__(self, sso_authenticator: object | None = None) -> None:
+    def __init__(self, sso_authenticator: SSOAuthenticator | None = None) -> None:
         self._provider = os.environ.get("API_PROVIDER", "openai").lower()
         self._sso_authenticator = sso_authenticator
 
@@ -140,7 +143,7 @@ class LLMClient:
         messages: list[dict[str, str]],
         temperature: float = 0.0,
         json_mode: bool = True,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
     ) -> str:
         """LLM Chat 호출 (provider에 따라 자동 분기).
 
@@ -166,7 +169,7 @@ class LLMClient:
         messages: list[dict[str, str]],
         temperature: float,
         json_mode: bool,
-        max_tokens: Optional[int],
+        max_tokens: int | None,
     ) -> str:
         """OpenAI/Azure API로 호출."""
         kwargs: dict = {
@@ -220,6 +223,8 @@ class LLMClient:
     def _is_sso_expired_response(self, response: httpx.Response) -> bool:
         """AICA 응답이 SSO 만료(리다이렉트 HTML)인지 판단한다."""
         content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return False
         if "text/html" in content_type:
             return True
         text = response.text.strip()
