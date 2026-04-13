@@ -259,6 +259,13 @@ class TestExtractUserInfo:
         with pytest.raises(SSOAuthError, match="user_id를 찾을 수 없습니다"):
             authenticator._extract_user_info(driver)
 
+    def test_raises_on_none_response(self, authenticator: SSOAuthenticator) -> None:
+        driver = MagicMock()
+        driver.execute_async_script.return_value = None
+
+        with pytest.raises(SSOAuthError, match="파싱 실패"):
+            authenticator._extract_user_info(driver)
+
     def test_raises_on_error_response(self, authenticator: SSOAuthenticator) -> None:
         driver = MagicMock()
         driver.execute_async_script.return_value = json.dumps({

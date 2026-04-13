@@ -133,6 +133,10 @@ class SSOAuthenticator:
             json.dumps(data, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        try:
+            self._session_file.chmod(0o600)
+        except OSError:
+            pass  # Windows에서는 chmod 미지원
         logger.debug("세션 저장: %s", self._session_file)
 
     def _browser_login(self) -> SSOCredentials:
@@ -237,7 +241,7 @@ class SSOAuthenticator:
         user_id = auth_data.get("user_id")
         if not user_id:
             raise SSOAuthError(
-                f"응답에서 user_id를 찾을 수 없습니다: {auth_data}"
+                f"응답에서 user_id를 찾을 수 없습니다 (keys: {list(auth_data.keys())})"
             )
 
         name = auth_data.get("name", "")
