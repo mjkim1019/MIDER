@@ -881,3 +881,9 @@
 - `2026-04-13 13:38:07` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
 - `2026-04-13 13:40:22` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_c_analyzer.py`
 - `2026-04-13 13:50:46` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/agents/c_analyzer.py`
+- `2026-04-13 14:10:38` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/c_heuristic_scanner.py`
+- `2026-04-13 14:10:56` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/c_heuristic_scanner.py`
+- `2026-04-13 14:12:18` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/tools/static_analysis/c_heuristic_scanner.py`
+- `2026-04-13 14:13:26` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/c_analyzer_error_focused.txt`
+- `2026-04-13 14:13:47` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/prompts/c_analyzer_heuristic.txt`
+- `2026-04-13 14:17:35` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_tools/test_c_heuristic_scanner.py`

@@ -294,3 +294,12 @@
   - [x] T54.1: `_decide_c_delivery_mode()` 분기 함수 구현
   - [x] T54.2: `run()` 경로 분기 변경 (500줄 하드코딩 → 토큰+함수크기)
   - [x] T54.3: 단위 테스트 (균일→single, 편차→per_function, 기존 호환성)
+
+---
+
+## memset sizeof 타입 불일치 탐지
+
+- [x] T55: memset sizeof 타입 불일치 탐지
+  - [x] T55.1: Scanner `MEMSET_SIZE_MISMATCH` 패턴 추가
+  - [x] T55.2: LLM 프롬프트에 memset 타입 불일치 체크 + few-shot 추가
+  - [x] T55.3: 단위 테스트 (불일치 탐지, 정상 미탐지, 구조체 멤버 제외)

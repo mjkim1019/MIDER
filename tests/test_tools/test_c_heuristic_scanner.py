@@ -245,3 +245,101 @@ class TestCHeuristicScanner:
         assert "BUFFER_INDEX" in patterns
         # 함수는 1개
         assert result.data["functions_at_risk"] == ["dangerous"]
+
+
+class TestMemsetSizeMismatch:
+    """memset sizeof 타입 불일치 탐지 테스트."""
+
+    def setup_method(self):
+        self.scanner = CHeuristicScanner()
+
+    def test_mismatch_detected(self, tmp_path):
+        """변수 타입 ≠ sizeof 타입 → MEMSET_SIZE_MISMATCH 탐지."""
+        f = tmp_path / "mismatch.c"
+        f.write_text(
+            "#include <string.h>\n"
+            "void c200_update(void) {\n"
+            "    zord_abn_sale_spc_u0010_in_t zord_abn_sale_spc_u0010_in;\n"
+            "    memset(&zord_abn_sale_spc_u0010_in, 0x00, sizeof(zord_abn_sale_spc_s0009_in_t));\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        mismatch = [
+            f for f in result.data["findings"]
+            if f["pattern_id"] == "MEMSET_SIZE_MISMATCH"
+        ]
+        assert len(mismatch) == 1
+        assert "u0010" in mismatch[0]["description"]
+        assert "s0009" in mismatch[0]["description"]
+        assert mismatch[0]["severity"] == "high"
+        assert mismatch[0]["function"] == "c200_update"
+
+    def test_matching_type_not_detected(self, tmp_path):
+        """변수 타입 == sizeof 타입 → 미탐지."""
+        f = tmp_path / "match.c"
+        f.write_text(
+            "#include <string.h>\n"
+            "void c100_query(void) {\n"
+            "    zord_abn_sale_spc_s0009_in_t zord_abn_sale_spc_s0009_in;\n"
+            "    memset(&zord_abn_sale_spc_s0009_in, 0x00, sizeof(zord_abn_sale_spc_s0009_in_t));\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        mismatch = [
+            f for f in result.data["findings"]
+            if f["pattern_id"] == "MEMSET_SIZE_MISMATCH"
+        ]
+        assert len(mismatch) == 0
+
+    def test_struct_member_excluded(self, tmp_path):
+        """구조체 멤버 접근(ctx->var)은 Scanner에서 제외."""
+        f = tmp_path / "member.c"
+        f.write_text(
+            "#include <string.h>\n"
+            "void c300_init(void *ctx) {\n"
+            "    memset(&ctx->zord_out, 0x00, sizeof(zord_other_t));\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        mismatch = [
+            f for f in result.data["findings"]
+            if f["pattern_id"] == "MEMSET_SIZE_MISMATCH"
+        ]
+        # ctx->var는 regex에서 &\w+만 매칭하므로 제외됨
+        assert len(mismatch) == 0
+
+    def test_local_prefix_stripped(self, tmp_path):
+        """로컬 변수 접두사(ll_, lc_)는 제거 후 비교."""
+        f = tmp_path / "local_prefix.c"
+        f.write_text(
+            "#include <string.h>\n"
+            "void d400_send(void) {\n"
+            "    zngmmmsg12310_io_t ll_zngmmmsg12310_io;\n"
+            "    memset(&ll_zngmmmsg12310_io, 0x00, sizeof(zngmmmsg12310_io_t));\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        mismatch = [
+            f for f in result.data["findings"]
+            if f["pattern_id"] == "MEMSET_SIZE_MISMATCH"
+        ]
+        # ll_ 접두사 제거 후 일치 → 미탐지
+        assert len(mismatch) == 0
+
+    def test_sizeof_same_var_not_detected(self, tmp_path):
+        """sizeof(변수명) — 타입이 아닌 변수명 자체 → 미탐지."""
+        f = tmp_path / "sizeof_var.c"
+        f.write_text(
+            "#include <string.h>\n"
+            "void init(void) {\n"
+            "    char lc_param_nm[64];\n"
+            "    memset(lc_param_nm, 0x00, sizeof(lc_param_nm));\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        mismatch = [
+            f for f in result.data["findings"]
+            if f["pattern_id"] == "MEMSET_SIZE_MISMATCH"
+        ]
+        # &가 없으므로 regex 매칭 안 됨
+        assert len(mismatch) == 0

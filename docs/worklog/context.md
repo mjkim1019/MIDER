@@ -386,3 +386,11 @@
 
 | 2026-04-13 | T54: `line_count > 500` → `_decide_c_delivery_mode()` 토큰+함수크기 기반 라우팅 | 874줄 파일 160초 → ~40초 목표. 균일 파일은 single(1회), 편차 큰 파일만 per_function(N회) |
 | 2026-04-13 | T54 리뷰: docstring 업데이트 + `language` 파라미터 전달 + mojibake 수정 | MEDIUM 2건 + LOW 2건 반영 |
+
+## T55 설계 결정 (memset sizeof 타입 불일치 탐지)
+- **발견 계기**: `zordms03s0200.c:272`에서 `memset(&u0010_in, 0, sizeof(s0009_in_t))` 복붙 버그 미탐지
+- **Scanner regex 전략**: 변수명에서 접미사(`_in`, `_out`, `_io`, `_ar`) 제거 → `_t` 추가 → sizeof 타입과 비교. 불일치면 `MEMSET_SIZE_MISMATCH`
+- **프롬프트 보완**: Scanner만으로는 `ctx->member` 같은 간접 접근을 못 잡으므로 LLM 프롬프트에 체크 항목 + few-shot 예시 추가
+- **구조체 멤버 제외**: `ctx->var` 형태는 변수명만으로 타입 추론 불가 → Scanner에서 제외, LLM에 위임
+
+| 2026-04-13 | T55 계획: memset sizeof 타입 불일치 탐지 (Scanner + 프롬프트) | zordms03s0200.c에서 u0010 변수에 s0009 타입 sizeof 사용하는 복붙 버그 미탐지 |

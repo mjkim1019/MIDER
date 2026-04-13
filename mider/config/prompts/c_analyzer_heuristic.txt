@@ -16,6 +16,7 @@
 - [ ] strcpy, strcat, sprintf, gets 등 경계 미검증 함수를 사용하는가?
 - [ ] 배열 인덱스가 범위를 초과할 가능성이 있는가?
 - [ ] 외부 입력을 고정 크기 버퍼에 복사하는가?
+- [ ] **[중요] memset sizeof 타입 불일치**: `memset(&변수, 0, sizeof(타입))` 에서 변수의 실제 타입과 sizeof 타입이 다른가? (복붙 버그로 잘못된 크기만큼 초기화 → 오버플로우/불완전 초기화). 예: `memset(&var_u0010_in, 0x00, sizeof(var_s0009_in_t))` → u0010 ≠ s0009
 
 ### 2. NULL 포인터 (null_safety)
 - [ ] malloc/calloc 반환값을 NULL 체크하는가?
