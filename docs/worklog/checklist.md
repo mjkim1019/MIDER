@@ -269,9 +269,9 @@
 
 ## SSO 인증 연동
 
-- [ ] T50: SSO 인증 모듈 구현
-  - [ ] T50.1: sso_auth.py — SSOAuthenticator 클래스 (Selenium 로그인, 세션 캐싱, 만료 감지)
-  - [ ] T50.2: 단위 테스트 (test_sso_auth.py)
+- [x] T50: SSO 인증 모듈 구현
+  - [x] T50.1: sso_auth.py — SSOAuthenticator 클래스 (Selenium 로그인, 세션 캐싱, 만료 감지)
+  - [x] T50.2: 단위 테스트 (test_sso_auth.py)
 - [ ] T51: LLM Client AICA 응답 파싱 수정 + SSO 연동
   - [ ] T51.1: _chat_aica() 응답 파싱 수정 (token.data → choices[0].message.content) + app_env 추가
   - [ ] T51.2: SSO user_id 연동 (SSOAuthenticator → payload user_id)

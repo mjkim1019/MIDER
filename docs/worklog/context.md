@@ -370,3 +370,4 @@
 | 2026-04-13 | payload에 `app_env: "prd"` 필드 추가 필요 | 데모 스크립트 request/response 확인 — 현재 llm_client.py에 누락 |
 | 2026-04-13 | SSO user_id를 payload에 전달하도록 변경 | AICA API가 실제 사번을 `user_id`로 요구 — 기존 "mider_agent" 하드코딩 대체 |
 | 2026-04-13 | T53 추가: `input/` 폴더 제거 + `base_dir` rglob 검색 | ProFrame workspace에서 파일이 서브디렉토리(AATDD069261CN/ 등)에 위치 — input 복사 불필요, 파일명만 입력하면 자동 탐색 |
+| 2026-04-13 | T50 완료: 리뷰 반영 — 세션 파일 chmod 0o600, auth_data keys()만 노출, None 응답 테스트 추가 | 코드 리뷰에서 보안 이슈 3건(HIGH) 지적 — 세션 파일 퍼미션, 민감 정보 로그 노출, 네트워크 타임아웃 케이스 |
