@@ -371,3 +371,7 @@
 | 2026-04-13 | SSO user_id를 payload에 전달하도록 변경 | AICA API가 실제 사번을 `user_id`로 요구 — 기존 "mider_agent" 하드코딩 대체 |
 | 2026-04-13 | T53 추가: `input/` 폴더 제거 + `base_dir` rglob 검색 | ProFrame workspace에서 파일이 서브디렉토리(AATDD069261CN/ 등)에 위치 — input 복사 불필요, 파일명만 입력하면 자동 탐색 |
 | 2026-04-13 | T50 완료: 리뷰 반영 — 세션 파일 chmod 0o600, auth_data keys()만 노출, None 응답 테스트 추가 | 코드 리뷰에서 보안 이슈 3건(HIGH) 지적 — 세션 파일 퍼미션, 민감 정보 로그 노출, 네트워크 타임아웃 케이스 |
+| 2026-04-13 | T51 완료: `_chat_aica()` 응답 파싱 `token.data` → `choices[0].message.content` | 실제 AICA 응답이 OpenAI 호환 형식 — 기존 파싱 완전히 틀렸음 |
+| 2026-04-13 | T51: `_chat_aica()` → `_chat_aica_once()` 분리 + SSO 만료 시 1회 재시도 | HTML 응답 감지로 세션 만료 판단 → SSOAuthenticator force_login → 재시도 |
+| 2026-04-13 | T51 리뷰: `sso_authenticator: object` → `SSOAuthenticator` (TYPE_CHECKING) | duck typing으로 AttributeError 위험 — 정적 타입 체크 활성화 |
+| 2026-04-13 | T51 리뷰: `_is_sso_expired_response()`에 application/json early return | 정상 JSON 응답에서 불필요한 text 파싱 방지 — 대형 응답 성능 개선 |
