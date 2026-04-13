@@ -394,3 +394,6 @@
 - **구조체 멤버 제외**: `ctx->var` 형태는 변수명만으로 타입 추론 불가 → Scanner에서 제외, LLM에 위임
 
 | 2026-04-13 | T55 계획: memset sizeof 타입 불일치 탐지 (Scanner + 프롬프트) | zordms03s0200.c에서 u0010 변수에 s0009 타입 sizeof 사용하는 복붙 버그 미탐지 |
+| 2026-04-13 | T55: Scanner `MEMSET_SIZE_MISMATCH` + LLM 프롬프트 양쪽 보강 | 정적 탐지(높은 정밀도) + LLM 문맥 탐지(높은 재현율) 보완 |
+| 2026-04-13 | T55: `ll_` 접두사 오탐 발견 → 로컬 접두사 제거 로직 추가 | L805 `ll_zngmmmsg12310_io`가 오탐 — ProFrame 네이밍 규칙 반영 |
+| 2026-04-13 | T55 리뷰: regex `^[ld][lcds]_` → `^l[lcds]_` | `d`접두사 과도 매칭 방지 (HIGH). `_HIGH_PRIORITY_PATTERNS`에 추가 (MEDIUM) |
