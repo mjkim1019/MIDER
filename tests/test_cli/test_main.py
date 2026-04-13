@@ -18,6 +18,7 @@ from mider.main import (
     print_file_list,
     print_issues,
     print_summary,
+    prompt_for_explain_plan,
     prompt_for_files,
     resolve_input_files,
     resolve_model,
@@ -139,6 +140,73 @@ class TestPromptForFiles:
         console = MagicMock()
         with pytest.raises(SystemExit):
             prompt_for_files(console)
+
+
+# ──────────────────────────────────────────────
+# prompt_for_explain_plan
+# ──────────────────────────────────────────────
+
+
+class TestPromptForExplainPlan:
+    """인터랙티브 Explain Plan 프롬프트 테스트."""
+
+    def test_sql_file_triggers_prompt(self, monkeypatch, tmp_path):
+        """SQL 파일 포함 시 프롬프트가 호출되고 파일 경로 반환."""
+        explain_file = tmp_path / "explain.txt"
+        explain_file.write_text("EXPLAIN PLAN OUTPUT")
+        monkeypatch.setattr("builtins.input", lambda _: str(explain_file))
+
+        result = prompt_for_explain_plan(
+            ["/app/orders.sql"], tmp_path,
+        )
+        assert result == str(explain_file.resolve())
+
+    def test_no_sql_file_skips_prompt(self, tmp_path):
+        """SQL 파일 미포함 → 프롬프트 미호출, None 반환."""
+        result = prompt_for_explain_plan(
+            ["/app/calc.c", "/app/main.js"], tmp_path,
+        )
+        assert result is None
+
+    def test_empty_input_returns_none(self, monkeypatch, tmp_path):
+        """Enter(빈 입력) → None 반환."""
+        monkeypatch.setattr("builtins.input", lambda _: "")
+
+        result = prompt_for_explain_plan(
+            ["/app/orders.sql"], tmp_path,
+        )
+        assert result is None
+
+    def test_eof_returns_none(self, monkeypatch, tmp_path):
+        """EOF → None 반환 (크래시하지 않음)."""
+        monkeypatch.setattr(
+            "builtins.input", MagicMock(side_effect=EOFError),
+        )
+
+        result = prompt_for_explain_plan(
+            ["/app/orders.sql"], tmp_path,
+        )
+        assert result is None
+
+    def test_nonexistent_file_returns_none(self, monkeypatch, tmp_path):
+        """존재하지 않는 파일 → None 반환 + 경고."""
+        monkeypatch.setattr("builtins.input", lambda _: "nonexistent.txt")
+
+        result = prompt_for_explain_plan(
+            ["/app/orders.sql"], tmp_path,
+        )
+        assert result is None
+
+    def test_mixed_files_with_sql(self, monkeypatch, tmp_path):
+        """C + SQL 혼합 입력 → SQL 감지하여 프롬프트 호출."""
+        explain_file = tmp_path / "plan.txt"
+        explain_file.write_text("plan data")
+        monkeypatch.setattr("builtins.input", lambda _: str(explain_file))
+
+        result = prompt_for_explain_plan(
+            ["/app/calc.c", "/app/orders.sql"], tmp_path,
+        )
+        assert result == str(explain_file.resolve())
 
 
 # ──────────────────────────────────────────────

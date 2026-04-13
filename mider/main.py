@@ -763,6 +763,55 @@ def prompt_for_files(console: Console) -> list[str]:
         return [f.strip() for f in user_input.split(",") if f.strip()]
 
 
+def prompt_for_explain_plan(
+    resolved_files: list[str],
+    base_dir: Path,
+) -> str | None:
+    """SQL 파일이 포함되어 있으면 Explain Plan 파일 경로를 질문한다.
+
+    Args:
+        resolved_files: resolve_input_files()로 해석된 파일 목록
+        base_dir: 파일 경로 해석 기준 디렉토리
+
+    Returns:
+        Explain Plan 파일 절대경로, 또는 None (SQL 없거나 Enter 입력 시)
+    """
+    has_sql = any(Path(f).suffix.lower() == ".sql" for f in resolved_files)
+    if not has_sql:
+        return None
+
+    print("\nℹ SQL 파일이 포함되어 있습니다.")
+    print("  Explain Plan 파일이 있으면 입력하세요 (없으면 Enter):")
+    try:
+        user_input = input("> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+    if not user_input:
+        return None
+
+    # 파일 경로 해석 (resolve_input_files와 동일 로직)
+    p = Path(user_input)
+    if p.is_absolute() and p.exists():
+        return str(p.resolve())
+    if p.exists():
+        return str(p.resolve())
+
+    # base_dir 기준 검색
+    input_path = base_dir / "input" / user_input
+    if input_path.exists():
+        return str(input_path.resolve())
+
+    # workspace 재귀 검색
+    matches = list(base_dir.rglob(user_input))
+    if len(matches) == 1:
+        return str(matches[0].resolve())
+
+    print(f"  ⚠ Explain Plan 파일을 찾을 수 없습니다: {user_input}")
+    print("  Explain Plan 없이 분석을 계속합니다.")
+    return None
+
+
 def main() -> None:
     """CLI 메인 함수."""
     base_dir = get_base_dir()
@@ -803,8 +852,13 @@ def main() -> None:
     # 파일 목록 출력
     print_file_list(console, resolved_files)
 
-    # Explain Plan 파일 검증
+    # Explain Plan 파일 결정
+    # CLI 모드: --explain-plan 옵션 사용
+    # 인터랙티브 모드: SQL 파일 감지 시 자동 질문
+    is_interactive = not args.files
     explain_plan = getattr(args, "explain_plan", None)
+    if not explain_plan and is_interactive:
+        explain_plan = prompt_for_explain_plan(resolved_files, base_dir)
     if explain_plan and not Path(explain_plan).exists():
         console.print(
             f"[red bold]오류:[/] Explain Plan 파일 없음: {explain_plan}",

@@ -303,3 +303,11 @@
   - [x] T55.1: Scanner `MEMSET_SIZE_MISMATCH` 패턴 추가
   - [x] T55.2: LLM 프롬프트에 memset 타입 불일치 체크 + few-shot 추가
   - [x] T55.3: 단위 테스트 (불일치 탐지, 정상 미탐지, 구조체 멤버 제외)
+
+---
+
+## 인터랙티브 UX 개선
+
+- [x] T56: 인터랙티브 Explain Plan 프롬프트
+  - [x] T56.1: `prompt_for_explain_plan()` + `main()` 연동
+  - [x] T56.2: 단위 테스트 (SQL 포함→질문, SQL 미포함→미질문, Enter→None)
