@@ -3,10 +3,10 @@
 clang-tidy 정적분석 + Heuristic Scanner(regex) + LLM 심층분석을 결합하여
 C 파일의 메모리 안전성 및 장애 유발 패턴을 탐지한다.
 
-분석 경로:
-  >500줄 → 2-Pass (clang + scanner → mini 선별 → 함수별 LLM)
-  ≤500줄 + clang 있음 → Error-Focused (clang + scanner 병합 → 단일 LLM)
-  ≤500줄 + clang 없음 → Heuristic (전체 코드 + scanner → 단일 LLM)
+분석 경로 (토큰 + 함수 크기 기반 스마트 라우팅):
+  토큰 초과 또는 함수 크기 편차 > 5배 → per_function (2-Pass: mini 선별 → 함수별 LLM)
+  토큰 이내 + 함수 균일 + clang 있음 → single (Error-Focused: clang + scanner → 단일 LLM)
+  토큰 이내 + 함수 균일 + clang 없음 → single (Heuristic: 전체 코드 + scanner → 단일 LLM)
 """
 
 import asyncio
@@ -270,21 +270,24 @@ class CAnalyzerAgent(BaseAgent):
                     f"C [{filename}] Scanner: {len(scanner_findings)}건 ({pattern_str})"
                 )
 
-            # Step 4: 분석 경로 선택
+            # Step 4: 분석 경로 선택 (토큰 + 함수 크기 기반)
             tokens_estimate = 0
-            if line_count > 500:
-                # 대형 파일 → 항상 2-Pass (clang 유무 무관)
-                clang_info = ""
-                if clang_data:
-                    w_count = len(clang_data.get("warnings", []))
-                    clang_info = f"clang-tidy {w_count}건 + "
+            delivery_mode = self._decide_c_delivery_mode(file_content, language)
+
+            clang_info = ""
+            if clang_data:
+                w_count = len(clang_data.get("warnings", []))
+                clang_info = f"clang-tidy {w_count}건 + "
+
+            if delivery_mode == "per_function":
+                # 대형 파일 또는 함수 크기 편차 큼 → 함수별 분리
                 self.rl.decision(
-                    "Decision: 2-Pass 전략",
-                    reason=f"{clang_info}Scanner {len(scanner_findings)}건 + {line_count}줄(>500)",
+                    "Decision: per_function (2-Pass)",
+                    reason=f"{clang_info}Scanner {len(scanner_findings)}건, {line_count}줄, 토큰/함수크기 편차 초과",
                 )
                 logger.info(
-                    f"C [{filename}] 경로: 2-Pass | "
-                    f"{clang_info}Scanner {len(scanner_findings)}건, {line_count}줄(>500)"
+                    f"C [{filename}] 경로: per_function | "
+                    f"{clang_info}Scanner {len(scanner_findings)}건, {line_count}줄"
                 )
                 issues = await self._run_two_pass(
                     file=file,
@@ -294,25 +297,24 @@ class CAnalyzerAgent(BaseAgent):
                     scanner_findings=scanner_findings,
                 )
             else:
-                # ≤500줄
+                # single: 전체 코드 단일 LLM 호출
                 if clang_data:
-                    w_count = len(clang_data.get("warnings", []))
                     self.rl.decision(
-                        "Decision: Error-Focused path",
-                        reason=f"clang-tidy {w_count}건 + Scanner {len(scanner_findings)}건, {line_count}줄(≤500)",
+                        "Decision: single (Error-Focused)",
+                        reason=f"{clang_info}Scanner {len(scanner_findings)}건, {line_count}줄, 토큰 이내+함수 균일",
                     )
                     logger.info(
-                        f"C [{filename}] 경로: Error-Focused | "
-                        f"clang-tidy {w_count}건, Scanner {len(scanner_findings)}건"
+                        f"C [{filename}] 경로: single/Error-Focused | "
+                        f"clang-tidy {len(clang_data.get('warnings', []))}건, Scanner {len(scanner_findings)}건"
                     )
                 else:
                     self.rl.decision(
-                        "Decision: Heuristic path",
-                        reason=f"clang-tidy 없음 + Scanner {len(scanner_findings)}건, {line_count}줄(≤500)",
+                        "Decision: single (Heuristic)",
+                        reason=f"clang-tidy 없음 + Scanner {len(scanner_findings)}건, {line_count}줄, 토큰 이내+함수 균일",
                     )
                     logger.info(
-                        f"C [{filename}] 경로: Heuristic | "
-                        f"clang-tidy 없음, Scanner {len(scanner_findings)}건, {line_count}줄(≤500)"
+                        f"C [{filename}] 경로: single/Heuristic | "
+                        f"clang-tidy 없음, Scanner {len(scanner_findings)}건, {line_count}줄"
                     )
                 prompt, messages = self._build_messages(
                     file=file,
@@ -373,6 +375,51 @@ class CAnalyzerAgent(BaseAgent):
 
     _MAX_CONCURRENT_LLM = 5
 
+    # 토큰 한계 (128K context에서 프롬프트+응답 여유분 확보)
+    _TOKEN_LIMIT = 100_000
+    # 프롬프트 오버헤드 (시스템 메시지 + 프롬프트 템플릿)
+    _PROMPT_OVERHEAD = 3_000
+    # 함수 크기 편차 기준: 최대/중앙값 > 이 값이면 per_function
+    _FUNC_SIZE_RATIO_THRESHOLD = 5
+
+    @staticmethod
+    def _decide_c_delivery_mode(
+        file_content: str,
+        language: str = "c",
+    ) -> str:
+        """토큰 추정 + 함수 크기 균일성을 기반으로 분석 경로를 결정한다.
+
+        Returns:
+            "single": 전체 코드 단일 LLM 호출 (토큰 이내 + 함수 크기 균일)
+            "per_function": 함수별 개별 LLM 호출 (토큰 초과 또는 대형 함수 압도)
+        """
+        estimated_tokens = len(file_content) // 3
+        if estimated_tokens + CAnalyzerAgent._PROMPT_OVERHEAD > CAnalyzerAgent._TOKEN_LIMIT:
+            return "per_function"
+
+        # 함수 경계 탐지
+        lines = file_content.splitlines()
+        boundaries = find_function_boundaries(lines, language)
+
+        if len(boundaries) < 2:
+            # 함수 0~1개: 편차 판단 불필요 → single
+            return "single"
+
+        # 함수별 줄 수 계산
+        func_sizes = sorted(end - start + 1 for start, end in boundaries)
+        median_size = func_sizes[len(func_sizes) // 2]
+
+        if median_size == 0:
+            return "single"
+
+        max_size = func_sizes[-1]
+        ratio = max_size / median_size
+
+        if ratio > CAnalyzerAgent._FUNC_SIZE_RATIO_THRESHOLD:
+            return "per_function"
+
+        return "single"
+
     async def _run_two_pass(
         self,
         *,
@@ -392,7 +439,7 @@ class CAnalyzerAgent(BaseAgent):
         findings = scanner_findings or []
 
         if not findings and not clang_data:
-            # >500줄이라도 분석 단서 0개이면 mini 모델 호출이 무의미 → Heuristic fallback
+            # per_function 경로라도 분석 단서 0개이면 mini 모델 호출이 무의미 → Heuristic fallback
             logger.info(f"C [{filename}] Scanner/clang 모두 없음 → Heuristic fallback")
             return await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
@@ -697,7 +744,7 @@ class CAnalyzerAgent(BaseAgent):
 
         return "\n".join(parts)
 
-    _HIGH_PRIORITY_PATTERNS = {"UNINIT_VAR", "UNSAFE_FUNC", "MALLOC_NO_CHECK", "FORMAT_STRING"}
+    _HIGH_PRIORITY_PATTERNS = {"UNINIT_VAR", "UNSAFE_FUNC", "MALLOC_NO_CHECK", "FORMAT_STRING", "MEMSET_SIZE_MISMATCH"}
 
     def _build_grouped_warnings(
         self,

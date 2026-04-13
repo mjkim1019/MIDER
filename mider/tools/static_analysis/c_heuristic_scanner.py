@@ -74,6 +74,14 @@ _PATTERNS: list[dict[str, Any]] = [
     },
 ]
 
+# memset sizeof 타입 불일치 탐지 패턴
+# memset(&변수명, 0x00, sizeof(타입명)) 에서 변수명+_t ≠ 타입명 → MISMATCH
+_MEMSET_SIZEOF_PATTERN = re.compile(
+    r"\bmemset\s*\(\s*&\s*(\w+)"     # memset(&변수명  — 구조체 멤버(->)는 제외
+    r"\s*,\s*[^,]+,\s*"              # , 0x00,
+    r"sizeof\s*\(\s*(\w+)\s*\)"      # sizeof(타입명)
+)
+
 # 주석/문자열 내부 매칭 제외용 패턴
 _LINE_COMMENT = re.compile(r"//.*$")
 _BLOCK_COMMENT_START = re.compile(r"/\*")
@@ -239,5 +247,31 @@ class CHeuristicScanner(BaseTool):
                     "match": m.group(0),
                     "function": func_name,
                 })
+
+            # memset sizeof 타입 불일치 검사
+            ms = _MEMSET_SIZEOF_PATTERN.search(clean_line)
+            if ms:
+                var_name = ms.group(1)      # e.g. zord_abn_sale_spc_u0010_in
+                sizeof_type = ms.group(2)   # e.g. zord_abn_sale_spc_s0009_in_t
+                # ProFrame 로컬 변수 접두사(ll_, lc_, ld_, ls_) 제거 후 비교
+                stripped_var = re.sub(r"^l[lcds]_", "", var_name)
+                expected_type = stripped_var + "_t"
+                if expected_type != sizeof_type:
+                    func_name = self._find_enclosing_function(
+                        line_num, boundaries, func_names,
+                    )
+                    findings.append({
+                        "pattern_id": "MEMSET_SIZE_MISMATCH",
+                        "severity": "high",
+                        "description": (
+                            f"memset sizeof 타입 불일치: "
+                            f"변수 '{var_name}'의 예상 타입 '{expected_type}' ≠ "
+                            f"sizeof 타입 '{sizeof_type}'"
+                        ),
+                        "line": line_num,
+                        "content": line.strip(),
+                        "match": ms.group(0),
+                        "function": func_name,
+                    })
 
         return findings

@@ -376,3 +376,26 @@
 | 2026-04-13 | T51 리뷰: `sso_authenticator: object` → `SSOAuthenticator` (TYPE_CHECKING) | duck typing으로 AttributeError 위험 — 정적 타입 체크 활성화 |
 | 2026-04-13 | T51 리뷰: `_is_sso_expired_response()`에 application/json early return | 정상 JSON 응답에서 불필요한 text 파싱 방지 — 대형 응답 성능 개선 |
 | 2026-04-13 | T52 설계 변경: `--sso` 플래그 → 인터랙티브 `login` 명령어 | 사용자 피드백: 매번 `--sso` 붙이는 것보다 프롬프트에서 `login` 입력이 직관적. 시작 시 세션 없으면 자동 안내 |
+
+## T54 설계 결정 (C Analyzer 스마트 라우팅)
+- **문제**: 874줄 C 파일 분석에 160초 소요. 2-Pass(Pass1 mini + Pass2 함수별 N회)로 LLM 호출 5~6회. 호출당 TTFT 15초 병목
+- **해결**: `line_count > 500` 하드코딩 → 토큰 추정(len//3) + 함수 크기 균일성(max/median ≤ 5배) 기반 라우팅
+- **토큰 한계**: 100K (Pro*C `_TOKEN_LIMIT`과 동일). 128K context - 28K 여유
+- **함수 크기 균일성**: 최대/중앙값 > 5배 → 편차 큼 → per_function. T21의 636줄 vs 127줄 = 5배 경계
+- **비용보다 속도+정확도 우선**: 사용자 명시 요구
+
+| 2026-04-13 | T54: `line_count > 500` → `_decide_c_delivery_mode()` 토큰+함수크기 기반 라우팅 | 874줄 파일 160초 → ~40초 목표. 균일 파일은 single(1회), 편차 큰 파일만 per_function(N회) |
+| 2026-04-13 | T54 리뷰: docstring 업데이트 + `language` 파라미터 전달 + mojibake 수정 | MEDIUM 2건 + LOW 2건 반영 |
+
+## T55 설계 결정 (memset sizeof 타입 불일치 탐지)
+- **발견 계기**: `zordms03s0200.c:272`에서 `memset(&u0010_in, 0, sizeof(s0009_in_t))` 복붙 버그 미탐지
+- **Scanner regex 전략**: 변수명에서 접미사(`_in`, `_out`, `_io`, `_ar`) 제거 → `_t` 추가 → sizeof 타입과 비교. 불일치면 `MEMSET_SIZE_MISMATCH`
+- **프롬프트 보완**: Scanner만으로는 `ctx->member` 같은 간접 접근을 못 잡으므로 LLM 프롬프트에 체크 항목 + few-shot 예시 추가
+- **구조체 멤버 제외**: `ctx->var` 형태는 변수명만으로 타입 추론 불가 → Scanner에서 제외, LLM에 위임
+
+| 2026-04-13 | T55 계획: memset sizeof 타입 불일치 탐지 (Scanner + 프롬프트) | zordms03s0200.c에서 u0010 변수에 s0009 타입 sizeof 사용하는 복붙 버그 미탐지 |
+| 2026-04-13 | T55: Scanner `MEMSET_SIZE_MISMATCH` + LLM 프롬프트 양쪽 보강 | 정적 탐지(높은 정밀도) + LLM 문맥 탐지(높은 재현율) 보완 |
+| 2026-04-13 | T55: `ll_` 접두사 오탐 발견 → 로컬 접두사 제거 로직 추가 | L805 `ll_zngmmmsg12310_io`가 오탐 — ProFrame 네이밍 규칙 반영 |
+| 2026-04-13 | T55 리뷰: regex `^[ld][lcds]_` → `^l[lcds]_` | `d`접두사 과도 매칭 방지 (HIGH). `_HIGH_PRIORITY_PATTERNS`에 추가 (MEDIUM) |
+| 2026-04-13 | T56: `prompt_for_explain_plan()` 추가 — SQL 감지 시 인터랙티브 질문 | `--explain-plan` CLI 플래그는 exe 인터랙티브 모드와 UX 불일치. 자동 질문으로 해결 |
+| 2026-04-13 | T56 리뷰: main.py 구버전 함수 중복 정의 제거 + 테스트 중복 클래스 제거 | 머지 시 유입된 dead code (HIGH 2건) |

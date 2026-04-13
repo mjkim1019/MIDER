@@ -45,6 +45,79 @@ def _make_llm_response(issues: list[dict] | None = None) -> str:
     return json.dumps({"issues": issues or []})
 
 
+def _make_skewed_c_file(tmp_path, filename: str = "skewed.c") -> tuple[str, str]:
+    """함수 크기 편차가 큰 대형 C 파일을 생성한다 (per_function 라우팅용).
+
+    1개 대형 함수(120줄) + 소형 함수 65개(6줄) = ~510줄.
+    max/median = 120/6 = 20 > 5 → per_function.
+
+    Returns:
+        (file_path, content)
+    """
+    # 대형 함수 (120줄) — 위험 패턴 포함
+    big_lines = ["void big_handler(char *input) {\n"]
+    big_lines.append("    int count;\n")
+    big_lines.append("    char buf[64];\n")
+    big_lines.append("    strcpy(buf, input);\n")
+    for i in range(115):
+        big_lines.append(f"    int v{i} = {i};\n")
+    big_lines.append("}\n\n")
+
+    # 소형 함수 65개 (각 6줄)
+    small_funcs = []
+    for i in range(65):
+        small_funcs.append(
+            f"int calc_{i}(int x) {{\n"
+            f"    int r = 0;\n"
+            f"    r = x + {i};\n"
+            f"    return r;\n"
+            f"}}\n\n"
+        )
+
+    content = (
+        "#include <string.h>\n\n"
+        + "".join(big_lines)
+        + "".join(small_funcs)
+    )
+    f = tmp_path / filename
+    f.write_text(content)
+    assert len(content.splitlines()) > 500
+    return str(f), content
+
+
+def _make_uniform_c_file(tmp_path, filename: str = "uniform.c") -> tuple[str, str]:
+    """함수 크기가 균일한 대형 C 파일을 생성한다 (single 라우팅용).
+
+    90개 함수(각 6줄) = ~540줄. 위험 패턴 포함.
+    max/median = 6/6 = 1.0 ≤ 5 → single.
+
+    Returns:
+        (file_path, content)
+    """
+    funcs = []
+    for i in range(89):
+        funcs.append(
+            f"int calc_{i}(int x) {{\n"
+            f"    int r = 0;\n"
+            f"    r = x + {i};\n"
+            f"    return r;\n"
+            f"}}\n\n"
+        )
+    # 위험 함수 1개 (같은 크기)
+    funcs.append(
+        "void danger(char *input) {\n"
+        "    int count;\n"
+        "    char buf[64];\n"
+        "    strcpy(buf, input);\n"
+        "}\n\n"
+    )
+    content = "#include <string.h>\n\n" + "".join(funcs)
+    f = tmp_path / filename
+    f.write_text(content)
+    assert len(content.splitlines()) > 500
+    return str(f), content
+
+
 @pytest.fixture
 def c_file(tmp_path):
     """테스트용 C 파일."""
@@ -203,14 +276,27 @@ class TestLLMFailure:
 
 
 class TestTwoPassPath:
-    """2-Pass 분석 경로 테스트 (clang-tidy 없음 + 500줄 초과)."""
+    """2-Pass 분석 경로 테스트 (함수 크기 편차 큼 → per_function)."""
 
     @pytest.fixture
     def large_c_file(self, tmp_path):
-        """500줄 초과 C 파일 (위험 패턴 포함)."""
-        # 안전한 함수 85개 (각 6줄) = 510줄 + 위험 함수 1개
+        """함수 크기 편차가 큰 대형 C 파일 (per_function 라우팅).
+
+        1개 대형 함수(120줄, dangerous_handler) + 소형 함수 65개.
+        """
+        # 대형 함수 (120줄) — 위험 패턴 포함
+        big_lines = ["void dangerous_handler(char *input) {\n"]
+        big_lines.append("    int count;\n")
+        big_lines.append("    char buf[64];\n")
+        big_lines.append("    strcpy(buf, input);\n")
+        big_lines.append("    buf[count] = 0;\n")
+        for i in range(114):
+            big_lines.append(f"    int v{i} = {i};\n")
+        big_lines.append("}\n\n")
+
+        # 소형 함수 65개 (각 6줄)
         safe_funcs = []
-        for i in range(85):
+        for i in range(65):
             safe_funcs.append(
                 f"int safe_func_{i}(int x) {{\n"
                 f"    int result = 0;\n"
@@ -218,16 +304,8 @@ class TestTwoPassPath:
                 f"    return result;\n"
                 f"}}\n\n"
             )
-        # 위험 함수 (초기화 안 된 변수 + strcpy)
-        dangerous_func = (
-            "void dangerous_handler(char *input) {\n"
-            "    int count;\n"
-            "    char buf[64];\n"
-            "    strcpy(buf, input);\n"
-            "    buf[count] = 0;\n"
-            "}\n"
-        )
-        content = "#include <string.h>\n\n" + "".join(safe_funcs) + dangerous_func
+
+        content = "#include <string.h>\n\n" + "".join(big_lines) + "".join(safe_funcs)
         f = tmp_path / "large.c"
         f.write_text(content)
         assert len(content.splitlines()) > 500
@@ -275,9 +353,9 @@ class TestTwoPassPath:
     @pytest.mark.asyncio
     async def test_two_pass_per_function_calls(self, tmp_path):
         """위험 함수 N개 → Pass 2에서 N번 개별 LLM 호출."""
-        # 2개 위험 함수가 있는 대형 파일
+        # 2개 대형 위험 함수 + 소형 안전 함수 → 편차 큼 → per_function
         safe_funcs = []
-        for i in range(85):
+        for i in range(60):
             safe_funcs.append(
                 f"int safe_{i}(int x) {{\n"
                 f"    int r = 0;\n"
@@ -285,20 +363,22 @@ class TestTwoPassPath:
                 f"    return r;\n"
                 f"}}\n\n"
             )
-        dangerous_a = (
-            "void handler_a(char *input) {\n"
-            "    int count;\n"
-            "    char buf[64];\n"
-            "    strcpy(buf, input);\n"
-            "}\n\n"
-        )
-        dangerous_b = (
-            "void handler_b(char *data) {\n"
-            "    long idx;\n"
-            "    char out[32];\n"
-            "    sprintf(out, \"%s\", data);\n"
-            "}\n\n"
-        )
+        # 대형 위험 함수 A (80줄)
+        big_a_lines = ["void handler_a(char *input) {\n"]
+        big_a_lines.append("    int count;\n    char buf[64];\n    strcpy(buf, input);\n")
+        for i in range(75):
+            big_a_lines.append(f"    int a{i} = {i};\n")
+        big_a_lines.append("}\n\n")
+        dangerous_a = "".join(big_a_lines)
+
+        # 대형 위험 함수 B (80줄)
+        big_b_lines = ["void handler_b(char *data) {\n"]
+        big_b_lines.append("    long idx;\n    char out[32];\n    sprintf(out, \"%s\", data);\n")
+        for i in range(75):
+            big_b_lines.append(f"    int b{i} = {i};\n")
+        big_b_lines.append("}\n\n")
+        dangerous_b = "".join(big_b_lines)
+
         content = (
             "#include <string.h>\n#include <stdio.h>\n\n"
             + "".join(safe_funcs) + dangerous_a + dangerous_b
@@ -337,8 +417,9 @@ class TestTwoPassPath:
     @pytest.mark.asyncio
     async def test_two_pass_issue_id_renumbered(self, tmp_path):
         """함수별 결과 합산 시 issue_id가 C-001부터 재번호."""
+        # 소형 안전 함수 + 2개 대형 위험 함수 → 편차 큼 → per_function
         safe_funcs = []
-        for i in range(85):
+        for i in range(60):
             safe_funcs.append(
                 f"int safe_{i}(int x) {{\n"
                 f"    int r = 0;\n"
@@ -346,14 +427,20 @@ class TestTwoPassPath:
                 f"    return r;\n"
                 f"}}\n\n"
             )
-        func_a = (
-            "void func_a(char *p) {\n"
-            "    int x;\n    strcpy(p, \"hello\");\n}\n\n"
-        )
-        func_b = (
-            "void func_b(char *q) {\n"
-            "    long y;\n    sprintf(q, \"%d\", 42);\n}\n\n"
-        )
+        # 대형 위험 함수 A (80줄)
+        fa_lines = ["void func_a(char *p) {\n", "    int x;\n    strcpy(p, \"hello\");\n"]
+        for i in range(76):
+            fa_lines.append(f"    int a{i} = {i};\n")
+        fa_lines.append("}\n\n")
+        func_a = "".join(fa_lines)
+
+        # 대형 위험 함수 B (80줄)
+        fb_lines = ["void func_b(char *q) {\n", "    long y;\n    sprintf(q, \"%d\", 42);\n"]
+        for i in range(76):
+            fb_lines.append(f"    int b{i} = {i};\n")
+        fb_lines.append("}\n\n")
+        func_b = "".join(fb_lines)
+
         content = (
             "#include <string.h>\n#include <stdio.h>\n\n"
             + "".join(safe_funcs) + func_a + func_b
@@ -425,8 +512,8 @@ class TestTwoPassPath:
         assert agent_two_pass._llm_client.chat.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_two_pass_scanner_no_findings_fallback(self, tmp_path):
-        """Pre-Scanner 패턴 없으면 Heuristic 단일 패스."""
+    async def test_scanner_no_findings_single_path(self, tmp_path):
+        """균일 대형 파일 + Scanner 패턴 없음 → single/Heuristic 1회."""
         safe_funcs = []
         for i in range(90):
             safe_funcs.append(
@@ -453,8 +540,8 @@ class TestTwoPassPath:
         assert agent._llm_client.chat.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_small_file_skips_two_pass(self, agent, c_file):
-        """500줄 이하 파일은 2-Pass 안 탐."""
+    async def test_small_file_uses_single_path(self, agent, c_file):
+        """소형 파일 → single 경로 (LLM 1회)."""
         agent._clang_tidy_runner = MagicMock()
         agent._clang_tidy_runner.execute.side_effect = Exception("not found")
         agent._llm_client.chat.return_value = _make_llm_response()
@@ -734,21 +821,9 @@ class TestT31ScannerAlwaysRuns:
 
     @pytest.mark.asyncio
     async def test_large_file_with_clang_triggers_two_pass(self, tmp_path):
-        """>500줄 + clang-tidy 있음 → 2-Pass 경로 (Error-Focused 아님)."""
-        safe_funcs = []
-        for i in range(85):
-            safe_funcs.append(
-                f"int safe_{i}(int x) {{\n"
-                f"    int r = 0;\n    r = x + {i};\n    return r;\n}}\n\n"
-            )
-        dangerous = (
-            "void danger(char *p) {\n"
-            "    int x;\n    strcpy(p, \"hello\");\n}\n"
-        )
-        content = "#include <string.h>\n\n" + "".join(safe_funcs) + dangerous
-        f = tmp_path / "large_with_clang.c"
-        f.write_text(content)
-        assert len(content.splitlines()) > 500
+        """함수 편차 큼 + clang-tidy 있음 → per_function 경로."""
+        file_path, _ = _make_skewed_c_file(tmp_path, "large_with_clang.c")
+        f = file_path
 
         agent = CAnalyzerAgent(model="gpt-4o")
         agent._llm_client = AsyncMock()
@@ -767,12 +842,12 @@ class TestT31ScannerAlwaysRuns:
 
         # Pass 1 + Pass 2
         pass1 = json.dumps({"risky_functions": [
-            {"function_name": "danger", "reason": "UNSAFE_FUNC"},
+            {"function_name": "big_handler", "reason": "UNSAFE_FUNC"},
         ]})
         pass2 = json.dumps({"issues": [_make_issue()]})
         agent._llm_client.chat.side_effect = [pass1, pass2]
 
-        result = await agent.run(task_id="task_1", file=str(f), language="c")
+        result = await agent.run(task_id="task_1", file=f, language="c")
 
         assert result["error"] is None
         # Pass 1(mini) + Pass 2(1개 함수) = 2회 호출
@@ -845,17 +920,19 @@ class TestT31ScannerAlwaysRuns:
     @pytest.mark.asyncio
     async def test_prescan_prompt_has_all_functions_summary(self, tmp_path):
         """2-Pass Pass 1 프롬프트에 전체 함수 목록(all_functions_summary) 포함."""
+        # 대형 함수(120줄) + 소형 함수 → 편차 큼 → per_function
+        big_lines = ["void target_func(char *p) {\n", "    int x;\n    strcpy(p, \"hello\");\n"]
+        for i in range(116):
+            big_lines.append(f"    int v{i} = {i};\n")
+        big_lines.append("}\n\n")
+
         safe_funcs = []
-        for i in range(85):
+        for i in range(65):
             safe_funcs.append(
                 f"int safe_{i}(int x) {{\n"
                 f"    int r = 0;\n    r = x + {i};\n    return r;\n}}\n\n"
             )
-        dangerous = (
-            "void target_func(char *p) {\n"
-            "    int x;\n    strcpy(p, \"hello\");\n}\n"
-        )
-        content = "#include <string.h>\n\n" + "".join(safe_funcs) + dangerous
+        content = "#include <string.h>\n\n" + "".join(big_lines) + "".join(safe_funcs)
         f = tmp_path / "prescan_test.c"
         f.write_text(content)
 
@@ -879,6 +956,80 @@ class TestT31ScannerAlwaysRuns:
         # 전체 함수 목록에 safe_0, target_func 등이 포함
         assert "safe_0" in prescan_prompt
         assert "target_func" in prescan_prompt
+
+
+class TestDecideDeliveryMode:
+    """_decide_c_delivery_mode() 라우팅 로직 테스트."""
+
+    def test_uniform_functions_returns_single(self, tmp_path):
+        """함수 크기 균일(ratio ≤ 5) + 토큰 이내 → single."""
+        _, content = _make_uniform_c_file(tmp_path)
+        mode = CAnalyzerAgent._decide_c_delivery_mode(content, "c")
+        assert mode == "single"
+
+    def test_skewed_functions_returns_per_function(self, tmp_path):
+        """대형 함수 압도(ratio > 5) → per_function."""
+        _, content = _make_skewed_c_file(tmp_path)
+        mode = CAnalyzerAgent._decide_c_delivery_mode(content, "c")
+        assert mode == "per_function"
+
+    def test_token_limit_exceeded_returns_per_function(self):
+        """토큰 한계 초과 → per_function."""
+        # 100K tokens ≈ 300K chars
+        huge_content = "int x;\n" * 100_000
+        mode = CAnalyzerAgent._decide_c_delivery_mode(huge_content, "c")
+        assert mode == "per_function"
+
+    def test_small_file_returns_single(self, tmp_path):
+        """소형 파일(100줄) → single."""
+        content = (
+            "#include <stdio.h>\n"
+            + "int main() {\n"
+            + "    return 0;\n"
+            + "}\n"
+        )
+        mode = CAnalyzerAgent._decide_c_delivery_mode(content, "c")
+        assert mode == "single"
+
+    def test_single_function_returns_single(self, tmp_path):
+        """함�� 1개만 있는 파일 → single."""
+        lines = ["void big(char *p) {\n"]
+        for i in range(600):
+            lines.append(f"    int v{i} = {i};\n")
+        lines.append("}\n")
+        content = "#include <stdio.h>\n" + "".join(lines)
+        mode = CAnalyzerAgent._decide_c_delivery_mode(content, "c")
+        assert mode == "single"
+
+    def test_no_functions_returns_single(self):
+        """함수 없는 파일(전역 코드만) → single."""
+        content = "#include <stdio.h>\nint x = 0;\nint y = 1;\n"
+        mode = CAnalyzerAgent._decide_c_delivery_mode(content, "c")
+        assert mode == "single"
+
+
+class TestSmartRoutingSinglePath:
+    """스마트 라우팅: 균일 대형 파일 → single 경로 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_uniform_large_file_uses_single_call(self, tmp_path):
+        """균일 함수 크기 + 토큰 이내 → single 경로 (LLM 1회 호출)."""
+        file_path, _ = _make_uniform_c_file(tmp_path)
+
+        agent = CAnalyzerAgent(model="gpt-4o")
+        agent._llm_client = AsyncMock()
+        agent._clang_tidy_runner = MagicMock()
+        agent._clang_tidy_runner.execute.side_effect = Exception("not found")
+        agent._llm_client.chat.return_value = _make_llm_response([
+            _make_issue(title="strcpy 버퍼 오버플로우"),
+        ])
+
+        result = await agent.run(task_id="task_1", file=file_path, language="c")
+
+        assert result["error"] is None
+        # single 경로: LLM 1회만 호출
+        assert agent._llm_client.chat.call_count == 1
+        assert len(result["issues"]) == 1
 
 
 class TestAgentInit:
