@@ -324,5 +324,31 @@
 | 2026-03-31 | T34 리뷰: 한 줄짜리 CDATA offset_map 누락 수정 | offset_map에 등록 안 되면 라인 매핑 실패 (HIGH) |
 | 2026-03-31 | T34 리뷰: import re 함수 내부 → 파일 상단 이동 | 컨벤션 위반 (MEDIUM) |
 
+| 2026-04-09 | T44 구현: get_base_dir() + resolve_input_files() 추가 | PyInstaller frozen 환경에서 input 폴더 기준 파일 해석 필요 |
+| 2026-04-09 | T44 구현: main()에서 .env 로드 경로를 base_dir 기준으로 변경 | 실행파일과 같은 폴더의 .env를 읽어야 함 |
+| 2026-04-09 | T44 구현: build_parser()에 output_default 인자 추가 | --output 기본값을 base_dir/output으로 동적 설정 필요 |
+| 2026-04-09 | T45 구현: mider.spec onedir 모드로 PyInstaller 설정 | onefile은 시작 느림, onedir이 폐쇄망 배포에 적합 |
+| 2026-04-09 | T45 구현: scripts/build_exe.py 빌드 후 dist 폴더 자동 구성 | input/output 폴더 + .env.example 자동 배치 |
+| 2026-04-09 | T46 구현: docs/USER_MANUAL.md 폐쇄망 운영자 대상 한국어 매뉴얼 | 비개발자도 사용할 수 있는 상세 가이드 필요 |
+
 ## T35 설계 검토 사항
 - **주석 처리**: 제거 시 라인번호 깨짐 CRITICAL, 3~20% 토큰 절감 — 선택적 제거(헤더 주석만) 또는 현행 유지 권장
+
+## T44~T46 설계 결정 (배포용 실행파일 환경)
+- **get_base_dir()**: `getattr(sys, 'frozen', False)`로 PyInstaller 환경 판별, frozen이면 `sys.executable.parent`, 아니면 프로젝트 루트
+- **resolve_input_files()**: 절대경로/존재하는 상대경로는 통과, 나머지는 `base_dir/input/` 기준으로 해석
+- **onedir 모드**: PyInstaller onefile은 임시 폴더에 풀리므로 input/output 폴더 접근 불가, onedir이 적합
+- **.env 경로**: `load_dotenv(dotenv_path=base_dir / '.env')`로 실행파일 옆의 .env를 명시적으로 로드
+
+## T47~T49 설계 결정 (AICA API 전환)
+- **openai SDK 제거**: AICA API는 OpenAI 호환이 아닌 자체 프로토콜 사용 — httpx로 직접 호출
+- **AICA API 스펙**:
+  - Endpoint: `/api/agent/v1/chats` (POST)
+  - Request: `user_id`, `message`, `model_cd`, `usecase_mode("GENERAL")`, `stream(false)`
+  - Response: `token.data` (LLM 응답 텍스트), `error` (에러 객체)
+  - Headers: `X-AGENT-API-KEY`, `Cookie: SSOSESSION=xxx`
+- **model_cd 매핑**: settings.yaml 모델명 → AICA 모델코드 (gpt-5 → GPT5_2 등)
+- **SSO 세션**: 별도 작업에서 구현, LLMClient는 SSOSESSION 쿠키 전달 인터페이스만 준비
+- **환경 변수 단순화**: Azure 3종(KEY+ENDPOINT+VERSION) + OpenAI 2종 → AICA_API_KEY + AICA_ENDPOINT
+- **서버 환경**: STG(aicas.sktelecom.com:3000), PRD(aica.sktelecom.com:3000)
+- **에러 처리**: status_code 50011(한도 오류), 50012(개인정보 검출) 대응 필요

@@ -14,9 +14,12 @@ from mider.main import (
     EXIT_OK,
     build_parser,
     determine_exit_code,
+    get_base_dir,
     print_file_list,
     print_issues,
     print_summary,
+    prompt_for_files,
+    resolve_input_files,
     resolve_model,
     run_analysis,
     validate_api_key,
@@ -32,16 +35,16 @@ from mider.main import (
 class TestBuildParser:
     """argparse 파서 테스트."""
 
-    def test_required_files(self):
-        """--files는 필수 인자."""
+    def test_no_args_ok(self):
+        """인자 없이 실행 가능 (인터랙티브 모드)."""
         parser = build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args([])
+        args = parser.parse_args([])
+        assert args.files is None
 
     def test_files_single(self):
         """단일 파일 지정."""
         parser = build_parser()
-        args = parser.parse_args(["--files", "test.js"])
+        args = parser.parse_args(["-f", "test.js"])
         assert args.files == ["test.js"]
 
     def test_files_multiple(self):
@@ -53,49 +56,49 @@ class TestBuildParser:
     def test_output_default(self):
         """--output 기본값은 ./output."""
         parser = build_parser()
-        args = parser.parse_args(["--files", "test.js"])
+        args = parser.parse_args([])
         assert args.output == "./output"
 
     def test_output_custom(self):
         """--output 커스텀 경로."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js", "-o", "/tmp/reports"])
+        args = parser.parse_args(["-o", "/tmp/reports"])
         assert args.output == "/tmp/reports"
 
     def test_model_option(self):
         """--model 옵션."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js", "-m", "gpt-4o-mini"])
+        args = parser.parse_args(["-m", "gpt-4o-mini"])
         assert args.model == "gpt-4o-mini"
 
     def test_model_default_none(self):
         """--model 미지정 시 None."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js"])
+        args = parser.parse_args([])
         assert args.model is None
 
     def test_verbose_flag(self):
         """--verbose 플래그."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js", "-v"])
+        args = parser.parse_args(["-v"])
         assert args.verbose is True
 
     def test_verbose_default_false(self):
         """--verbose 미지정 시 False."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.js"])
+        args = parser.parse_args([])
         assert args.verbose is False
 
     def test_explain_plan_option(self):
         """--explain-plan 옵션."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.sql", "-e", "/tmp/plan.txt"])
+        args = parser.parse_args(["-e", "/tmp/plan.txt"])
         assert args.explain_plan == "/tmp/plan.txt"
 
     def test_explain_plan_default_none(self):
         """--explain-plan 미지정 시 None."""
         parser = build_parser()
-        args = parser.parse_args(["-f", "test.sql"])
+        args = parser.parse_args([])
         assert args.explain_plan is None
 
     def test_version(self):
@@ -104,6 +107,34 @@ class TestBuildParser:
         with pytest.raises(SystemExit) as exc_info:
             parser.parse_args(["--version"])
         assert exc_info.value.code == 0
+
+
+class TestPromptForFiles:
+    """인터랙티브 파일 입력 테스트."""
+
+    def test_single_file(self, monkeypatch):
+        """단건 파일 입력."""
+        monkeypatch.setattr("builtins.input", lambda _: "test.c")
+        result = prompt_for_files()
+        assert result == ["test.c"]
+
+    def test_multiple_files(self, monkeypatch):
+        """다건 파일 입력 (쉼표 구분)."""
+        monkeypatch.setattr("builtins.input", lambda _: "a.c, b.pc, c.sql")
+        result = prompt_for_files()
+        assert result == ["a.c", "b.pc", "c.sql"]
+
+    def test_empty_input_exits(self, monkeypatch):
+        """빈 입력 시 종료."""
+        monkeypatch.setattr("builtins.input", lambda _: "")
+        with pytest.raises(SystemExit):
+            prompt_for_files()
+
+    def test_eof_exits(self, monkeypatch):
+        """EOF 시 종료."""
+        monkeypatch.setattr("builtins.input", MagicMock(side_effect=EOFError))
+        with pytest.raises(SystemExit):
+            prompt_for_files()
 
 
 # ──────────────────────────────────────────────
@@ -142,30 +173,31 @@ class TestValidateApiKey:
 
     def _clear_all_keys(self, monkeypatch):
         """모든 API 키 환경변수 제거."""
-        for key in ["MIDER_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"]:
+        for key in ["API_PROVIDER", "AICA_API_KEY", "AICA_ENDPOINT",
+                     "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
+                     "OPENAI_API_KEY"]:
             monkeypatch.delenv(key, raising=False)
 
-    def test_mider_key(self, monkeypatch):
-        """MIDER_API_KEY가 설정된 경우 반환."""
+    def test_openai_key(self, monkeypatch):
+        """OpenAI 키가 설정된 경우 정상 통과."""
         self._clear_all_keys(monkeypatch)
-        monkeypatch.setenv("MIDER_API_KEY", "sk-test-key")
-        result = validate_api_key()
-        assert result == "sk-test-key"
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        validate_api_key()
 
     def test_azure_key(self, monkeypatch):
-        """Azure 키가 설정된 경우 None 반환 (LLMClient가 직접 읽음)."""
+        """Azure 키가 설정된 경우 정상 통과."""
         self._clear_all_keys(monkeypatch)
         monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-key")
         monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com/")
-        result = validate_api_key()
-        assert result is None
+        validate_api_key()
 
-    def test_openai_key_direct(self, monkeypatch):
-        """OPENAI_API_KEY가 직접 설정된 경우 None 반환."""
+    def test_aica_key(self, monkeypatch):
+        """AICA 키가 설정된 경우 정상 통과."""
         self._clear_all_keys(monkeypatch)
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-direct")
-        result = validate_api_key()
-        assert result is None
+        monkeypatch.setenv("API_PROVIDER", "aica")
+        monkeypatch.setenv("AICA_API_KEY", "test-key")
+        monkeypatch.setenv("AICA_ENDPOINT", "http://aica.test.com:3000")
+        validate_api_key()
 
     def test_no_key_exits(self, monkeypatch):
         """어떤 키도 없으면 exit code 3."""
@@ -174,10 +206,11 @@ class TestValidateApiKey:
             validate_api_key()
         assert exc_info.value.code == EXIT_LLM_ERROR
 
-    def test_empty_key_exits(self, monkeypatch):
-        """빈 API 키 시 exit code 3."""
+    def test_aica_key_without_endpoint_exits(self, monkeypatch):
+        """AICA에서 ENDPOINT 없으면 exit code 3."""
         self._clear_all_keys(monkeypatch)
-        monkeypatch.setenv("MIDER_API_KEY", "")
+        monkeypatch.setenv("API_PROVIDER", "aica")
+        monkeypatch.setenv("AICA_API_KEY", "test-key")
         with pytest.raises(SystemExit) as exc_info:
             validate_api_key()
         assert exc_info.value.code == EXIT_LLM_ERROR
@@ -406,7 +439,7 @@ class TestPrintSummary:
         }
         print_summary(console, summary, "./output", ["/app/test.c"])
         calls_str = str(console.print.call_args_list)
-        assert "불가" in calls_str
+        assert "위험" in calls_str
 
 
 # ──────────────────────────────────────────────
@@ -560,22 +593,78 @@ class TestMain:
 
     def test_main_exits_without_api_key(self, monkeypatch):
         """API 키 없으면 exit 3."""
-        for key in ["MIDER_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"]:
+        for key in ["API_PROVIDER", "AICA_API_KEY", "AICA_ENDPOINT",
+                     "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
+                     "OPENAI_API_KEY"]:
             monkeypatch.delenv(key, raising=False)
-        monkeypatch.setattr(
-            "sys.argv", ["mider", "--files", "test.js"],
-        )
+        monkeypatch.setattr("sys.argv", ["mider", "-f", "test.js"])
         # load_dotenv()가 .env 파일에서 키를 로드하지 않도록 차단
-        monkeypatch.setattr("mider.main.load_dotenv", lambda: None)
+        monkeypatch.setattr("mider.main.load_dotenv", lambda **kwargs: None)
         with pytest.raises(SystemExit) as exc_info:
             from mider.main import main
             main()
         assert exc_info.value.code == EXIT_LLM_ERROR
 
-    def test_main_no_files_exits(self, monkeypatch):
-        """--files 없으면 exit 2."""
-        monkeypatch.setattr("sys.argv", ["mider"])
+
+# ──────────────────────────────────────────────
+# get_base_dir
+# ──────────────────────────────────────────────
+
+
+class TestGetBaseDir:
+    """get_base_dir() 테스트."""
+
+    def test_dev_environment(self):
+        """개발 환경에서는 프로젝트 루트를 반환한다."""
+        base = get_base_dir()
+        expected = Path(__file__).resolve().parent.parent.parent
+        assert base == expected
+
+    def test_frozen_environment(self, monkeypatch, tmp_path):
+        """PyInstaller frozen 환경에서는 실행파일 디렉토리를 반환한다."""
+        fake_exe = tmp_path / "dist" / "mider.exe"
+        fake_exe.parent.mkdir(parents=True, exist_ok=True)
+        fake_exe.touch()
+        monkeypatch.setattr("sys.frozen", True, raising=False)
+        monkeypatch.setattr("sys.executable", str(fake_exe))
+        base = get_base_dir()
+        assert base == fake_exe.parent
+
+
+# ──────────────────────────────────────────────
+# resolve_input_files
+# ──────────────────────────────────────────────
+
+
+class TestResolveInputFiles:
+    """resolve_input_files() 테스트."""
+
+    def test_absolute_path_passthrough(self, tmp_path):
+        """절대경로 파일은 그대로 반환한다."""
+        f = tmp_path / "test.js"
+        f.write_text("// test")
+        result = resolve_input_files(tmp_path, [str(f)])
+        assert result == [str(f.resolve())]
+
+    def test_input_folder_resolution(self, tmp_path):
+        """input 폴더 내 파일명을 절대경로로 변환한다."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        f = input_dir / "app.c"
+        f.write_text("int main() {}")
+        result = resolve_input_files(tmp_path, ["app.c"])
+        assert result == [str(f.resolve())]
+
+    def test_missing_file_error(self, tmp_path):
+        """존재하지 않는 파일은 에러 메시지를 출력하고 exit한다."""
         with pytest.raises(SystemExit) as exc_info:
-            from mider.main import main
-            main()
-        assert exc_info.value.code == 2  # argparse exit code
+            resolve_input_files(tmp_path, ["no_such_file.c"])
+        assert exc_info.value.code == EXIT_FILE_ERROR
+
+    def test_relative_path_existing_file(self, tmp_path, monkeypatch):
+        """현재 디렉토리 기준 상대경로 파일이 존재하면 그대로 사용한다."""
+        f = tmp_path / "local.sql"
+        f.write_text("SELECT 1")
+        monkeypatch.chdir(tmp_path)
+        result = resolve_input_files(tmp_path, ["local.sql"])
+        assert result == [str(f.resolve())]

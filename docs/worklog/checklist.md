@@ -232,3 +232,35 @@
   - [ ] T42.2: 로컬 브랜치 정리 (38개)
   - [ ] T42.3: 원격 브랜치 정리
   - [ ] T42.4: v1.0.0 태그 + GitHub Release
+
+---
+
+## 배포용 실행파일 환경 구축
+
+- [x] T44: 고정 입력 폴더 기반 파일 경로 처리
+  - [x] T44.1: get_base_dir() + resolve_input_files() + main() 수정
+  - [x] T44.2: 기존 테스트 호환성 확인 및 수정
+- [x] T45: Windows 실행파일 빌드 스크립트
+  - [x] T45.1: mider.spec PyInstaller spec 파일
+  - [x] T45.2: scripts/build_exe.py 빌드 스크립트
+  - [x] T45.3: .env.example 업데이트
+- [x] T46: 사용자 매뉴얼
+  - [x] T46.1: docs/USER_MANUAL.md 작성
+
+---
+
+## AICA API 전환
+
+- [ ] T47: LLM Client AICA API 전환
+  - [ ] T47.1: llm_client.py — httpx 기반 AICA API 클라이언트 구현
+  - [ ] T47.2: 모델명 매핑 + settings.yaml 업데이트
+  - [ ] T47.3: 단위 테스트 수정
+- [ ] T48: 환경 변수 및 CLI 업데이트
+  - [ ] T48.1: main.py validate_api_key() AICA 방식 변경
+  - [ ] T48.2: .env.example AICA 환경 변수로 변경
+  - [ ] T48.3: settings.yaml api 섹션 업데이트
+- [ ] T49: CI/빌드/문서 업데이트
+  - [ ] T49.1: build-windows-exe.yml secrets 변경
+  - [ ] T49.2: build_exe.py 안내 메시지 업데이트
+  - [ ] T49.3: USER_MANUAL.md API 관련 업데이트
+  - [ ] T49.4: 기존 테스트 호환성 확인
