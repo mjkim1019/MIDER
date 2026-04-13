@@ -373,7 +373,7 @@ class CAnalyzerAgent(BaseAgent):
                 error=str(e),
             ).model_dump()
 
-    _MAX_CONCURRENT_LLM = 3
+    _MAX_CONCURRENT_LLM = 5
 
     # 토큰 한계 (128K context에서 프롬프트+응답 여유분 확보)
     _TOKEN_LIMIT = 100_000

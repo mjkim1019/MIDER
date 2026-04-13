@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from dotenv import load_dotenv
+import httpx
 from openai import APIConnectionError, APIError, APITimeoutError, RateLimitError
 from rich.console import Console
 from rich.panel import Panel
@@ -23,11 +24,70 @@ from rich.text import Text
 
 from mider import __version__
 from mider.agents.orchestrator import OrchestratorAgent
+from mider.config.llm_client import AICAError
 from mider.config.logging_config import setup_logging
 from mider.config.reasoning_logger import ReasoningLogger
 from mider.tools.utility.markdown_report_formatter import format_markdown_report
 
 logger = logging.getLogger(__name__)
+
+
+def get_base_dir() -> Path:
+    """실행 환경에 따른 기준 디렉토리를 반환한다.
+
+    - PyInstaller frozen 환경: 실행파일이 위치한 디렉토리
+    - 개발 환경: 프로젝트 루트 (main.py 기준 한 단계 상위)
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parent.parent
+
+
+def resolve_input_files(base_dir: Path, filenames: list[str]) -> list[str]:
+    """input 폴더 기준으로 파일명을 절대경로로 변환한다.
+
+    이미 절대경로이거나 존재하는 상대경로인 파일은 그대로 사용한다.
+    그 외에는 base_dir / 'input' / filename으로 해석한다.
+
+    Args:
+        base_dir: 기준 디렉토리 (get_base_dir() 반환값)
+        filenames: CLI에서 전달받은 파일명 목록
+
+    Returns:
+        절대경로로 변환된 파일 목록
+    """
+    input_dir = base_dir / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    console = Console(stderr=True)
+    resolved: list[str] = []
+    has_error = False
+
+    for name in filenames:
+        p = Path(name)
+        # 이미 절대경로이거나 현재 위치에서 존재하는 상대경로
+        if p.is_absolute() or p.exists():
+            resolved.append(str(p.resolve()))
+            continue
+        # input 폴더 기준으로 해석
+        input_path = input_dir / name
+        if input_path.exists():
+            resolved.append(str(input_path.resolve()))
+        else:
+            console.print(
+                f"[red bold]오류:[/] 파일을 찾을 수 없습니다: {name}"
+            )
+            console.print(f"  확인 경로: {input_path}")
+            has_error = True
+
+    if has_error and not resolved:
+        console.print(
+            "\n[yellow]input 폴더에 분석할 파일을 넣어주세요:[/]"
+            f" {input_dir}"
+        )
+        sys.exit(EXIT_FILE_ERROR)
+
+    return resolved
 
 # 종료 코드
 EXIT_OK = 0
@@ -46,8 +106,86 @@ _SEVERITY_COLORS = {
 _SEVERITY_ORDER = ["critical", "high", "medium", "low"]
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """CLI 인자 파서를 생성한다."""
+def get_base_dir() -> Path:
+    """실행 환경에 따른 기준 디렉토리를 반환한다.
+
+    - PyInstaller frozen 환경: 실행파일이 위치한 디렉토리
+    - 개발 환경: 프로젝트 루트 (main.py 기준 한 단계 상위)
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parent.parent
+
+
+def resolve_input_files(base_dir: Path, filenames: list[str]) -> list[str]:
+    """input 폴더 기준으로 파일명을 절대경로로 변환한다.
+
+    검색 순서:
+    1. 절대경로 또는 CWD 기준 존재하는 상대경로 → 그대로 사용
+    2. base_dir/input/ 폴더 → 사용
+    3. base_dir 하위 전체 rglob 검색 → 유일하면 사용, 복수면 에러
+    4. 못 찾음 → 에러
+
+    Args:
+        base_dir: 기준 디렉토리 (get_base_dir() 반환값)
+        filenames: CLI에서 전달받은 파일명 목록
+
+    Returns:
+        절대경로로 변환된 파일 목록
+    """
+    input_dir = base_dir / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    console = Console(stderr=True)
+    resolved: list[str] = []
+    has_error = False
+
+    for name in filenames:
+        p = Path(name)
+        # 이미 절대경로이거나 현재 위치에서 존재하는 상대경로
+        if p.is_absolute() or p.exists():
+            resolved.append(str(p.resolve()))
+            continue
+        # input 폴더 기준으로 해석
+        input_path = input_dir / name
+        if input_path.exists():
+            resolved.append(str(input_path.resolve()))
+            continue
+        # base_dir 하위 전체에서 파일명으로 검색
+        matches = list(base_dir.rglob(name))
+        if len(matches) == 1:
+            resolved.append(str(matches[0].resolve()))
+            continue
+        elif len(matches) > 1:
+            console.print(f"[yellow]'{name}' 파일이 {len(matches)}개 발견되었습니다:[/]")
+            for i, m in enumerate(matches, 1):
+                console.print(f"  {i}. {m.relative_to(base_dir)}")
+            console.print("[yellow]상대경로로 정확히 지정해주세요.[/]")
+            has_error = True
+            continue
+        # 어디에서도 찾을 수 없음
+        console.print(
+            f"[red bold]오류:[/] 파일을 찾을 수 없습니다: {name}"
+        )
+        console.print(f"  확인 경로: {input_path}")
+        has_error = True
+
+    if has_error and not resolved:
+        console.print(
+            "\n[yellow]input 폴더에 분석할 파일을 넣어주세요:[/]"
+            f" {input_dir}"
+        )
+        sys.exit(EXIT_FILE_ERROR)
+
+    return resolved
+
+
+def build_parser(output_default: str = "./output") -> argparse.ArgumentParser:
+    """CLI 인자 파서를 생성한다.
+
+    Args:
+        output_default: --output 옵션의 기본값
+    """
     parser = argparse.ArgumentParser(
         prog="mider",
         description="Mider - 폐쇄망 소스코드 분석 CLI",
@@ -56,23 +194,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--files", "-f",
         nargs="+",
-        required=True,
-        help="분석할 파일 경로 (1개 이상, glob 지원)\n예: mider -f ordsb0100010t01.c zinvbpre01140.pc zord_svc_f101.sql",
+        required=False,
+        help="분석할 파일명 (input/ 폴더 기준, 미지정 시 인터랙티브 모드)",
     )
     parser.add_argument(
         "--output", "-o",
-        default="./output",
-        help="결과 출력 디렉토리 (기본: ./output)\n예: mider -f ordsb0100010t01.c -o ./reports",
+        default=output_default,
+        help=f"결과 출력 디렉토리 (기본: {output_default})",
     )
     parser.add_argument(
         "--model", "-m",
         default=None,
-        help="사용할 LLM 모델명 (기본: MIDER_MODEL 환경변수 또는 settings.yaml)\n예: mider -f ordsb0100010t01.c -m gpt-5",
+        help="사용할 LLM 모델명 (기본: MIDER_MODEL 환경변수 또는 settings.yaml)",
     )
     parser.add_argument(
         "--explain-plan", "-e",
         default=None,
-        help="Explain Plan 결과 파일 경로 (SQL 분석 시 사용)\n예: mider -f zord_svc_f101.sql -e zord_svc_f101_plan.txt",
+        help="Explain Plan 결과 파일 경로 (SQL 분석 시 사용)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -97,43 +235,39 @@ def resolve_model(args_model: str | None) -> str:
     return get_agent_model("orchestrator")
 
 
-def validate_api_key() -> str | None:
-    """LLM API 키를 검증한다.
+def validate_api_key() -> None:
+    """LLM API 키를 검증한다 (provider에 따라 분기).
 
-    우선순위:
-    1. AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT (Azure)
-    2. MIDER_API_KEY → OPENAI_API_KEY 브리징
-    3. OPENAI_API_KEY (직접 설정)
-
-    Returns:
-        MIDER_API_KEY 값 (Azure 경로면 None)
+    API_PROVIDER 환경 변수:
+    - "openai" (기본): AZURE_OPENAI_API_KEY 또는 OPENAI_API_KEY
+    - "aica": AICA_ENDPOINT (AICA_API_KEY는 백엔드에서 설정)
 
     Raises:
-        SystemExit: 어떤 API 키도 없으면 exit code 3으로 종료
+        SystemExit: 필수 환경 변수가 없으면 exit code 3으로 종료
     """
-    # Azure 경로: AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT
-    azure_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
-    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
-    if azure_key and azure_endpoint:
-        return None  # LLMClient가 Azure 변수를 직접 읽음
+    provider = os.environ.get("API_PROVIDER", "openai").lower()
 
-    # OpenAI 경로: MIDER_API_KEY → OPENAI_API_KEY 브리징
-    mider_key = os.environ.get("MIDER_API_KEY", "")
-    if mider_key:
-        return mider_key
-
-    # OPENAI_API_KEY 직접 설정
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    if openai_key:
-        return None  # 이미 설정됨
-
-    console = Console(stderr=True)
-    console.print(
-        "[red bold]오류:[/] LLM API 키가 설정되지 않았습니다.",
-    )
-    console.print("  Azure: AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT")
-    console.print("  OpenAI: MIDER_API_KEY 또는 OPENAI_API_KEY")
-    sys.exit(EXIT_LLM_ERROR)
+    if provider == "aica":
+        endpoint = os.environ.get("AICA_ENDPOINT", "")
+        if endpoint:
+            return
+        console = Console(stderr=True)
+        console.print("[red bold]오류:[/] AICA_ENDPOINT가 설정되지 않았습니다.")
+        console.print("  AICA_ENDPOINT를 환경 변수로 설정하세요.")
+        sys.exit(EXIT_LLM_ERROR)
+    else:
+        azure_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
+        azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+        if azure_key and azure_endpoint:
+            return
+        openai_key = os.environ.get("OPENAI_API_KEY", "")
+        if openai_key:
+            return
+        console = Console(stderr=True)
+        console.print("[red bold]오류:[/] LLM API 키가 설정되지 않았습니다.")
+        console.print("  Azure: AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT")
+        console.print("  OpenAI: OPENAI_API_KEY")
+        sys.exit(EXIT_LLM_ERROR)
 
 
 def _create_progress_callback(
@@ -539,12 +673,109 @@ async def run_analysis(
     return determine_exit_code(result)
 
 
+def _run_sso_login(console: Console) -> bool:
+    """SSO 브라우저 로그인을 실행하고 환경변수에 세션을 설정한다.
+
+    Returns:
+        True이면 로그인 성공
+    """
+    try:
+        from mider.config.sso_auth import SSOAuthenticator
+    except ImportError:
+        console.print(
+            "[red bold]오류:[/] SSO 로그인에 selenium이 필요합니다.\n"
+            "  pip install selenium\n"
+            "또는 AICA_SSO_SESSION 환경변수를 직접 설정하세요."
+        )
+        return False
+
+    auth = SSOAuthenticator(
+        base_url=os.environ.get("AICA_ENDPOINT", ""),
+    )
+    try:
+        creds = auth.authenticate()
+    except Exception as e:
+        console.print(f"[red bold]SSO 인증 실패:[/] {e}")
+        return False
+
+    os.environ["AICA_SSO_SESSION"] = creds.sso_session
+    os.environ["AICA_USER_ID"] = creds.user_id
+    console.print(f"[green]\\[OK][/] SSO 로그인: {creds.user_id} ({creds.name})")
+    return True
+
+
+def _check_sso_session(console: Console) -> None:
+    """AICA provider일 때 SSO 세션 유효성을 체크하고, 없으면 안내한다."""
+    provider = os.environ.get("API_PROVIDER", "openai").lower()
+    if provider != "aica":
+        return
+
+    sso_session = os.environ.get("AICA_SSO_SESSION", "")
+    if sso_session:
+        return
+
+    # 캐시된 세션 파일 확인
+    try:
+        from mider.config.sso_auth import SSOAuthenticator
+        auth = SSOAuthenticator(
+            base_url=os.environ.get("AICA_ENDPOINT", ""),
+        )
+        cached = auth._load_session()
+        if cached:
+            os.environ["AICA_SSO_SESSION"] = cached.sso_session
+            os.environ["AICA_USER_ID"] = cached.user_id
+            console.print(
+                f"[green]\\[OK][/] 기존 SSO 세션 재사용: {cached.user_id}"
+            )
+            return
+    except Exception:
+        pass
+
+    console.print(
+        "[yellow]SSO 세션이 없습니다. 'login'을 입력하여 로그인하세요.[/]"
+    )
+
+
+def prompt_for_files(console: Console) -> list[str]:
+    """인터랙티브 모드: 사용자에게 파일명을 입력받는다.
+
+    'login' 입력 시 SSO 로그인을 실행한 후 다시 파일명을 입력받는다.
+    """
+    print("\n분석하고자 하는 소스파일을 입력해주세요. 예시) ordsb0100010t01.c")
+    print("SSO 로그인: login")
+
+    while True:
+        try:
+            user_input = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+
+        if not user_input:
+            print("파일명이 입력되지 않았습니다. 종료합니다.")
+            sys.exit(0)
+
+        if user_input.lower() == "login":
+            _run_sso_login(console)
+            print("\n분석하고자 하는 소스파일을 입력해주세요.")
+            continue
+
+        return [f.strip() for f in user_input.split(",") if f.strip()]
+
+
 def main() -> None:
     """CLI 메인 함수."""
-    # .env 파일 로드 (있으면)
-    load_dotenv()
+    base_dir = get_base_dir()
+    # .env 파일 로드
+    # PyInstaller onefile 모드: 번들된 .env는 _MEIPASS 임시 디렉토리에 풀림
+    if getattr(sys, "frozen", False):
+        meipass = Path(getattr(sys, "_MEIPASS", ""))
+        env_path = meipass / ".env"
+    else:
+        env_path = base_dir / ".env"
+    load_dotenv(dotenv_path=env_path)
 
-    parser = build_parser()
+    parser = build_parser(output_default=str(base_dir / "output"))
     args = parser.parse_args()
 
     # 로깅 설정
@@ -555,20 +786,22 @@ def main() -> None:
     console.print(f"Mider v{__version__}")
 
     # API 키 검증
-    api_key = validate_api_key()
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
+    validate_api_key()
+
+    # AICA SSO 세션 자동 체크
+    _check_sso_session(console)
 
     # 모델 결정
     model = resolve_model(args.model)
 
-    # API Base URL 설정
-    api_base = os.environ.get("MIDER_API_BASE")
-    if api_base:
-        os.environ["OPENAI_BASE_URL"] = api_base
+    # -f 인자가 있으면 사용, 없으면 인터랙티브 모드
+    file_args = args.files if args.files else prompt_for_files(console)
+
+    # 파일 경로 해석 (input 폴더 + workspace 재귀 검색)
+    resolved_files = resolve_input_files(base_dir, file_args)
 
     # 파일 목록 출력
-    print_file_list(console, args.files)
+    print_file_list(console, resolved_files)
 
     # Explain Plan 파일 검증
     explain_plan = getattr(args, "explain_plan", None)
@@ -582,7 +815,7 @@ def main() -> None:
     try:
         exit_code = asyncio.run(
             run_analysis(
-                files=args.files,
+                files=resolved_files,
                 output_dir=args.output,
                 model=model,
                 console=console,
@@ -593,7 +826,7 @@ def main() -> None:
     except KeyboardInterrupt:
         console.print("\n[yellow]분석이 사용자에 의해 중단되었습니다.[/]")
         sys.exit(130)
-    except (APIError, APIConnectionError, RateLimitError, APITimeoutError, EnvironmentError) as e:
+    except (APIError, APIConnectionError, RateLimitError, APITimeoutError, AICAError, httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException, EnvironmentError) as e:
         logger.error(f"LLM API 오류: {e}")
         console.print(f"[red bold]LLM API 오류:[/] {e}")
         sys.exit(EXIT_LLM_ERROR)

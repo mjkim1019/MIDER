@@ -147,7 +147,7 @@ class TestIssueList:
 
     @pytest.mark.asyncio
     async def test_issues_sorted_by_severity(self, agent, run_kwargs):
-        """이슈가 심각도순으로 정렬된다 (critical → low)."""
+        """이슈가 심각도순으로 정렬된다 (critical → medium, low는 필터링)."""
         issues = [
             _make_issue(issue_id="JS-001", severity="low"),
             _make_issue(issue_id="JS-002", severity="critical"),
@@ -158,7 +158,8 @@ class TestIssueList:
         result = await agent.run(analysis_results=results, **run_kwargs)
 
         issue_ids = [i["issue_id"] for i in result["issue_list"]["issues"]]
-        assert issue_ids == ["JS-002", "JS-003", "JS-004", "JS-001"]
+        # low 심각도(JS-001)는 _collect_all_issues에서 필터링됨
+        assert issue_ids == ["JS-002", "JS-003", "JS-004"]
 
     @pytest.mark.asyncio
     async def test_by_severity_counts(self, agent, run_kwargs):
