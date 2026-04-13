@@ -858,3 +858,17 @@
 - `2026-04-13 12:46:01` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_config/test_sso_auth.py`
 - `2026-04-13 12:48:41` [feat/deploy-setup] **Write**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
 - `2026-04-13 12:49:45` [feat/deploy-setup] **Write**: `/Users/a11401/Documents/2026/Mider/tests/test_config/test_llm_client.py`
+- `2026-04-13 12:53:47` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
+- `2026-04-13 12:53:56` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
+- `2026-04-13 12:54:06` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
+- `2026-04-13 12:54:15` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
+- `2026-04-13 12:54:20` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_agents/test_reporter.py`
+- `2026-04-13 12:54:24` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
+- `2026-04-13 12:54:27` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_integration.py`
+- `2026-04-13 12:58:25` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-04-13 12:58:43` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-04-13 12:58:54` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/main.py`
+- `2026-04-13 12:59:08` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/settings.yaml`
+- `2026-04-13 12:59:15` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/requirements.txt`
+- `2026-04-13 12:59:24` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/.env.example`
+- `2026-04-13 12:59:31` [feat/deploy-setup] **Edit**: `/Users/a11401/Documents/2026/Mider/.gitignore`

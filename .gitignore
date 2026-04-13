@@ -22,6 +22,9 @@ mider/resources/binaries/*
 .env
 .env.local
 
+# SSO 세션 캐시
+.sso_session.json
+
 # IDE
 .vscode/
 .idea/
