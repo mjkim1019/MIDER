@@ -371,7 +371,7 @@ class CAnalyzerAgent(BaseAgent):
                 error=str(e),
             ).model_dump()
 
-    _MAX_CONCURRENT_LLM = 3
+    _MAX_CONCURRENT_LLM = 5
 
     async def _run_two_pass(
         self,

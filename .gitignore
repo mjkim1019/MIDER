@@ -22,6 +22,9 @@ mider/resources/binaries/*
 .env
 .env.local
 
+# SSO 세션 캐시
+.sso_session.json
+
 # IDE
 .vscode/
 .idea/
@@ -33,6 +36,7 @@ Thumbs.db
 
 # 샘플데이터
 tests/fixtures/*
+input/*
 
 # log
 *.log
@@ -42,4 +46,5 @@ err.txt
 분석/
 
 # 기타 자료
-docs/발표자료/*mider/resources/pid/
+docs/발표자료/*
+mider/resources/pid/

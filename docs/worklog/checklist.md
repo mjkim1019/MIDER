@@ -232,3 +232,56 @@
   - [ ] T42.2: 로컬 브랜치 정리 (38개)
   - [ ] T42.3: 원격 브랜치 정리
   - [ ] T42.4: v1.0.0 태그 + GitHub Release
+
+---
+
+## 배포용 실행파일 환경 구축
+
+- [x] T44: 고정 입력 폴더 기반 파일 경로 처리
+  - [x] T44.1: get_base_dir() + resolve_input_files() + main() 수정
+  - [x] T44.2: 기존 테스트 호환성 확인 및 수정
+- [x] T45: Windows 실행파일 빌드 스크립트
+  - [x] T45.1: mider.spec PyInstaller spec 파일
+  - [x] T45.2: scripts/build_exe.py 빌드 스크립트
+  - [x] T45.3: .env.example 업데이트
+- [x] T46: 사용자 매뉴얼
+  - [x] T46.1: docs/USER_MANUAL.md 작성
+
+---
+
+## AICA API 전환
+
+- [ ] T47: LLM Client AICA API 전환
+  - [ ] T47.1: llm_client.py — httpx 기반 AICA API 클라이언트 구현
+  - [ ] T47.2: 모델명 매핑 + settings.yaml 업데이트
+  - [ ] T47.3: 단위 테스트 수정
+- [ ] T48: 환경 변수 및 CLI 업데이트
+  - [ ] T48.1: main.py validate_api_key() AICA 방식 변경
+  - [ ] T48.2: .env.example AICA 환경 변수로 변경
+  - [ ] T48.3: settings.yaml api 섹션 업데이트
+- [ ] T49: CI/빌드/문서 업데이트
+  - [ ] T49.1: build-windows-exe.yml secrets 변경
+  - [ ] T49.2: build_exe.py 안내 메시지 업데이트
+  - [ ] T49.3: USER_MANUAL.md API 관련 업데이트
+  - [ ] T49.4: 기존 테스트 호환성 확인
+
+---
+
+## SSO 인증 연동
+
+- [x] T50: SSO 인증 모듈 구현
+  - [x] T50.1: sso_auth.py — SSOAuthenticator 클래스 (Selenium 로그인, 세션 캐싱, 만료 감지)
+  - [x] T50.2: 단위 테스트 (test_sso_auth.py)
+- [x] T51: LLM Client AICA 응답 파싱 수정 + SSO 연동
+  - [x] T51.1: _chat_aica() 응답 파싱 수정 (token.data → choices[0].message.content) + app_env 추가
+  - [x] T51.2: SSO user_id 연동 (SSOAuthenticator → payload user_id)
+  - [x] T51.3: SSO 만료 감지 + 자동 재인증
+  - [x] T51.4: 단위 테스트 수정 (test_llm_client.py)
+- [x] T52: CLI --sso 옵션 및 설정 업데이트
+  - [x] T52.1: main.py — --sso CLI 옵션 + validate_api_key() SSO 분기
+  - [x] T52.2: settings.yaml — SSO 설정 섹션 추가
+  - [x] T52.3: requirements.txt — selenium 의존성 추가
+  - [x] T52.4: .env.example + .gitignore SSO 관련 업데이트
+- [x] T53: 파일 탐색 개선 — input 유지 + workspace 재귀 검색 추가
+  - [x] T53.1: resolve_input_files() — base_dir rglob 검색 단계 추가 (input 유지)
+  - [x] T53.2: 단위 테스트 추가 (7개)

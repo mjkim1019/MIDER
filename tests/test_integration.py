@@ -287,9 +287,9 @@ class TestOutputFiles:
         output_dir = str(tmp_path / "output")
         result = {
             "issue_list": {"issues": [_make_issue()], "total_issues": 1},
-            "checklist": {"items": ["SQLCA 검사"]},
+            "checklist": {"items": [{"id": "CHK-001", "severity": "high", "description": "SQLCA 검사"}]},
             "summary": {"risk": "high"},
-            "deployment_checklist": {"sections": ["DB"]},
+            "deployment_checklist": {"sections": [{"name": "DB", "items": []}]},
         }
 
         write_output_files(output_dir, result, ["/tmp/test.pc"])
