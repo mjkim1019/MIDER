@@ -218,11 +218,6 @@ def build_parser(output_default: str = "./output") -> argparse.ArgumentParser:
         help="상세 로그 출력",
     )
     parser.add_argument(
-        "--sso",
-        action="store_true",
-        help="SSO 브라우저 로그인으로 인증 (AICA provider 전용)",
-    )
-    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -240,16 +235,12 @@ def resolve_model(args_model: str | None) -> str:
     return get_agent_model("orchestrator")
 
 
-def validate_api_key(sso_mode: bool = False) -> None:
+def validate_api_key() -> None:
     """LLM API 키를 검증한다 (provider에 따라 분기).
 
     API_PROVIDER 환경 변수:
     - "openai" (기본): AZURE_OPENAI_API_KEY 또는 OPENAI_API_KEY
-    - "aica": AICA_API_KEY + AICA_ENDPOINT
-
-    Args:
-        sso_mode: True이면 AICA provider에서 AICA_API_KEY + AICA_ENDPOINT만
-                  확인하고, SSO_SESSION은 불필요 (로그인 후 자동 설정됨)
+    - "aica": AICA_ENDPOINT (AICA_API_KEY는 백엔드에서 설정)
 
     Raises:
         SystemExit: 필수 환경 변수가 없으면 exit code 3으로 종료
@@ -257,21 +248,12 @@ def validate_api_key(sso_mode: bool = False) -> None:
     provider = os.environ.get("API_PROVIDER", "openai").lower()
 
     if provider == "aica":
-        api_key = os.environ.get("AICA_API_KEY", "")
         endpoint = os.environ.get("AICA_ENDPOINT", "")
-        if sso_mode:
-            # SSO 모드: AICA_ENDPOINT만 필수 (API_KEY는 있으면 좋고, SSO_SESSION은 로그인 후 설정됨)
-            if endpoint:
-                return
-            console = Console(stderr=True)
-            console.print("[red bold]오류:[/] SSO 모드에 AICA_ENDPOINT가 필요합니다.")
-            console.print("  AICA_ENDPOINT를 환경 변수로 설정하세요.")
-            sys.exit(EXIT_LLM_ERROR)
-        if api_key and endpoint:
+        if endpoint:
             return
         console = Console(stderr=True)
-        console.print("[red bold]오류:[/] LLM API 키가 설정되지 않았습니다.")
-        console.print("  AICA_API_KEY와 AICA_ENDPOINT를 환경 변수로 설정하세요.")
+        console.print("[red bold]오류:[/] AICA_ENDPOINT가 설정되지 않았습니다.")
+        console.print("  AICA_ENDPOINT를 환경 변수로 설정하세요.")
         sys.exit(EXIT_LLM_ERROR)
     else:
         azure_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
@@ -691,20 +673,94 @@ async def run_analysis(
     return determine_exit_code(result)
 
 
-def prompt_for_files() -> list[str]:
-    """인터랙티브 모드: 사용자에게 파일명을 입력받는다."""
-    print("\n분석하고자 하는 소스파일을 입력해주세요. 예시) ordsb0100010t01.c")
+def _run_sso_login(console: Console) -> bool:
+    """SSO 브라우저 로그인을 실행하고 환경변수에 세션을 설정한다.
+
+    Returns:
+        True이면 로그인 성공
+    """
     try:
-        user_input = input("> ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        sys.exit(0)
+        from mider.config.sso_auth import SSOAuthenticator
+    except ImportError:
+        console.print(
+            "[red bold]오류:[/] SSO 로그인에 selenium이 필요합니다.\n"
+            "  pip install selenium\n"
+            "또는 AICA_SSO_SESSION 환경변수를 직접 설정하세요."
+        )
+        return False
 
-    if not user_input:
-        print("파일명이 입력되지 않았습니다. 종료합니다.")
-        sys.exit(0)
+    auth = SSOAuthenticator(
+        base_url=os.environ.get("AICA_ENDPOINT", ""),
+    )
+    try:
+        creds = auth.authenticate()
+    except Exception as e:
+        console.print(f"[red bold]SSO 인증 실패:[/] {e}")
+        return False
 
-    return [f.strip() for f in user_input.split(",") if f.strip()]
+    os.environ["AICA_SSO_SESSION"] = creds.sso_session
+    os.environ["AICA_USER_ID"] = creds.user_id
+    console.print(f"[green]\\[OK][/] SSO 로그인: {creds.user_id} ({creds.name})")
+    return True
+
+
+def _check_sso_session(console: Console) -> None:
+    """AICA provider일 때 SSO 세션 유효성을 체크하고, 없으면 안내한다."""
+    provider = os.environ.get("API_PROVIDER", "openai").lower()
+    if provider != "aica":
+        return
+
+    sso_session = os.environ.get("AICA_SSO_SESSION", "")
+    if sso_session:
+        return
+
+    # 캐시된 세션 파일 확인
+    try:
+        from mider.config.sso_auth import SSOAuthenticator
+        auth = SSOAuthenticator(
+            base_url=os.environ.get("AICA_ENDPOINT", ""),
+        )
+        cached = auth._load_session()
+        if cached:
+            os.environ["AICA_SSO_SESSION"] = cached.sso_session
+            os.environ["AICA_USER_ID"] = cached.user_id
+            console.print(
+                f"[green]\\[OK][/] 기존 SSO 세션 재사용: {cached.user_id}"
+            )
+            return
+    except Exception:
+        pass
+
+    console.print(
+        "[yellow]SSO 세션이 없습니다. 'login'을 입력하여 로그인하세요.[/]"
+    )
+
+
+def prompt_for_files(console: Console) -> list[str]:
+    """인터랙티브 모드: 사용자에게 파일명을 입력받는다.
+
+    'login' 입력 시 SSO 로그인을 실행한 후 다시 파일명을 입력받는다.
+    """
+    print("\n분석하고자 하는 소스파일을 입력해주세요. 예시) ordsb0100010t01.c")
+    print("SSO 로그인: login")
+
+    while True:
+        try:
+            user_input = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+
+        if not user_input:
+            print("파일명이 입력되지 않았습니다. 종료합니다.")
+            sys.exit(0)
+
+        if user_input.lower() == "login":
+            _run_sso_login(console)
+            print("\n분석하고자 하는 소스파일을 입력해주세요.")
+            continue
+
+        return [f.strip() for f in user_input.split(",") if f.strip()]
 
 
 def main() -> None:
@@ -730,37 +786,16 @@ def main() -> None:
     console.print(f"Mider v{__version__}")
 
     # API 키 검증
-    validate_api_key(sso_mode=getattr(args, "sso", False))
+    validate_api_key()
 
-    # SSO 인증
-    if getattr(args, "sso", False):
-        try:
-            from mider.config.sso_auth import SSOAuthenticator
-        except ImportError:
-            console.print(
-                "[red bold]오류:[/] SSO 로그인에 selenium이 필요합니다.\n"
-                "  pip install selenium\n"
-                "또는 AICA_SSO_SESSION 환경변수를 직접 설정하세요."
-            )
-            sys.exit(EXIT_LLM_ERROR)
-
-        auth = SSOAuthenticator(
-            base_url=os.environ.get("AICA_ENDPOINT", ""),
-        )
-        try:
-            creds = auth.authenticate()
-        except Exception as e:
-            console.print(f"[red bold]SSO 인증 실패:[/] {e}")
-            sys.exit(EXIT_LLM_ERROR)
-        os.environ["AICA_SSO_SESSION"] = creds.sso_session
-        os.environ["AICA_USER_ID"] = creds.user_id
-        console.print(f"[green]\\[OK][/] SSO 로그인: {creds.user_id} ({creds.name})")
+    # AICA SSO 세션 자동 체크
+    _check_sso_session(console)
 
     # 모델 결정
     model = resolve_model(args.model)
 
     # -f 인자가 있으면 사용, 없으면 인터랙티브 모드
-    file_args = args.files if args.files else prompt_for_files()
+    file_args = args.files if args.files else prompt_for_files(console)
 
     # 파일 경로 해석 (input 폴더 + workspace 재귀 검색)
     resolved_files = resolve_input_files(base_dir, file_args)

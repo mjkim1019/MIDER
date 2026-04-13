@@ -115,26 +115,30 @@ class TestPromptForFiles:
     def test_single_file(self, monkeypatch):
         """단건 파일 입력."""
         monkeypatch.setattr("builtins.input", lambda _: "test.c")
-        result = prompt_for_files()
+        console = MagicMock()
+        result = prompt_for_files(console)
         assert result == ["test.c"]
 
     def test_multiple_files(self, monkeypatch):
         """다건 파일 입력 (쉼표 구분)."""
         monkeypatch.setattr("builtins.input", lambda _: "a.c, b.pc, c.sql")
-        result = prompt_for_files()
+        console = MagicMock()
+        result = prompt_for_files(console)
         assert result == ["a.c", "b.pc", "c.sql"]
 
     def test_empty_input_exits(self, monkeypatch):
         """빈 입력 시 종료."""
         monkeypatch.setattr("builtins.input", lambda _: "")
+        console = MagicMock()
         with pytest.raises(SystemExit):
-            prompt_for_files()
+            prompt_for_files(console)
 
     def test_eof_exits(self, monkeypatch):
         """EOF 시 종료."""
         monkeypatch.setattr("builtins.input", MagicMock(side_effect=EOFError))
+        console = MagicMock()
         with pytest.raises(SystemExit):
-            prompt_for_files()
+            prompt_for_files(console)
 
 
 # ──────────────────────────────────────────────

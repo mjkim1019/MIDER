@@ -107,10 +107,10 @@ class LLMClient:
         self._aica_api_key = os.environ.get("AICA_API_KEY", "")
         self._aica_endpoint = os.environ.get("AICA_ENDPOINT", "")
 
-        if not self._aica_api_key or not self._aica_endpoint:
+        if not self._aica_endpoint:
             raise EnvironmentError(
-                "LLM API 키가 설정되지 않았습니다. "
-                "AICA_API_KEY와 AICA_ENDPOINT를 환경 변수로 설정하세요."
+                "AICA_ENDPOINT가 설정되지 않았습니다. "
+                "AICA_ENDPOINT를 환경 변수로 설정하세요."
             )
 
         self._aica_base_url = self._aica_endpoint.rstrip("/")
