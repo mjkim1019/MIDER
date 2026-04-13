@@ -5,7 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from mider.config.llm_client import AICAError, LLMClient, MODEL_CD_MAP
+from mider.config.llm_client import (
+    AICAError,
+    AICASessionExpiredError,
+    LLMClient,
+    MODEL_CD_MAP,
+)
 
 # AICA 테스트용 기본 환경 변수
 AICA_ENV = {
@@ -24,6 +29,26 @@ AZURE_ENV = {
     "AZURE_OPENAI_API_KEY": "azure-key",
     "AZURE_OPENAI_ENDPOINT": "https://test.openai.azure.com/",
 }
+
+
+def _aica_success_response(content: str = '{"result": "ok"}') -> httpx.Response:
+    """AICA 정상 응답 (OpenAI 호환 형식)."""
+    return httpx.Response(
+        200,
+        json={
+            "id": "chatcmpl-test",
+            "object": "chat.completion",
+            "model": "GPT5_2",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+        },
+        request=httpx.Request("POST", "http://test/api/agent/v1/chats"),
+    )
 
 
 # ── 초기화 테스트 ──
@@ -71,12 +96,30 @@ class TestLLMClientInit:
             client = LLMClient()
             assert client._provider == "openai"
 
-    def test_aica_sso_session_optional(self):
-        """AICA_SSO_SESSION은 선택 사항이다."""
+    def test_aica_sso_session_from_env(self):
+        """AICA_SSO_SESSION 환경변수로 세션을 설정한다."""
         env = {**AICA_ENV, "AICA_SSO_SESSION": "sso-token"}
         with patch.dict("os.environ", env, clear=True):
             client = LLMClient()
             assert client._aica_sso_session == "sso-token"
+
+    def test_aica_with_sso_authenticator(self):
+        """SSOAuthenticator를 전달하면 세션/user_id를 자동 획득한다."""
+        mock_auth = MagicMock()
+        mock_auth.authenticate.return_value = MagicMock(
+            sso_session="sso-from-auth",
+            user_id="auth_user",
+        )
+        with patch.dict("os.environ", AICA_ENV, clear=True):
+            client = LLMClient(sso_authenticator=mock_auth)
+            assert client._aica_sso_session == "sso-from-auth"
+            assert client._aica_user_id == "auth_user"
+
+    def test_aica_default_user_id(self):
+        """AICA_USER_ID 미설정 시 기본값은 mider_agent."""
+        with patch.dict("os.environ", AICA_ENV, clear=True):
+            client = LLMClient()
+            assert client._aica_user_id == "mider_agent"
 
 
 # ── OpenAI Chat 테스트 ──
@@ -155,16 +198,13 @@ class TestOpenAIChat:
 class TestAICAChat:
     @pytest.mark.asyncio
     async def test_chat_success(self):
-        """AICA: 정상 응답 시 token.data를 반환한다."""
+        """AICA: choices[0].message.content를 반환한다."""
         with patch.dict("os.environ", AICA_ENV, clear=True):
             client = LLMClient()
 
-        mock_response = httpx.Response(
-            200,
-            json={"token": {"data": '{"result": "ok"}'}},
-            request=httpx.Request("POST", "http://test/api/agent/v1/chats"),
+        client._http_client.post = AsyncMock(
+            return_value=_aica_success_response('{"result": "ok"}')
         )
-        client._http_client.post = AsyncMock(return_value=mock_response)
 
         result = await client.chat(
             model="gpt-5",
@@ -174,16 +214,13 @@ class TestAICAChat:
 
     @pytest.mark.asyncio
     async def test_chat_sends_correct_payload(self):
-        """AICA: 올바른 페이로드를 전송한다."""
+        """AICA: 올바른 페이로드(user_id, app_env 포함)를 전송한다."""
         with patch.dict("os.environ", AICA_ENV, clear=True):
             client = LLMClient()
 
-        mock_response = httpx.Response(
-            200,
-            json={"token": {"data": "response"}},
-            request=httpx.Request("POST", "http://test/api/agent/v1/chats"),
+        client._http_client.post = AsyncMock(
+            return_value=_aica_success_response("response")
         )
-        client._http_client.post = AsyncMock(return_value=mock_response)
 
         await client.chat(
             model="gpt-5",
@@ -195,6 +232,27 @@ class TestAICAChat:
         assert payload["usecase_mode"] == "GENERAL"
         assert payload["stream"] is False
         assert payload["context"] == "mider"
+        assert payload["app_env"] == "prd"
+        assert payload["user_id"] == "mider_agent"
+
+    @pytest.mark.asyncio
+    async def test_chat_sends_sso_cookie(self):
+        """AICA: SSO 세션이 있으면 쿠키로 전송한다."""
+        env = {**AICA_ENV, "AICA_SSO_SESSION": "sso-test-token"}
+        with patch.dict("os.environ", env, clear=True):
+            client = LLMClient()
+
+        client._http_client.post = AsyncMock(
+            return_value=_aica_success_response("ok")
+        )
+
+        await client.chat(
+            model="gpt-5",
+            messages=[{"role": "user", "content": "test"}],
+        )
+
+        cookies = client._http_client.post.call_args.kwargs["cookies"]
+        assert cookies["SSOSESSION"] == "sso-test-token"
 
     @pytest.mark.asyncio
     async def test_chat_aica_error(self):
@@ -216,14 +274,14 @@ class TestAICAChat:
             )
 
     @pytest.mark.asyncio
-    async def test_chat_empty_response(self):
-        """AICA: 빈 응답이면 ValueError를 raise한다."""
+    async def test_chat_empty_choices(self):
+        """AICA: 빈 choices이면 ValueError를 raise한다."""
         with patch.dict("os.environ", AICA_ENV, clear=True):
             client = LLMClient()
 
         mock_response = httpx.Response(
             200,
-            json={"token": {"data": ""}},
+            json={"choices": []},
             request=httpx.Request("POST", "http://test/api/agent/v1/chats"),
         )
         client._http_client.post = AsyncMock(return_value=mock_response)
@@ -233,6 +291,143 @@ class TestAICAChat:
                 model="gpt-5",
                 messages=[{"role": "user", "content": "test"}],
             )
+
+    @pytest.mark.asyncio
+    async def test_chat_empty_content(self):
+        """AICA: content가 비어 있으면 ValueError를 raise한다."""
+        with patch.dict("os.environ", AICA_ENV, clear=True):
+            client = LLMClient()
+
+        mock_response = httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": ""}}]},
+            request=httpx.Request("POST", "http://test/api/agent/v1/chats"),
+        )
+        client._http_client.post = AsyncMock(return_value=mock_response)
+
+        with pytest.raises(ValueError, match="빈 응답"):
+            await client.chat(
+                model="gpt-5",
+                messages=[{"role": "user", "content": "test"}],
+            )
+
+
+# ── SSO 만료 감지 + 자동 재인증 테스트 ──
+
+
+class TestSSOExpiry:
+    @pytest.mark.asyncio
+    async def test_html_response_raises_session_expired(self):
+        """AICA: HTML 응답이면 AICASessionExpiredError를 raise한다."""
+        with patch.dict("os.environ", AICA_ENV, clear=True):
+            client = LLMClient()
+
+        mock_response = httpx.Response(
+            200,
+            text="<html><body>SSO redirect</body></html>",
+            headers={"content-type": "text/html"},
+            request=httpx.Request("POST", "http://test/api/agent/v1/chats"),
+        )
+        client._http_client.post = AsyncMock(return_value=mock_response)
+
+        with pytest.raises(AICASessionExpiredError):
+            await client.chat(
+                model="gpt-5",
+                messages=[{"role": "user", "content": "test"}],
+            )
+
+    @pytest.mark.asyncio
+    async def test_auto_reauth_on_session_expired(self):
+        """AICA: SSO 만료 시 자동 재인증 후 재시도한다."""
+        mock_auth = MagicMock()
+        mock_auth.authenticate.return_value = MagicMock(
+            sso_session="new-sso",
+            user_id="reauth_user",
+        )
+
+        with patch.dict("os.environ", AICA_ENV, clear=True):
+            client = LLMClient(sso_authenticator=mock_auth)
+
+        # 1차: HTML (만료) → 2차: 정상 응답
+        expired_response = httpx.Response(
+            200,
+            text="<html>SSO redirect</html>",
+            headers={"content-type": "text/html"},
+            request=httpx.Request("POST", "http://test/api/agent/v1/chats"),
+        )
+        client._http_client.post = AsyncMock(
+            side_effect=[expired_response, _aica_success_response("재시도 성공")]
+        )
+
+        result = await client.chat(
+            model="gpt-5",
+            messages=[{"role": "user", "content": "test"}],
+        )
+
+        assert result == "재시도 성공"
+        assert client._aica_sso_session == "new-sso"
+        assert client._aica_user_id == "reauth_user"
+        mock_auth.invalidate_session.assert_called_once()
+        # authenticate: 1회(init) + 1회(reauth) = 2회
+        assert mock_auth.authenticate.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_no_reauth_without_authenticator(self):
+        """AICA: SSOAuthenticator 없으면 만료 시 에러를 그대로 raise한다."""
+        with patch.dict("os.environ", AICA_ENV, clear=True):
+            client = LLMClient()
+
+        mock_response = httpx.Response(
+            200,
+            text="<html>SSO redirect</html>",
+            headers={"content-type": "text/html"},
+            request=httpx.Request("POST", "http://test/api/agent/v1/chats"),
+        )
+        client._http_client.post = AsyncMock(return_value=mock_response)
+
+        with pytest.raises(AICASessionExpiredError):
+            await client.chat(
+                model="gpt-5",
+                messages=[{"role": "user", "content": "test"}],
+            )
+
+    def test_is_sso_expired_html_content_type(self):
+        """text/html Content-Type이면 만료로 판단한다."""
+        with patch.dict("os.environ", AICA_ENV, clear=True):
+            client = LLMClient()
+
+        resp = httpx.Response(
+            200,
+            text="<html>redirect</html>",
+            headers={"content-type": "text/html; charset=utf-8"},
+            request=httpx.Request("POST", "http://test"),
+        )
+        assert client._is_sso_expired_response(resp) is True
+
+    def test_is_sso_expired_html_body(self):
+        """Content-Type이 없어도 <로 시작하면 만료로 판단한다."""
+        with patch.dict("os.environ", AICA_ENV, clear=True):
+            client = LLMClient()
+
+        resp = httpx.Response(
+            200,
+            text="<html>redirect</html>",
+            request=httpx.Request("POST", "http://test"),
+        )
+        assert client._is_sso_expired_response(resp) is True
+
+    def test_is_sso_expired_json_response(self):
+        """정상 JSON 응답은 만료가 아니다."""
+        with patch.dict("os.environ", AICA_ENV, clear=True):
+            client = LLMClient()
+
+        resp = httpx.Response(
+            200,
+            text='{"choices": []}',
+            headers={"content-type": "application/json"},
+            request=httpx.Request("POST", "http://test"),
+        )
+        assert client._is_sso_expired_response(resp) is False
 
 
 # ── Model CD 매핑 테스트 ──

@@ -36,6 +36,13 @@ class AICAError(Exception):
         super().__init__(f"AICA API 오류 [{status_code}]: {reason}")
 
 
+class AICASessionExpiredError(AICAError):
+    """SSO 세션 만료 에러."""
+
+    def __init__(self) -> None:
+        super().__init__("SESSION_EXPIRED", "SSO 세션이 만료되었습니다")
+
+
 class LLMClient:
     """LLM API 클라이언트 (OpenAI/Azure/AICA 자동 스위칭).
 
@@ -44,8 +51,9 @@ class LLMClient:
     - "aica": AICA_API_KEY + AICA_ENDPOINT
     """
 
-    def __init__(self) -> None:
+    def __init__(self, sso_authenticator: object | None = None) -> None:
         self._provider = os.environ.get("API_PROVIDER", "openai").lower()
+        self._sso_authenticator = sso_authenticator
 
         if self._provider == "aica":
             self._init_aica()
@@ -95,8 +103,6 @@ class LLMClient:
         """AICA LLM Gateway 클라이언트를 초기화한다."""
         self._aica_api_key = os.environ.get("AICA_API_KEY", "")
         self._aica_endpoint = os.environ.get("AICA_ENDPOINT", "")
-        self._aica_sso_session = os.environ.get("AICA_SSO_SESSION", "")
-        self._aica_user_id = os.environ.get("AICA_USER_ID", "mider_agent")
 
         if not self._aica_api_key or not self._aica_endpoint:
             raise EnvironmentError(
@@ -106,7 +112,20 @@ class LLMClient:
 
         self._aica_base_url = self._aica_endpoint.rstrip("/")
         self._http_client = httpx.AsyncClient(timeout=180.0)
-        logger.info("AICA LLM 클라이언트 초기화: %s", self._aica_base_url)
+
+        # SSO 세션: SSOAuthenticator > 환경변수 순으로 결정
+        if self._sso_authenticator:
+            creds = self._sso_authenticator.authenticate()
+            self._aica_sso_session = creds.sso_session
+            self._aica_user_id = creds.user_id
+            logger.info(
+                "AICA 클라이언트 초기화 (SSO user_id=%s): %s",
+                self._aica_user_id, self._aica_base_url,
+            )
+        else:
+            self._aica_sso_session = os.environ.get("AICA_SSO_SESSION", "")
+            self._aica_user_id = os.environ.get("AICA_USER_ID", "mider_agent")
+            logger.info("AICA LLM 클라이언트 초기화: %s", self._aica_base_url)
 
     async def aclose(self) -> None:
         """AICA httpx 클라이언트 연결을 정리한다."""
@@ -198,6 +217,16 @@ class LLMClient:
                 parts.append(f"[ASSISTANT]\n{content}")
         return "\n\n".join(parts)
 
+    def _is_sso_expired_response(self, response: httpx.Response) -> bool:
+        """AICA 응답이 SSO 만료(리다이렉트 HTML)인지 판단한다."""
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type:
+            return True
+        text = response.text.strip()
+        if text.startswith("<"):
+            return True
+        return False
+
     async def _chat_aica(
         self,
         model: str,
@@ -205,6 +234,27 @@ class LLMClient:
         json_mode: bool,
     ) -> str:
         """AICA Gateway API로 호출."""
+        try:
+            return await self._chat_aica_once(model, messages, json_mode)
+        except AICASessionExpiredError:
+            if not self._sso_authenticator:
+                raise
+            # 자동 재인증 후 1회 재시도
+            logger.info("SSO 세션 만료 — 자동 재인증 시도")
+            self._sso_authenticator.invalidate_session()
+            creds = self._sso_authenticator.authenticate(force_login=True)
+            self._aica_sso_session = creds.sso_session
+            self._aica_user_id = creds.user_id
+            logger.info("SSO 재인증 완료: user_id=%s", self._aica_user_id)
+            return await self._chat_aica_once(model, messages, json_mode)
+
+    async def _chat_aica_once(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        json_mode: bool,
+    ) -> str:
+        """AICA Gateway API 단일 호출."""
         model_cd = self._resolve_model_cd(model)
         message = self._build_message(messages)
 
@@ -228,6 +278,7 @@ class LLMClient:
             "usecase_mode": "GENERAL",
             "stream": False,
             "context": "mider",
+            "app_env": "prd",
         }
 
         logger.debug("AICA 요청: model_cd=%s, message_len=%d", model_cd, len(message))
@@ -235,21 +286,30 @@ class LLMClient:
         response = await self._http_client.post(
             url, json=payload, headers=headers, cookies=cookies,
         )
+
+        # SSO 만료 감지: HTML 응답이면 세션 만료
+        if self._is_sso_expired_response(response):
+            raise AICASessionExpiredError()
+
         response.raise_for_status()
 
         data = response.json()
 
+        # 에러 응답 처리
         error = data.get("error")
         if error:
             status_code = str(error.get("status_code", "unknown"))
             reason = error.get("reason", "알 수 없는 오류")
             raise AICAError(status_code, reason)
 
-        token_data = data.get("token", {})
-        content = token_data.get("data", "")
+        # OpenAI 호환 형식: choices[0].message.content
+        choices = data.get("choices", [])
+        if not choices:
+            raise ValueError("AICA가 빈 응답을 반환했습니다 (choices가 비어 있음)")
 
+        content = choices[0].get("message", {}).get("content", "")
         if not content:
-            raise ValueError("AICA가 빈 응답을 반환했습니다 (token.data가 비어 있음)")
+            raise ValueError("AICA가 빈 응답을 반환했습니다 (content가 비어 있음)")
 
         logger.debug("AICA 응답 수신: model_cd=%s, len=%d", model_cd, len(content))
 
