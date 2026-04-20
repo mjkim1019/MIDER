@@ -21,15 +21,64 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple
 
+import atexit
+
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# 모듈 레벨에서 Chrome 프로세스 추적 (atexit 정리용)
+_active_chrome_proc: subprocess.Popen | None = None
 
 # 세션 기본 TTL: 1시간
 DEFAULT_SESSION_TTL = timedelta(hours=1)
 
 # Chrome CDP 기본 포트
 DEFAULT_CDP_PORT = 9222
+
+
+def _kill_cdp_chrome(port: int) -> None:
+    """CDP 포트에 연결된 기존 Chrome 프로세스를 종료한다."""
+    try:
+        resp = httpx.get(
+            f"http://127.0.0.1:{port}/json/version",
+            timeout=2,
+            verify=False,
+        )
+        if resp.status_code == 200:
+            logger.info("CDP 포트(%d)에 기존 Chrome 감지 → 종료 시도", port)
+            # Browser.close CDP 명령으로 깔끔하게 종료
+            try:
+                ws_url = _get_cdp_ws_url(port, timeout=3)
+                import websocket as ws_module
+                ws = ws_module.create_connection(ws_url, timeout=5)
+                _cdp_send(ws, "Browser.close")
+                ws.close()
+            except Exception:
+                pass
+            # 프로세스가 남아있을 수 있으므로 잠시 대기
+            time.sleep(1)
+    except Exception:
+        pass  # 기존 Chrome 없음 — 정상
+
+
+def _cleanup_chrome() -> None:
+    """atexit 핸들러: 활성 Chrome 프로세스를 종료한다."""
+    global _active_chrome_proc
+    if _active_chrome_proc is not None:
+        try:
+            _active_chrome_proc.terminate()
+            _active_chrome_proc.wait(timeout=5)
+            logger.debug("atexit: Chrome 프로세스 종료")
+        except Exception:
+            try:
+                _active_chrome_proc.kill()
+            except Exception:
+                pass
+        _active_chrome_proc = None
+
+
+atexit.register(_cleanup_chrome)
 
 # Chrome 실행 파일 후보 경로
 _CHROME_CANDIDATES = [
@@ -299,7 +348,12 @@ class SSOAuthenticator:
                 "또는 AICA_SSO_SESSION 환경변수를 직접 설정하세요."
             )
 
+        global _active_chrome_proc
+
         chrome_exe = _find_chrome()
+
+        # 이전 실행에서 남은 Chrome CDP 프로세스 정리
+        _kill_cdp_chrome(self._cdp_port)
 
         chrome_args = [
             chrome_exe,
@@ -315,6 +369,7 @@ class SSOAuthenticator:
 
         logger.info("Chrome CDP 모드로 실행 (포트: %d)", self._cdp_port)
         chrome_proc = subprocess.Popen(chrome_args)
+        _active_chrome_proc = chrome_proc
 
         ws = None
         try:
@@ -356,6 +411,7 @@ class SSOAuthenticator:
                     pass
             chrome_proc.terminate()
             chrome_proc.wait()
+            _active_chrome_proc = None
             logger.debug("브라우저 종료")
 
     def _extract_sso_cookie(self, ws: object) -> str:
