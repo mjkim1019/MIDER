@@ -24,7 +24,7 @@ from rich.text import Text
 
 from mider import __version__
 from mider.agents.orchestrator import OrchestratorAgent
-from mider.config.llm_client import AICAError
+from mider.config.llm_client import AICAError, AICASessionExpiredError
 from mider.config.logging_config import setup_logging
 from mider.config.reasoning_logger import ReasoningLogger
 from mider.tools.utility.markdown_report_formatter import format_markdown_report
@@ -95,7 +95,10 @@ def resolve_input_files(base_dir: Path, filenames: list[str]) -> list[str]:
             resolved.append(str(input_path.resolve()))
             continue
         # base_dir 하위 전체에서 파일명으로 검색
-        matches = list(base_dir.rglob(name))
+        try:
+            matches = list(base_dir.rglob(name))
+        except (ValueError, OSError):
+            matches = []
         if len(matches) == 1:
             resolved.append(str(matches[0].resolve()))
             continue
@@ -118,7 +121,7 @@ def resolve_input_files(base_dir: Path, filenames: list[str]) -> list[str]:
             "\n[yellow]input 폴더에 분석할 파일을 넣어주세요:[/]"
             f" {input_dir}"
         )
-        sys.exit(EXIT_FILE_ERROR)
+        return []
 
     return resolved
 
@@ -159,6 +162,11 @@ def build_parser(output_default: str = "./output") -> argparse.ArgumentParser:
         "--verbose", "-v",
         action="store_true",
         help="상세 로그 출력",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="도구 상태 점검 (ESLint, clang-tidy, config, LLM)",
     )
     parser.add_argument(
         "--version",
@@ -412,12 +420,7 @@ def print_summary(
     # 출력 파일 경로
     prefix = get_output_prefix(source_files)
     
-    console.print(f"\n출력 디렉토리: {output_dir}")
-    console.print(f"      {prefix}issue-list.json")
-    console.print(f"      {prefix}checklist.json")
-    console.print(f"      {prefix}summary.json")
-    console.print(f"      {prefix}deployment-checklist.json")
-    console.print(f"      {prefix}report.md")
+    console.print(f"\n출력 파일: {output_dir}/{prefix}report.md")
 
 
 def _format_duration(seconds: float) -> str:
@@ -518,26 +521,11 @@ def write_output_files(
     result: dict[str, Any],
     source_files: list[str],
 ) -> None:
-    """분석 결과를 JSON 파일로 출력한다."""
+    """분석 결과를 Markdown 리포트로 출력한다."""
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
     prefix = get_output_prefix(source_files)
-
-    files_to_write = {
-        f"{prefix}issue-list.json": result.get("issue_list", {}),
-        f"{prefix}checklist.json": result.get("checklist", {}),
-        f"{prefix}summary.json": result.get("summary", {}),
-        f"{prefix}deployment-checklist.json": result.get("deployment_checklist", {}),
-    }
-
-    for filename, data in files_to_write.items():
-        filepath = out_path / filename
-        filepath.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2, default=str),
-            encoding="utf-8",
-        )
-        logger.info(f"출력 파일 생성: {filepath}")
 
     # Markdown 리포트 생성
     md_content = format_markdown_report(
@@ -546,7 +534,6 @@ def write_output_files(
         summary=result.get("summary", {}),
         deployment_checklist=result.get("deployment_checklist", {}),
         source_files=source_files,
-        json_filenames=list(files_to_write.keys()),
     )
     md_filepath = out_path / f"{prefix}report.md"
     md_filepath.write_text(md_content, encoding="utf-8")
@@ -607,6 +594,21 @@ async def run_analysis(
         write_output_files(output_dir, result, files)
         return EXIT_FILE_ERROR
 
+    # LLM 분석 실패 파일 감지
+    analysis_errors = result.get("analysis_errors", [])
+    if analysis_errors:
+        console.print()
+        console.print("[red bold]LLM 분석 실패:[/]")
+        for ae in analysis_errors:
+            fname = Path(ae["file"]).name
+            console.print(f"  [red]- {fname}:[/] {ae['error'][:100]}")
+        console.print(
+            "\n[yellow bold]분석 실패 — LLM이 정상 응답하지 못해 결과를 신뢰할 수 없습니다.[/]"
+        )
+        console.print("[yellow]개인정보 검출 필터 차단 가능성이 높습니다. 소스코드를 확인해주세요.[/]")
+        write_output_files(output_dir, result, files)
+        return EXIT_LLM_ERROR
+
     # 결과 출력
     write_output_files(output_dir, result, files)
     print_issues(console, issue_list)
@@ -626,8 +628,8 @@ def _run_sso_login(console: Console) -> bool:
         from mider.config.sso_auth import SSOAuthenticator
     except ImportError:
         console.print(
-            "[red bold]오류:[/] SSO 로그인에 selenium이 필요합니다.\n"
-            "  pip install selenium\n"
+            "[red bold]오류:[/] SSO 로그인에 websocket-client가 필요합니다.\n"
+            "  pip install websocket-client\n"
             "또는 AICA_SSO_SESSION 환경변수를 직접 설정하세요."
         )
         return False
@@ -648,7 +650,11 @@ def _run_sso_login(console: Console) -> bool:
 
 
 def _check_sso_session(console: Console) -> None:
-    """AICA provider일 때 SSO 세션 유효성을 체크하고, 없으면 안내한다."""
+    """AICA provider일 때 SSO 세션을 확보한다.
+
+    캐시된 세션 → 환경변수 설정 후 즉시 반환.
+    세션 없음 → 브라우저 로그인 성공할 때까지 반복 (사용자 Ctrl+C로 종료 가능).
+    """
     provider = os.environ.get("API_PROVIDER", "openai").lower()
     if provider != "aica":
         return
@@ -674,36 +680,106 @@ def _check_sso_session(console: Console) -> None:
     except Exception:
         pass
 
+    # 세션 없음 → 로그인 성공할 때까지 반복
     console.print(
-        "[yellow]SSO 세션이 없습니다. 'login'을 입력하여 로그인하세요.[/]"
+        "[yellow]SSO 세션이 없습니다. 로그인이 필요합니다.[/]"
     )
+    while True:
+        if _run_sso_login(console):
+            return
+        # 로그인 실패 → 재시도 또는 종료
+        console.print(
+            "\n[yellow]SSO 로그인에 실패했습니다.[/]"
+        )
+        console.print("Enter 키를 눌러 다시 시도하거나, 'exit'를 입력하여 종료하세요.")
+        try:
+            user_input = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+        if user_input.lower() in ("exit", "quit", "q"):
+            sys.exit(0)
 
 
-def prompt_for_files(console: Console) -> list[str]:
+def _print_input_help() -> None:
+    """입력 도움말을 출력한다."""
+    print("\n[도움말]")
+    print("  소스파일명을 입력하세요 (지원: .xml, .c, .h, .pc, .sql, .js)")
+    print("  여러 파일: 쉼표로 구분 (예: file1.c, file2.xml)")
+    print("  명령어: login (SSO 재로그인) | exit (종료) | help (도움말)")
+    print()
+
+
+def prompt_for_files(console: Console, *, is_repeat: bool = False) -> list[str] | None:
     """인터랙티브 모드: 사용자에게 파일명을 입력받는다.
 
     'login' 입력 시 SSO 로그인을 실행한 후 다시 파일명을 입력받는다.
+    'exit' 또는 'quit' 입력 시 None을 반환하여 종료를 알린다.
+
+    Args:
+        console: Rich Console 인스턴스
+        is_repeat: True이면 '다시 분석하고자 하는' 문구 사용
+
+    Returns:
+        파일명 리스트 또는 None (종료 요청)
     """
-    print("\n분석하고자 하는 소스파일을 입력해주세요. 예시) ordsb0100010t01.c")
-    print("SSO 로그인: login")
+    if is_repeat:
+        print("\n다시 분석하고자 하는 소스파일을 입력해주세요.")
+    else:
+        print("\n분석하고자 하는 소스파일을 입력해주세요.")
+    print("(예: ZORDSB0100010.xml, payspmt10050t04.c, zinvbreps8030.pc / 현위치의 하위 폴더는 모두 접근가능합니다)")
+    print("SSO 로그인: login  |  종료: exit")
 
     while True:
         try:
             user_input = input("> ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
-            sys.exit(0)
+            return None
 
         if not user_input:
-            print("파일명이 입력되지 않았습니다. 종료합니다.")
-            sys.exit(0)
+            print("파일명을 입력해주세요.")
+            continue
+
+        if user_input.lower() in ("exit", "quit", "q"):
+            return None
 
         if user_input.lower() == "login":
             _run_sso_login(console)
             print("\n분석하고자 하는 소스파일을 입력해주세요.")
+            print("(예: ZORDSB0100010.xml, payspmt10050t04.c, zinvbreps8030.pc / 현위치의 하위 폴더는 모두 접근가능합니다)")
             continue
 
-        return [f.strip() for f in user_input.split(",") if f.strip()]
+        if user_input.lower() in ("help", "h", "?"):
+            _print_input_help()
+            continue
+
+        if user_input.lower() == "log_on":
+            from mider.config.debug_logger import enable as _enable_debug
+            log_dir = _enable_debug(get_base_dir())
+            console.print(f"[green]디버그 로그 활성화: {log_dir}[/]")
+            continue
+
+        if user_input.lower() == "log_off":
+            from mider.config.debug_logger import disable as _disable_debug
+            _disable_debug()
+            console.print("[yellow]디버그 로그 비활성화[/]")
+            continue
+
+        # 파일명 파싱
+        filenames = [f.strip() for f in user_input.split(",") if f.strip()]
+
+        # 유효한 소스 파일 확장자 검사
+        valid_exts = {".xml", ".c", ".h", ".pc", ".sql", ".js"}
+        has_valid = any(
+            Path(f).suffix.lower() in valid_exts for f in filenames
+        )
+        if not has_valid:
+            print(f"인식할 수 없는 입력입니다: {user_input}")
+            _print_input_help()
+            continue
+
+        return filenames
 
 
 def prompt_for_explain_plan(
@@ -753,8 +829,45 @@ def prompt_for_explain_plan(
     return None
 
 
+def _set_console_icon() -> None:
+    """Windows 콘솔 창 + 작업표시줄 아이콘을 EXE 내장 아이콘으로 설정한다."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        # 1) AppUserModelID 설정 — 작업표시줄에서 conhost가 아닌 독립 앱으로 인식
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SKT.Mider.CLI")
+
+        # 2) 콘솔 창 핸들 획득
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if not hwnd:
+            return
+
+        # 3) EXE에서 아이콘 추출
+        hicon_large = ctypes.c_void_p()
+        hicon_small = ctypes.c_void_p()
+        ctypes.windll.shell32.ExtractIconExW(
+            sys.executable, 0,
+            ctypes.byref(hicon_large),
+            ctypes.byref(hicon_small),
+            1,
+        )
+
+        # 4) 콘솔 창에 아이콘 설정 (제목 표시줄 + 작업표시줄)
+        WM_SETICON = 0x0080
+        user32 = ctypes.windll.user32
+        if hicon_small.value:
+            user32.SendMessageW(hwnd, WM_SETICON, 0, hicon_small.value)
+        if hicon_large.value:
+            user32.SendMessageW(hwnd, WM_SETICON, 1, hicon_large.value)
+    except Exception:
+        pass  # 아이콘 설정 실패해도 프로그램 실행에 영향 없음
+
+
 def main() -> None:
     """CLI 메인 함수."""
+    _set_console_icon()
     base_dir = get_base_dir()
     # .env 파일 로드
     # PyInstaller onefile 모드: 번들된 .env는 _MEIPASS 임시 디렉토리에 풀림
@@ -775,6 +888,11 @@ def main() -> None:
     console = Console()
     console.print(f"Mider v{__version__}")
 
+    # --check: 도구 상태 점검 모드
+    if args.check:
+        from mider.healthcheck import run_healthcheck
+        sys.exit(run_healthcheck(console))
+
     # API 키 검증
     validate_api_key()
 
@@ -784,53 +902,108 @@ def main() -> None:
     # 모델 결정
     model = resolve_model(args.model)
 
-    # -f 인자가 있으면 사용, 없으면 인터랙티브 모드
-    file_args = args.files if args.files else prompt_for_files(console)
+    # -f 인자가 있으면 1회 실행 후 종료, 없으면 인터랙티브 반복 모드
+    is_interactive = not args.files
 
-    # 파일 경로 해석 (input 폴더 + workspace 재귀 검색)
+    if not is_interactive:
+        # CLI 모드: 1회 실행 후 종료
+        exit_code = _run_once(
+            file_args=args.files,
+            base_dir=base_dir,
+            output_dir=args.output,
+            model=model,
+            console=console,
+            explain_plan=getattr(args, "explain_plan", None),
+            verbose=args.verbose,
+            is_interactive=False,
+        )
+        sys.exit(exit_code)
+
+    # 인터랙티브 모드: 반복 실행
+    is_first = True
+    while True:
+        file_args = prompt_for_files(console, is_repeat=not is_first)
+        if file_args is None:
+            console.print("[green]Mider를 종료합니다.[/]")
+            sys.exit(EXIT_OK)
+
+        _run_once(
+            file_args=file_args,
+            base_dir=base_dir,
+            output_dir=args.output,
+            model=model,
+            console=console,
+            explain_plan=None,
+            verbose=args.verbose,
+            is_interactive=True,
+        )
+        is_first = False
+
+
+def _run_once(
+    *,
+    file_args: list[str],
+    base_dir: Path,
+    output_dir: str,
+    model: str,
+    console: Console,
+    explain_plan: str | None,
+    verbose: bool,
+    is_interactive: bool,
+) -> int:
+    """1회 분석을 실행한다.
+
+    Returns:
+        종료 코드 (0, 1, 2, 3)
+    """
+    # 파일 경로 해석
     resolved_files = resolve_input_files(base_dir, file_args)
+    if not resolved_files:
+        return EXIT_FILE_ERROR
 
     # 파일 목록 출력
     print_file_list(console, resolved_files)
 
     # Explain Plan 파일 결정
-    # CLI 모드: --explain-plan 옵션 사용
-    # 인터랙티브 모드: SQL 파일 감지 시 자동 질문
-    is_interactive = not args.files
-    explain_plan = getattr(args, "explain_plan", None)
     if not explain_plan and is_interactive:
         explain_plan = prompt_for_explain_plan(resolved_files, base_dir)
     if explain_plan and not Path(explain_plan).exists():
         console.print(
             f"[red bold]오류:[/] Explain Plan 파일 없음: {explain_plan}",
         )
-        sys.exit(EXIT_FILE_ERROR)
+        return EXIT_FILE_ERROR
 
     # 분석 실행
     try:
         exit_code = asyncio.run(
             run_analysis(
                 files=resolved_files,
-                output_dir=args.output,
+                output_dir=output_dir,
                 model=model,
                 console=console,
                 explain_plan=explain_plan,
-                verbose=args.verbose,
+                verbose=verbose,
             )
         )
     except KeyboardInterrupt:
         console.print("\n[yellow]분석이 사용자에 의해 중단되었습니다.[/]")
-        sys.exit(130)
+        return 130
+    except AICASessionExpiredError:
+        logger.warning("SSO 세션 만료 — 분석 중단")
+        console.print("\n[yellow bold]SSO 세션이 만료되었습니다. 재로그인합니다...[/]")
+        _run_sso_login(console)
+        console.print("[green]재로그인 완료. 파일을 다시 입력해주세요.[/]")
+        return EXIT_LLM_ERROR
     except (APIError, APIConnectionError, RateLimitError, APITimeoutError, AICAError, httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException, EnvironmentError) as e:
         logger.error(f"LLM API 오류: {e}")
         console.print(f"[red bold]LLM API 오류:[/] {e}")
-        sys.exit(EXIT_LLM_ERROR)
+        return EXIT_LLM_ERROR
     except Exception as e:
         logger.error(f"분석 중 오류 발생: {e}")
         console.print(f"[red bold]오류:[/] {e}")
-        sys.exit(EXIT_FILE_ERROR)
+        return EXIT_FILE_ERROR
 
-    sys.exit(exit_code)
+    return exit_code
 
 
 if __name__ == "__main__":

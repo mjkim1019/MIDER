@@ -8,6 +8,7 @@ LLM 분석 전에 주석을 제거하여 개인정보 노출을 방지한다.
 """
 
 import logging
+import re
 from enum import Enum, auto
 from typing import Any
 
@@ -531,6 +532,193 @@ def _remove_xml_comments(content: str) -> tuple[str, int]:
 
 
 # ──────────────────────────────────────────────
+# 문자열 내부 숫자-하이픈 치환
+# ──────────────────────────────────────────────
+
+# 숫자-숫자 패턴: 하이픈 앞 숫자를 캡처, 뒤 숫자는 lookahead로 비소비
+_DIGIT_HYPHEN_RE = re.compile(r"(\d)-(?=\d)")
+
+
+def _replace_hyphens_in_c_style_strings(
+    content: str,
+    *,
+    support_backtick: bool = False,
+) -> str:
+    """C 스타일 언어의 문자열 리터럴 내부에서 숫자-하이픈-숫자 패턴의 하이픈을 *로 치환한다.
+
+    주석이 이미 제거된 코드를 입력으로 받는다.
+    상태 머신으로 CODE/STRING 상태를 구분하여 문자열 내부에만 치환을 적용한다.
+
+    Args:
+        content: 주석 제거된 소스코드
+        support_backtick: JS 템플릿 리터럴(`) 지원 여부
+
+    Returns:
+        치환 적용된 코드 (줄번호 보존, 문자 길이 동일)
+    """
+    regions: list[tuple[int, int]] = []
+    state = _State.CODE
+    i = 0
+    length = len(content)
+    escape_next = False
+    string_start = 0
+    template_brace_stack: list[int] = []
+
+    while i < length:
+        ch = content[i]
+
+        if state == _State.CODE:
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+            if ch == "\\":
+                escape_next = True
+                i += 1
+                continue
+            if ch == '"':
+                state = _State.STRING_DOUBLE
+                string_start = i + 1
+                i += 1
+                continue
+            if ch == "'":
+                state = _State.STRING_SINGLE
+                string_start = i + 1
+                i += 1
+                continue
+            if support_backtick:
+                if template_brace_stack and ch == "}":
+                    if template_brace_stack[-1] == 0:
+                        template_brace_stack.pop()
+                        state = _State.STRING_BACKTICK
+                        string_start = i + 1
+                        i += 1
+                        continue
+                    else:
+                        template_brace_stack[-1] -= 1
+                if template_brace_stack and ch == "{":
+                    template_brace_stack[-1] += 1
+                if ch == "`":
+                    state = _State.STRING_BACKTICK
+                    string_start = i + 1
+                    i += 1
+                    continue
+            i += 1
+
+        elif state == _State.STRING_DOUBLE:
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+            if ch == "\\":
+                escape_next = True
+                i += 1
+                continue
+            if ch == '"':
+                regions.append((string_start, i))
+                state = _State.CODE
+            i += 1
+
+        elif state == _State.STRING_SINGLE:
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+            if ch == "\\":
+                escape_next = True
+                i += 1
+                continue
+            if ch == "'":
+                regions.append((string_start, i))
+                state = _State.CODE
+            i += 1
+
+        elif state == _State.STRING_BACKTICK:
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+            if ch == "\\":
+                escape_next = True
+                i += 1
+                continue
+            if ch == "$" and i + 1 < length and content[i + 1] == "{":
+                regions.append((string_start, i))
+                template_brace_stack.append(0)
+                state = _State.CODE
+                i += 2
+                continue
+            if ch == "`":
+                regions.append((string_start, i))
+                state = _State.CODE
+            i += 1
+
+        else:
+            i += 1
+
+    return _apply_digit_hyphen_replacement(content, regions)
+
+
+def _replace_hyphens_in_sql_strings(content: str) -> str:
+    """SQL 문자열('...') 내부에서 숫자-하이픈-숫자 패턴의 하이픈을 *로 치환한다.
+
+    SQL 이스케이프 규칙('')을 준수한다.
+    """
+    regions: list[tuple[int, int]] = []
+    i = 0
+    length = len(content)
+    in_string = False
+    string_start = 0
+
+    while i < length:
+        ch = content[i]
+
+        if not in_string:
+            if ch == "'":
+                in_string = True
+                string_start = i + 1
+                i += 1
+                continue
+            i += 1
+        else:
+            if ch == "'" and i + 1 < length and content[i + 1] == "'":
+                i += 2  # SQL 이스케이프 '' 건너뜀
+                continue
+            if ch == "'":
+                regions.append((string_start, i))
+                in_string = False
+                i += 1
+                continue
+            i += 1
+
+    return _apply_digit_hyphen_replacement(content, regions)
+
+
+def _apply_digit_hyphen_replacement(
+    content: str, regions: list[tuple[int, int]],
+) -> str:
+    """식별된 문자열 영역 내에서 숫자-숫자 하이픈을 *로 치환한다.
+
+    '-'를 '*'로 1:1 치환하므로 문자열 길이와 줄번호가 보존된다.
+    """
+    if not regions:
+        return content
+
+    parts: list[str] = []
+    prev_end = 0
+
+    for start, end in regions:
+        parts.append(content[prev_end:start])
+        region_text = content[start:end]
+        region_text = _DIGIT_HYPHEN_RE.sub(r"\1*", region_text)
+        parts.append(region_text)
+        prev_end = end
+
+    parts.append(content[prev_end:])
+    return "".join(parts)
+
+
+# ──────────────────────────────────────────────
 # 언어별 디스패치
 # ──────────────────────────────────────────────
 
@@ -591,6 +779,17 @@ class CommentRemover(BaseTool):
             cleaned, removed = _remove_xml_comments(content)
         else:
             cleaned, removed = content, 0
+
+        # 문자열 내부 숫자-하이픈 패턴 치환 (PII 전화번호 오탐 방지)
+        # '-'→'*' 1:1 치환이므로 줄번호·문자열 길이 보존
+        # XML: 문자열 리터럴 개념 없으므로 미적용
+        if language in ("javascript", "c", "proc"):
+            cleaned = _replace_hyphens_in_c_style_strings(
+                cleaned,
+                support_backtick=(language == "javascript"),
+            )
+        elif language == "sql":
+            cleaned = _replace_hyphens_in_sql_strings(cleaned)
 
         # 줄번호 보존 검증
         cleaned_line_count = cleaned.count("\n")

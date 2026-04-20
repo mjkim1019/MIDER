@@ -243,6 +243,7 @@ class CAnalyzerAgent(BaseAgent):
             AnalysisResult 형식의 딕셔너리
         """
         start_time = time.time()
+        llm_error: str | None = None
         logger.info(f"C 분석 시작: {file}")
 
         try:
@@ -289,13 +290,15 @@ class CAnalyzerAgent(BaseAgent):
                     f"C [{filename}] 경로: per_function | "
                     f"{clang_info}Scanner {len(scanner_findings)}건, {line_count}줄"
                 )
-                issues = await self._run_two_pass(
+                issues, fail_count = await self._run_two_pass(
                     file=file,
                     file_content=file_content,
                     file_context=file_context,
                     clang_data=clang_data,
                     scanner_findings=scanner_findings,
                 )
+                if fail_count > 0 and not issues:
+                    llm_error = f"per_function LLM 전체 실패 ({fail_count}건)"
             else:
                 # single: 전체 코드 단일 LLM 호출
                 if clang_data:
@@ -325,13 +328,26 @@ class CAnalyzerAgent(BaseAgent):
                 )
 
                 response = await self.call_llm(messages, json_mode=True)
-                llm_result = json.loads(response)
-
-                if not isinstance(llm_result, dict):
-                    raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
-
-                issues = llm_result.get("issues", [])
-                tokens_estimate = (len(prompt) + len(response)) // 4
+                try:
+                    llm_result = json.loads(response)
+                except (json.JSONDecodeError, TypeError):
+                    stripped_resp = response.strip()
+                    if stripped_resp.startswith("[Error:"):
+                        logger.warning("C single LLM 오류 응답: %s", stripped_resp)
+                        llm_error = stripped_resp
+                    else:
+                        logger.warning(
+                            "C single LLM 응답 JSON 파싱 실패 (처음 300자): %s",
+                            response[:300],
+                        )
+                        llm_error = f"LLM 응답 파싱 실패: {response[:200]}"
+                    issues = []
+                    tokens_estimate = 0
+                else:
+                    if not isinstance(llm_result, dict):
+                        raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
+                    issues = llm_result.get("issues", [])
+                    tokens_estimate = (len(prompt) + len(response)) // 4
 
             # Step 4: AnalysisResult 생성
             # Low 등급 원천 차단 필터링
@@ -350,6 +366,7 @@ class CAnalyzerAgent(BaseAgent):
                 "issues": issues,
                 "analysis_time_seconds": round(elapsed, 2),
                 "llm_tokens_used": tokens_estimate,
+                "error": llm_error,
             })
 
             logger.info(
@@ -428,8 +445,11 @@ class CAnalyzerAgent(BaseAgent):
         file_context: dict[str, Any] | None,
         clang_data: dict[str, Any] | None = None,
         scanner_findings: list[dict[str, Any]] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """2-Pass 분석: Scanner + clang → LLM 선별 → 함수별 개별 심층 분석.
+
+        Returns:
+            (이슈 리스트, LLM 실패 함수 수) 튜플
 
         Pass 1: scanner findings + clang warnings + all_functions_summary
                 → mini 모델로 위험 함수 선별
@@ -441,9 +461,10 @@ class CAnalyzerAgent(BaseAgent):
         if not findings and not clang_data:
             # per_function 경로라도 분석 단서 0개이면 mini 모델 호출이 무의미 → Heuristic fallback
             logger.info(f"C [{filename}] Scanner/clang 모두 없음 → Heuristic fallback")
-            return await self._run_single_pass_heuristic(
+            heuristic_issues = await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
             )
+            return heuristic_issues, 0
 
         # Pass 1-b: 함수별 패턴 요약 생성
         func_summary = self._build_function_findings_summary(findings)
@@ -495,7 +516,18 @@ class CAnalyzerAgent(BaseAgent):
             self.model = original_model
             self.fallback_model = original_fallback
 
-        prescan_result = json.loads(prescan_response)
+        try:
+            prescan_result = json.loads(prescan_response)
+        except (json.JSONDecodeError, TypeError):
+            stripped_resp = prescan_response.strip()
+            if stripped_resp.startswith("[Error:"):
+                logger.warning("C prescan LLM 오류 응답: %s", stripped_resp)
+            else:
+                logger.warning(
+                    "C prescan LLM 응답 JSON 파싱 실패 (처음 300자): %s",
+                    prescan_response[:300],
+                )
+            prescan_result = {"risky_functions": []}
         if not isinstance(prescan_result, dict):
             prescan_result = {"risky_functions": []}
 
@@ -510,9 +542,10 @@ class CAnalyzerAgent(BaseAgent):
             self.rl.decision(
                 "Pass 1 판정: 위험 함수 없음 → Heuristic fallback",
             )
-            return await self._run_single_pass_heuristic(
+            heuristic_issues = await self._run_single_pass_heuristic(
                 file=file, file_content=file_content, file_context=file_context,
             )
+            return heuristic_issues, 0
 
         logger.info(
             f"Pass 1 완료: {len(risky_functions)}개 위험 함수 선별 → "
@@ -570,9 +603,11 @@ class CAnalyzerAgent(BaseAgent):
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_issues: list[dict[str, Any]] = []
+        fail_count = 0
         for result in results:
             if isinstance(result, BaseException):
                 logger.warning(f"함수 분석 실패: {result}")
+                fail_count += 1
                 continue
             all_issues.extend(result)
 
@@ -596,9 +631,9 @@ class CAnalyzerAgent(BaseAgent):
 
         logger.info(
             f"Pass 2 완료: {len(all_issues)}개 이슈 "
-            f"({len(risky_functions)}개 함수 개별 분석)"
+            f"({len(risky_functions)}개 함수 개별 분석, 실패 {fail_count}건)"
         )
-        return all_issues
+        return all_issues, fail_count
 
     async def _analyze_single_function(
         self,
@@ -664,7 +699,18 @@ class CAnalyzerAgent(BaseAgent):
 
         response = await self.call_llm(messages, json_mode=True)
         tokens = (len(prompt) + len(response)) // 4
-        llm_result = json.loads(response)
+        try:
+            llm_result = json.loads(response)
+        except (json.JSONDecodeError, TypeError):
+            stripped_resp = response.strip()
+            if stripped_resp.startswith("[Error:"):
+                logger.warning("C 함수 [%s] LLM 오류 응답: %s", func_name, stripped_resp)
+            else:
+                logger.warning(
+                    "C 함수 [%s] LLM 응답 JSON 파싱 실패 (처음 300자): %s",
+                    func_name, response[:300],
+                )
+            return []
 
         if not isinstance(llm_result, dict):
             return []
@@ -718,7 +764,18 @@ class CAnalyzerAgent(BaseAgent):
             {"role": "user", "content": prompt},
         ]
         response = await self.call_llm(messages, json_mode=True)
-        llm_result = json.loads(response)
+        try:
+            llm_result = json.loads(response)
+        except (json.JSONDecodeError, TypeError):
+            stripped_resp = response.strip()
+            if stripped_resp.startswith("[Error:"):
+                logger.warning("C heuristic LLM 오류 응답: %s", stripped_resp)
+            else:
+                logger.warning(
+                    "C heuristic LLM 응답 JSON 파싱 실패 (처음 300자): %s",
+                    response[:300],
+                )
+            return []
         if not isinstance(llm_result, dict):
             return []
         return llm_result.get("issues", [])

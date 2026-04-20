@@ -481,7 +481,7 @@ def build_all_functions_summary(
             if paren_start > 0:
                 sig_line = sig_line[:paren_start] + "(...)"
 
-        parts.append(f"[L{start}-L{end}] {sig_line} — {line_count}줄")
+        parts.append(f"[L{start}~L{end}] {sig_line} — {line_count}줄")
 
     return "\n".join(parts)
 
@@ -883,6 +883,65 @@ def optimize_file_content(
         f"[구조 요약]\n"
         f"{summary}"
     )
+
+
+def split_js_into_chunks(
+    file_content: str,
+    target_lines: int = 2000,
+    hard_cap_lines: int = 2400,
+) -> list[tuple[str, int, int]]:
+    """JS 파일을 함수 경계를 고려하여 청크로 분할한다.
+
+    함수 중간에서 잘리지 않도록 함수 끝 경계를 우선 탐색한다.
+    target_lines 근처에서 함수 경계를 찾지 못하면 hard_cap_lines까지 확장한다.
+
+    Args:
+        file_content: 파일 전체 내용
+        target_lines: 목표 청크 크기 (줄)
+        hard_cap_lines: 허용 상한 (줄)
+
+    Returns:
+        [(chunk_code, start_line, end_line), ...]  (1-based line numbers)
+    """
+    lines = file_content.splitlines()
+    total = len(lines)
+
+    if total <= hard_cap_lines:
+        return [(file_content, 1, total)]
+
+    # 함수 경계 탐색 → 함수 끝 라인 집합 (좋은 분할 지점)
+    boundaries = find_function_boundaries(lines, "javascript")
+    func_ends = {end for _, end in boundaries}
+
+    chunks: list[tuple[str, int, int]] = []
+    i = 0  # 0-based index
+
+    while i < total:
+        # 마지막 청크: 남은 줄이 hard_cap 이내면 한꺼번에
+        if total - i <= hard_cap_lines:
+            chunks.append(("\n".join(lines[i:]), i + 1, total))
+            break
+
+        # target 지점부터 함수 끝 경계 탐색
+        best = i + target_lines
+        found = False
+        for j in range(i + target_lines, min(i + hard_cap_lines, total)):
+            if (j + 1) in func_ends:  # j는 0-based, func_ends는 1-based
+                best = j + 1  # 함수 끝 라인 포함
+                found = True
+                break
+
+        # 함수 경계를 못 찾으면 target에서 빈 줄 탐색 (함수 없는 코드)
+        if not found:
+            for j in range(i + target_lines, min(i + hard_cap_lines, total)):
+                if not lines[j].strip():
+                    best = j + 1
+                    break
+
+        chunks.append(("\n".join(lines[i:best]), i + 1, best))
+        i = best
+
+    return chunks
 
 
 def build_datalist_summary(data_lists: list[dict]) -> str:

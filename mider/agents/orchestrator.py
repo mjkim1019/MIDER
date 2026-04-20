@@ -184,6 +184,13 @@ class OrchestratorAgent(BaseAgent):
             f"{total_elapsed:.2f}초 소요"
         )
 
+        # LLM 분석 실패 파일 수집
+        analysis_errors = [
+            {"file": r.get("file", ""), "error": r.get("error", "")}
+            for r in analysis_results
+            if r.get("error")
+        ]
+
         return {
             "session_id": self.session_id,
             "execution_plan": execution_plan,
@@ -192,6 +199,7 @@ class OrchestratorAgent(BaseAgent):
             "summary": report["summary"],
             "deployment_checklist": report["deployment_checklist"],
             "errors": file_errors,
+            "analysis_errors": analysis_errors,
         }
 
     # ──────────────────────────────────────────────
@@ -304,6 +312,12 @@ class OrchestratorAgent(BaseAgent):
             self.rl.phase_header(2, agent_name)
             self.rl.scan(f"File: {Path(file_path).name} ({line_count}줄, {language})")
 
+            # 디버그 로그: 파일별 시작
+            from mider.config.debug_logger import is_enabled as _dbg_on, start_file, end_file, log_info
+            if _dbg_on():
+                start_file(Path(file_path).name)
+                log_info("Phase2", f"언어={language}, 라인={line_count}, agent={agent_name}")
+
             # 언어별 Analyzer 호출
             result = await self._analyze_single_file(
                 task_id=task_id,
@@ -320,6 +334,9 @@ class OrchestratorAgent(BaseAgent):
             if error:
                 logger.warning(f"분석 에러: {file_path}: {error}")
                 self.rl.detect(f"Error: {error}")
+                if _dbg_on():
+                    from mider.config.debug_logger import log_error
+                    log_error("Phase2", f"분석 에러: {error}")
             else:
                 logger.info(
                     f"Phase 2 [{idx + 1}/{total_tasks}]: "
@@ -330,6 +347,11 @@ class OrchestratorAgent(BaseAgent):
                     f"Result: {issues_count} issues, {elapsed}초",
                     issues=result.get("issues", []),
                 )
+
+            # 디버그 로그: 파일별 종료
+            if _dbg_on():
+                log_info("Phase2", f"분석 완료: {issues_count}개 이슈")
+                end_file()
 
         self._report_progress(
             2, "코드 분석", total_tasks, total_tasks, "분석 완료",

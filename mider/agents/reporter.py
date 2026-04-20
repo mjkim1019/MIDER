@@ -427,6 +427,7 @@ class ReporterAgent(BaseAgent):
 
         LLM 실패 시 기본 메시지로 graceful degradation한다.
         """
+        response = ""
         try:
             prompt = load_prompt(
                 "reporter",
@@ -471,7 +472,10 @@ class ReporterAgent(BaseAgent):
                 return description
 
         except Exception as e:
-            logger.warning(f"LLM risk_description 생성 실패, 기본 메시지 사용: {e}")
+            logger.warning(
+                "LLM risk_description 생성 실패, 기본 메시지 사용: %s (응답 처음 300자: %s)",
+                e, response[:300] if response else "(빈 응답)",
+            )
 
         # Graceful degradation: 기본 메시지
         return self._default_risk_description(by_severity, deployment_risk)

@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 # 패키지 기준 기본 경로
 _PACKAGE_DIR = Path(__file__).parent.parent.parent  # mider/
-_DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "proc"
+_DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "proc.exe"
+if not _DEFAULT_BINARY.exists():
+    _DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "proc"
 
 # proc 출력 에러 파싱 정규표현식
 # 형식: PCC-S-02201, Encountered the symbol "xxx" when expecting one of ...
@@ -181,11 +183,14 @@ class ProcRunner(BaseTool):
             f"{len(errors)} errors, success={success}"
         )
 
-        return ToolResult(
-            success=True,
-            data={
-                "errors": errors,
-                "success": success,
-                "total_errors": len(errors),
-            },
-        )
+        result_data = {
+            "errors": errors,
+            "success": success,
+            "total_errors": len(errors),
+        }
+
+        from mider.config.debug_logger import is_enabled as _dbg_on, log_static_result
+        if _dbg_on():
+            log_static_result("proc", result_data)
+
+        return ToolResult(success=True, data=result_data)

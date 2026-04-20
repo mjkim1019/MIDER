@@ -46,8 +46,16 @@ if lint_dir.exists():
 binaries_dir = ROOT / "mider" / "resources" / "binaries"
 if binaries_dir.exists():
     for f in binaries_dir.iterdir():
-        if f.is_file() and f.name != ".gitkeep":
+        if f.name == ".gitkeep":
+            continue
+        if f.is_file():
             datas.append((str(f), os.path.join("mider", "resources", "binaries")))
+        elif f.is_dir():
+            # node_modules 등 디렉토리도 포함
+            for sub in f.rglob("*"):
+                if sub.is_file():
+                    rel = sub.relative_to(binaries_dir)
+                    datas.append((str(sub), os.path.join("mider", "resources", "binaries", str(rel.parent))))
 
 a = Analysis(
     [str(ROOT / "mider" / "main.py")],
@@ -56,6 +64,7 @@ a = Analysis(
     datas=datas,
     hiddenimports=[
         "mider",
+        "mider.healthcheck",
         "mider.agents",
         "mider.agents.orchestrator",
         "mider.config",
@@ -70,6 +79,7 @@ a = Analysis(
         "sqlparse",
         "dotenv",
         "yaml",
+        "websocket",
     ],
     hookspath=[],
     hooksconfig={},
@@ -104,4 +114,5 @@ exe = EXE(
     strip=False,
     upx=True,
     console=True,
+    icon=str(ROOT / "mider_icon.ico"),
 )

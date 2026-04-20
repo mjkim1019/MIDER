@@ -107,6 +107,21 @@ def get_proc_grouping_config() -> tuple[int, int]:
     return target, hard_cap
 
 
+def get_js_grouping_config() -> tuple[int, int]:
+    """js_analyzer의 청크 분할 줄 수 기준을 반환한다.
+
+    Returns:
+        (target_lines, hard_cap_lines)
+    """
+    settings = _load_settings()
+    llm = settings.get("llm", {})
+    agents = llm.get("agents", {})
+    cfg = agents.get("js_analyzer", {})
+    target = int(cfg.get("group_target_lines", 2000))
+    hard_cap = int(cfg.get("group_hard_cap_lines", 2400))
+    return target, hard_cap
+
+
 def get_stub_extra_types() -> list[str]:
     """clang-tidy 분석용 가짜 헤더(stub)에 추가할 커스텀 타입/매크로를 반환한다.
 

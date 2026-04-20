@@ -229,7 +229,11 @@ class ProCLLMReviewer(BaseAgent):
         try:
             result = json.loads(response)
         except (json.JSONDecodeError, TypeError):
-            logger.warning("LLM 응답 JSON 파싱 실패")
+            stripped_resp = response.strip()
+            if stripped_resp.startswith("[Error:"):
+                logger.warning("Pro*C LLM 오류 응답: %s", stripped_resp)
+            else:
+                logger.warning("LLM 응답 JSON 파싱 실패 (처음 300자): %s", response[:300])
             return []
 
         if not isinstance(result, dict):
@@ -272,8 +276,8 @@ class ProCLLMReviewer(BaseAgent):
                 "category": f.category,
                 "title": f.title,
                 "description": f.description,
-                "line_start": f.origin_line_start,
-                "line_end": f.origin_line_end,
+                "line_start": f"L{f.origin_line_start}",
+                "line_end": f"L{f.origin_line_end}",
                 "function": f.function_name,
                 "source_layer": f.source_layer,
                 "tool": f.tool,
@@ -340,7 +344,7 @@ class ProCLLMReviewer(BaseAgent):
 
             snippets.append(
                 f"### {f.finding_id}: {f.title} "
-                f"(L{f.origin_line_start}-{f.origin_line_end})\n"
+                f"(L{f.origin_line_start}~L{f.origin_line_end})\n"
                 f"```c\n{''.join(line + chr(10) for line in code_lines)}```"
             )
 
