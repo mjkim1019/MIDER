@@ -6,6 +6,7 @@ ESLint를 실행하여 JavaScript 파일의 오류와 경고를 추출한다.
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,9 @@ logger = logging.getLogger(__name__)
 # 패키지 기준 기본 경로
 _PACKAGE_DIR = Path(__file__).parent.parent.parent  # mider/
 _DEFAULT_CONFIG = _PACKAGE_DIR / "resources" / "lint-configs" / ".eslintrc.json"
-_DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "node"
+_DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "node.exe"
+if not _DEFAULT_BINARY.exists():
+    _DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "node"
 _BINARIES_DIR = _PACKAGE_DIR / "resources" / "binaries"
 
 # ESLint 실행 타임아웃 (초)
@@ -94,6 +97,10 @@ class ESLintRunner(BaseTool):
             str(file_path),
         ]
 
+        # Windows UAC 우회: temp 디렉토리의 node.exe가 권한 상승을 요구하는 문제 방지
+        env = os.environ.copy()
+        env["__COMPAT_LAYER"] = "RunAsInvoker"
+
         try:
             proc = subprocess.run(
                 cmd,
@@ -102,6 +109,7 @@ class ESLintRunner(BaseTool):
                 encoding="utf-8",
                 errors="replace",
                 timeout=_TIMEOUT_SECONDS,
+                env=env,
             )
         except FileNotFoundError:
             raise ToolExecutionError(
@@ -144,6 +152,9 @@ class ESLintRunner(BaseTool):
         errors: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
 
+        if stderr:
+            logger.warning("ESLint stderr: %s", stderr[:500])
+
         if not stdout.strip():
             # ESLint가 출력 없이 종료한 경우
             if returncode != 0 and stderr:
@@ -163,6 +174,7 @@ class ESLintRunner(BaseTool):
         try:
             results = json.loads(stdout)
         except json.JSONDecodeError as e:
+            logger.warning("ESLint stdout (처음 300자): %s", stdout[:300])
             raise ToolExecutionError(
                 "eslint_runner", f"invalid JSON output: {e}"
             ) from e
@@ -191,12 +203,15 @@ class ESLintRunner(BaseTool):
             f"ESLint 분석 완료: {len(errors)} errors, {len(warnings)} warnings"
         )
 
-        return ToolResult(
-            success=True,
-            data={
-                "errors": errors,
-                "warnings": warnings,
-                "total_errors": len(errors),
-                "total_warnings": len(warnings),
-            },
-        )
+        result_data = {
+            "errors": errors,
+            "warnings": warnings,
+            "total_errors": len(errors),
+            "total_warnings": len(warnings),
+        }
+
+        from mider.config.debug_logger import is_enabled as _dbg_on, log_static_result
+        if _dbg_on():
+            log_static_result("ESLint", result_data)
+
+        return ToolResult(success=True, data=result_data)

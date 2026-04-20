@@ -33,10 +33,22 @@ MODEL_CD_MAP: dict[str, str] = {
 class AICAError(Exception):
     """AICA API 에러."""
 
-    def __init__(self, status_code: str, reason: str) -> None:
+    def __init__(
+        self,
+        status_code: str,
+        reason: str,
+        detects: list[dict[str, str]] | None = None,
+    ) -> None:
         self.status_code = status_code
         self.reason = reason
-        super().__init__(f"AICA API 오류 [{status_code}]: {reason}")
+        self.detects = detects or []
+        detail = ""
+        if self.detects:
+            detail = " | 검출: " + ", ".join(
+                f"{d.get('detect_type_name', '?')}({d.get('detect_str', '?')})"
+                for d in self.detects
+            )
+        super().__init__(f"AICA API 오류 [{status_code}]: {reason}{detail}")
 
 
 class AICASessionExpiredError(AICAError):
@@ -44,6 +56,43 @@ class AICASessionExpiredError(AICAError):
 
     def __init__(self) -> None:
         super().__init__("SESSION_EXPIRED", "SSO 세션이 만료되었습니다")
+
+
+def _mask_center(s: str) -> str:
+    """문자열 가운데를 *로 치환한다.
+
+    홀수 길이: 가운데 1문자를 * 로 치환
+    짝수 길이: 가운데 2문자를 ** 로 치환
+
+    예:
+        "1030-2300"  (9자) → "1030*2300"
+        "1000025847" (10자) → "1000**5847"
+    """
+    n = len(s)
+    if n <= 1:
+        return "*" * n
+    if n % 2 == 1:
+        mid = n // 2
+        return s[:mid] + "*" + s[mid + 1:]
+    else:
+        mid = n // 2
+        return s[:mid - 1] + "**" + s[mid + 1:]
+
+
+def _mask_pii_in_messages(
+    messages: list[dict[str, str]],
+    detects: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """메시지 내 PII 검출 문자열을 가운데 마스킹 치환한 사본을 반환한다."""
+    masked: list[dict[str, str]] = []
+    for msg in messages:
+        content = msg.get("content", "")
+        for d in detects:
+            detect_str = d.get("detect_str", "")
+            if detect_str and detect_str in content:
+                content = content.replace(detect_str, _mask_center(detect_str))
+        masked.append({**msg, "content": content})
+    return masked
 
 
 class LLMClient:
@@ -114,7 +163,11 @@ class LLMClient:
             )
 
         self._aica_base_url = self._aica_endpoint.rstrip("/")
-        self._http_client = httpx.AsyncClient(timeout=180.0)
+        self._http_client = httpx.AsyncClient(
+            timeout=180.0,
+            verify=False,
+            follow_redirects=True,
+        )
 
         # SSO 세션: SSOAuthenticator > 환경변수 순으로 결정
         if self._sso_authenticator:
@@ -186,6 +239,11 @@ class LLMClient:
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
 
+        from mider.config.debug_logger import is_enabled as _dbg_on, log_llm_request, log_llm_response
+        if _dbg_on():
+            log_llm_request(model, messages)
+
+        _t0 = __import__("time").time()
         response = await self._openai_client.chat.completions.create(**kwargs)
 
         if not response.choices:
@@ -194,6 +252,9 @@ class LLMClient:
         content = response.choices[0].message.content or ""
         tokens_used = response.usage.total_tokens if response.usage else 0
         logger.debug(f"LLM 응답 수신: model={model}, tokens={tokens_used}")
+
+        if _dbg_on():
+            log_llm_response(content, (__import__("time").time() - _t0) * 1000)
 
         return content
 
@@ -238,20 +299,39 @@ class LLMClient:
         messages: list[dict[str, str]],
         json_mode: bool,
     ) -> str:
-        """AICA Gateway API로 호출."""
-        try:
-            return await self._chat_aica_once(model, messages, json_mode)
-        except AICASessionExpiredError:
-            if not self._sso_authenticator:
-                raise
-            # 자동 재인증 후 1회 재시도
-            logger.info("SSO 세션 만료 — 자동 재인증 시도")
-            self._sso_authenticator.invalidate_session()
-            creds = self._sso_authenticator.authenticate(force_login=True)
-            self._aica_sso_session = creds.sso_session
-            self._aica_user_id = creds.user_id
-            logger.info("SSO 재인증 완료: user_id=%s", self._aica_user_id)
-            return await self._chat_aica_once(model, messages, json_mode)
+        """AICA Gateway API로 호출 (SSO 재인증 + PII 마스킹 재시도)."""
+        max_pii_retries = 2
+        current_messages = messages
+
+        for pii_attempt in range(max_pii_retries + 1):
+            try:
+                return await self._chat_aica_once(model, current_messages, json_mode)
+            except AICASessionExpiredError:
+                if not self._sso_authenticator:
+                    raise
+                # 자동 재인증 후 1회 재시도
+                logger.info("SSO 세션 만료 — 자동 재인증 시도")
+                self._sso_authenticator.invalidate_session()
+                creds = self._sso_authenticator.authenticate(force_login=True)
+                self._aica_sso_session = creds.sso_session
+                self._aica_user_id = creds.user_id
+                logger.info("SSO 재인증 완료: user_id=%s", self._aica_user_id)
+                return await self._chat_aica_once(model, current_messages, json_mode)
+            except AICAError as e:
+                if not e.detects or pii_attempt >= max_pii_retries:
+                    raise
+                # PII 검출 → 검출 문자열 가운데 마스킹 후 재시도
+                detect_summary = ", ".join(
+                    f"{d.get('detect_type_name', '?')}({d.get('detect_str', '?')})"
+                    for d in e.detects
+                )
+                logger.info(
+                    "PII 검출 → 마스킹 후 재시도 (%d/%d): %s",
+                    pii_attempt + 1, max_pii_retries, detect_summary,
+                )
+                current_messages = _mask_pii_in_messages(current_messages, e.detects)
+
+        raise AICAError("PII_RETRY_EXHAUSTED", "PII 마스킹 재시도 소진")
 
     async def _chat_aica_once(
         self,
@@ -288,6 +368,11 @@ class LLMClient:
 
         logger.debug("AICA 요청: model_cd=%s, message_len=%d", model_cd, len(message))
 
+        from mider.config.debug_logger import is_enabled as _dbg_on, log_llm_request, log_llm_response
+        if _dbg_on():
+            log_llm_request(f"AICA/{model_cd}", messages)
+
+        _t0 = __import__("time").time()
         response = await self._http_client.post(
             url, json=payload, headers=headers, cookies=cookies,
         )
@@ -298,24 +383,107 @@ class LLMClient:
 
         response.raise_for_status()
 
-        data = response.json()
+        # AICA는 NDJSON(줄 단위 JSON)으로 응답 — 줄별로 파싱
+        result = self._parse_aica_ndjson(response.text)
 
-        # 에러 응답 처리
-        error = data.get("error")
-        if error:
-            status_code = str(error.get("status_code", "unknown"))
-            reason = error.get("reason", "알 수 없는 오류")
-            raise AICAError(status_code, reason)
+        if _dbg_on():
+            log_llm_response(result, (__import__("time").time() - _t0) * 1000)
 
-        # OpenAI 호환 형식: choices[0].message.content
-        choices = data.get("choices", [])
-        if not choices:
-            raise ValueError("AICA가 빈 응답을 반환했습니다 (choices가 비어 있음)")
+        return result
 
-        content = choices[0].get("message", {}).get("content", "")
-        if not content:
+    def _parse_aica_ndjson(self, raw_text: str) -> str:
+        """AICA NDJSON 응답을 파싱하여 LLM 응답 텍스트를 추출한다."""
+        import json as _json
+
+        from mider.config.debug_logger import is_enabled as _dbg_on, log_info
+        if _dbg_on():
+            log_info("AICA_RAW", f"HTTP Response Body ({len(raw_text)} chars):\n{raw_text}")
+
+        full_content = ""
+
+        for line in raw_text.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                data = _json.loads(line)
+            except _json.JSONDecodeError:
+                logger.warning("AICA 응답 JSON 파싱 실패: %s", line[:200])
+                continue
+
+            # 에러 응답 처리
+            msg_type = data.get("type")
+            if msg_type == "error":
+                status_code = str(data.get("status_code", "unknown"))
+                reason = data.get("reason", "알 수 없는 오류")
+                detects = data.get("detects")
+                if detects:
+                    logger.warning(
+                        "AICA PII 검출: %s",
+                        ", ".join(
+                            f"{d.get('detect_type_name', '?')}({d.get('detect_str', '?')})"
+                            for d in detects
+                        ),
+                    )
+                raise AICAError(status_code, reason, detects)
+
+            # OpenAI 호환 형식: choices[].message.content
+            if "choices" in data:
+                for choice in data["choices"]:
+                    content = choice.get("message", {}).get("content", "")
+                    if content:
+                        full_content += content
+
+                # choices 응답에 error_code + detects가 함께 온 경우 AICAError raise
+                detects = data.get("detects")
+                error_code = data.get("error_code")
+                if error_code and detects:
+                    reason = full_content.strip()
+                    logger.warning(
+                        "AICA PII 검출 (choices): %s",
+                        ", ".join(
+                            f"{d.get('detect_type_name', '?')}({d.get('detect_str', '?')})"
+                            for d in detects
+                        ),
+                    )
+                    raise AICAError(str(error_code), reason, detects)
+
+            # SSE 형식: type=token
+            elif msg_type == "token":
+                full_content += data.get("data", "")
+
+        if not full_content:
+            logger.warning("AICA 빈 응답 (raw 처음 500자): %s", raw_text[:500])
             raise ValueError("AICA가 빈 응답을 반환했습니다 (content가 비어 있음)")
 
-        logger.debug("AICA 응답 수신: model_cd=%s, len=%d", model_cd, len(content))
+        # choices content로 에러 메시지가 온 경우 감지
+        stripped = full_content.strip()
+        if stripped.startswith("[Error:") or stripped.startswith("고객 정보"):
+            logger.warning("AICA PII/콘텐츠 필터 차단 (content): %s", stripped[:300])
 
-        return content
+        # LLM이 마크다운 코드블록으로 감싼 경우 제거
+        full_content = self._strip_markdown_json(full_content)
+
+        logger.debug("AICA 응답 수신: len=%d", len(full_content))
+        return full_content
+
+    @staticmethod
+    def _strip_markdown_json(text: str) -> str:
+        """마크다운 코드블록(```json ... ```)을 제거한다.
+
+        LLM이 JSON 응답을 마크다운으로 감싸는 경우가 빈번하므로
+        이를 자동으로 제거하여 json.loads()가 성공하도록 한다.
+        """
+        import re
+
+        stripped = text.strip()
+        # ```json ... ``` 또는 ``` ... ``` 패턴
+        match = re.match(
+            r"^```(?:json)?\s*\n?(.*?)\n?\s*```\s*$",
+            stripped,
+            re.DOTALL,
+        )
+        if match:
+            return match.group(1).strip()
+        return stripped

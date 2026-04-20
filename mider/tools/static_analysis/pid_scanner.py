@@ -3,7 +3,7 @@
 개선안:
   AS-IS: 숫자 리터럴(LEN[1000000], PGM_ID[010125])이 PID에 오탐되어 소스코드 검사 불가
   TO-BE:
-    STEP 1 (전처리): 5자리 이상 연속 숫자 → 첫 자리 유지 + 나머지 0으로 치환
+    STEP 1 (전처리): 6자리 이상 연속 숫자 → 첫 자리 유지 + 나머지 0으로 치환
     STEP 2 (후처리): 탐지 결과 중 '첫자리+000...' 패턴 항목 제외 (오탐 필터)
 
 탐지 엔진: 순수 Python 정규식 (OS/플랫폼 무관, .so 불필요)
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # 각 항목: (컴파일된 패턴, 타입 코드, 한국어 이름, 심각도)
 #
 # 설계 원칙:
-#   - 전처리 후의 마스킹된 텍스트에서 실행 (5자리+ 숫자 그룹은 첫자리+0으로 치환됨)
+#   - 전처리 후의 마스킹된 텍스트에서 실행 (6자리+ 숫자 그룹은 첫자리+0으로 치환됨)
 #   - 탐지 위치는 원본 텍스트에서 후처리로 실제 개인정보 여부를 최종 판별
 
 @dataclass
@@ -114,7 +114,7 @@ def _run_regex_scan(masked_text: str) -> list[tuple[int, int, _PIDPattern]]:
 class PIDScanner(BaseTool):
     """소스코드 내 개인정보(PID) 탐지 Tool.
 
-    전처리(5자리 이상 숫자 마스킹) → 정규식 탐지 → 후처리(오탐 필터링) 파이프라인으로
+    전처리(6자리 이상 숫자 마스킹) → 정규식 탐지 → 후처리(오탐 필터링) 파이프라인으로
     소스코드 숫자 리터럴에 의한 오탐을 제거하고 실제 개인정보만 검출한다.
     """
 
@@ -144,7 +144,7 @@ class PIDScanner(BaseTool):
                 data={"findings": [], "total_findings": 0},
             )
 
-        # STEP 1: 전처리 — 5자리 이상 연속 숫자 마스킹
+        # STEP 1: 전처리 — 6자리 이상 연속 숫자 마스킹
         masked = self._mask_numeric_literals(content)
 
         # 정규식 탐지 (마스킹된 텍스트 대상)
@@ -191,17 +191,18 @@ class PIDScanner(BaseTool):
 
     @staticmethod
     def _mask_numeric_literals(text: str) -> str:
-        """5자리 이상 연속 숫자의 첫 자리만 유지하고 나머지를 0으로 치환한다.
+        """6자리 이상 연속 숫자의 첫 자리만 유지하고 나머지를 0으로 치환한다.
 
         예:
             1000000000 → 1000000000  (이미 첫자리+0 패턴 — 통과)
             123456789  → 100000000
-            98765      → 90000
+            123456     → 100000
+            12345      → 12345       (5자리 이하 유지)
             1234       → 1234        (4자리 이하 유지)
         """
         def _replace(m: re.Match) -> str:
             d = m.group(0)
-            if len(d) >= 5:
+            if len(d) >= 6:
                 return d[0] + "0" * (len(d) - 1)
             return d
 
@@ -214,20 +215,20 @@ class PIDScanner(BaseTool):
         """탐지된 원본 문자열이 숫자 리터럴 오탐인지 판별한다.
 
         판별 기준:
-          1. 원본값에서 5자리 이상 연속 숫자 그룹 추출
+          1. 원본값에서 6자리 이상 연속 숫자 그룹 추출
           2. 모든 그룹이 '첫 자리 + 나머지 전부 0' 패턴 → 오탐
           3. 하나라도 0이 아닌 숫자가 나머지에 포함 → 실제 개인정보
 
         예:
           "100000000"       → True  오탐 (1+00000000)
-          "010-1234-5678"   → False 실제 PII (5자리+ 그룹 없음)
+          "010-1234-5678"   → False 실제 PII (6자리+ 그룹 없음)
           "800000-1000000"  → True  오탐 (두 그룹 모두 첫자리+0)
           "740111-1234567"  → False 실제 PII (740111의 나머지에 비-0 포함)
         """
-        long_groups = re.findall(r"\d{5,}", original_value)
+        long_groups = re.findall(r"\d{6,}", original_value)
 
         if not long_groups:
-            # 5자리 이상 숫자 없음 → 마스킹 대상 아님 → 오탐 아님
+            # 6자리 이상 숫자 없음 → 마스킹 대상 아님 → 오탐 아님
             return False
 
         for group in long_groups:

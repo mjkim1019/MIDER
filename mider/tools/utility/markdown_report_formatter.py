@@ -58,17 +58,15 @@ def format_markdown_report(
     summary: dict[str, Any],
     deployment_checklist: dict[str, Any],
     source_files: list[str],
-    json_filenames: list[str],
 ) -> str:
-    """4개 JSON 결과를 하나의 Markdown 리포트 문자열로 변환한다.
+    """분석 결과를 하나의 Markdown 리포트 문자열로 변환한다.
 
     Args:
-        issue_list: issue-list.json 데이터
-        checklist: checklist.json 데이터
-        summary: summary.json 데이터
-        deployment_checklist: deployment-checklist.json 데이터
+        issue_list: 이슈 목록 데이터
+        checklist: 체크리스트 데이터
+        summary: 분석 요약 데이터
+        deployment_checklist: 배포 체크리스트 데이터
         source_files: 분석 대상 파일 경로 리스트
-        json_filenames: 생성된 JSON 파일명 리스트
 
     Returns:
         완성된 Markdown 문자열
@@ -80,7 +78,7 @@ def format_markdown_report(
         _build_full_issue_list_section(issue_list),
         _build_checklist_section(checklist),
         _build_deployment_checklist_section(deployment_checklist),
-        _build_metadata_footer(json_filenames, summary),
+        _build_metadata_footer(summary),
     ]
     return "\n".join(sections)
 
@@ -158,6 +156,40 @@ def _build_summary_section(summary: dict[str, Any]) -> str:
     risk_desc = risk.get("risk_description", "")
     if risk_desc:
         lines.append(f"> {risk_desc}")
+        lines.append("")
+
+    # 카테고리별 통계
+    by_category = issue_summary.get("by_category", {})
+    if by_category:
+        lines.append("### 카테고리별 이슈")
+        lines.append("")
+        lines.append("| 카테고리 | 건수 |")
+        lines.append("|----------|------|")
+        for cat, cnt in sorted(by_category.items(), key=lambda x: x[1], reverse=True):
+            cat_kr = _CATEGORY_KR.get(cat, cat)
+            lines.append(f"| {cat_kr} (`{cat}`) | {cnt} |")
+        lines.append("")
+
+    # 언어별 통계
+    by_language = issue_summary.get("by_language", {})
+    if by_language:
+        lines.append("### 언어별 이슈")
+        lines.append("")
+        lines.append("| 언어 | 건수 |")
+        lines.append("|------|------|")
+        for lang, cnt in sorted(by_language.items(), key=lambda x: x[1], reverse=True):
+            lines.append(f"| {lang.upper()} | {cnt} |")
+        lines.append("")
+
+    # 파일별 통계
+    by_file = issue_summary.get("by_file", {})
+    if by_file:
+        lines.append("### 파일별 이슈")
+        lines.append("")
+        lines.append("| 파일 | 건수 |")
+        lines.append("|------|------|")
+        for fpath, cnt in sorted(by_file.items(), key=lambda x: x[1], reverse=True):
+            lines.append(f"| `{fpath}` | {cnt} |")
         lines.append("")
 
     lines.append("---")
@@ -296,10 +328,9 @@ def _build_deployment_checklist_section(
 
 
 def _build_metadata_footer(
-    json_filenames: list[str],
     summary: dict[str, Any],
 ) -> str:
-    """메타데이터 (세션 ID, 생성 파일)."""
+    """메타데이터 (세션 ID, 분석 파일 수, 라인 수)."""
     metadata = summary.get("analysis_metadata", {})
     session_id = metadata.get("session_id", "")
     total_files = metadata.get("total_files", 0)
@@ -311,13 +342,9 @@ def _build_metadata_footer(
         f"- **세션 ID**: `{session_id}`",
         f"- **분석 파일 수**: {total_files}",
         f"- **총 라인 수**: {total_lines:,}줄",
-        "- **생성된 파일**:",
+        "",
     ]
 
-    for fn in json_filenames:
-        lines.append(f"  - `{fn}`")
-
-    lines.append("")
     return "\n".join(lines)
 
 
@@ -342,6 +369,7 @@ def _render_issue_card(issue: dict[str, Any], heading_level: str) -> str:
     location = issue.get("location", {})
     loc_file = location.get("file", "")
     line_start = location.get("line_start", 0)
+    line_end = location.get("line_end", 0)
 
     fix = issue.get("fix", {})
     before = fix.get("before", "")
@@ -353,9 +381,13 @@ def _render_issue_card(issue: dict[str, Any], heading_level: str) -> str:
 
     sub = "#" * (len(heading_level) + 1)  # heading_level + 1
 
+    loc_str = f"{loc_file}:{line_start}"
+    if line_end and line_end != line_start:
+        loc_str = f"{loc_file}:{line_start}~{line_end}"
+
     lines = [
         f"{heading_level} [{severity}] {issue_id} {title}",
-        f"- **위치**: `{loc_file}:{line_start}`",
+        f"- **위치**: `{loc_str}`",
         f"- **분류**: `{category}` ({category_kr})",
         f"- **출처**: {source}",
         "",

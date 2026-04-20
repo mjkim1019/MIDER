@@ -24,6 +24,8 @@ llm:
     js_analyzer:
       model: "gpt-5"
       fallback: "gpt-5-mini"
+      group_target_lines: 2000   # 청크 목표 크기 (줄)
+      group_hard_cap_lines: 2400 # 청크 허용 상한 (줄)
     c_analyzer:
       model: "gpt-5"
       fallback: "gpt-5-mini"
@@ -52,10 +54,11 @@ api:
   # AICA_USER_ID: 사용자 ID (기본: mider_agent)
 
   sso:
-    # ChromeDriver 경로 (환경변수 CHROME_DRIVER_PATH로 override 가능)
-    # driver_path: "D:\\UTIL\\크롬드라이버\\chromedriver.exe"
+    # Chrome CDP 포트 (환경변수 CDP_PORT로 override 가능)
+    cdp_port: 9222
     session_ttl_hours: 1
     # login_url: 기본값은 {AICA_ENDPOINT}?page=agent_login
+    # Chrome 경로 (환경변수 CHROME_PATH로 override 가능, 미설정 시 자동 탐색)
 
 static_analysis:
   # 경로는 mider 패키지 디렉토리 기준 상대경로 (런타임에 Path(__file__).parent로 resolve)

@@ -8,7 +8,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from mider.config.llm_client import LLMClient
+from mider.config.llm_client import AICAError, AICASessionExpiredError, LLMClient
 from mider.config.reasoning_logger import ReasoningLogger
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,12 @@ class BaseAgent(ABC):
                         json_mode=json_mode,
                     )
                 return response
+            except AICASessionExpiredError:
+                # SSO 만료는 재시도해도 해결 불가 — 즉시 전파
+                raise
+            except AICAError:
+                # PII 검출 등 AICA 에러는 _chat_aica 내부에서 재시도 완료 — 즉시 전파
+                raise
             except Exception as e:
                 last_error = e
                 logger.warning(

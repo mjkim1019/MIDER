@@ -80,6 +80,7 @@ class XMLAnalyzerAgent(BaseAgent):
             AnalysisResult 형식의 딕셔너리
         """
         start_time = time.time()
+        llm_error: str | None = None
         logger.info(f"XML 분석 시작: {file}")
 
         try:
@@ -119,11 +120,13 @@ class XMLAnalyzerAgent(BaseAgent):
                 logger.info(f"XML [{filename}] JS검증: 대응 JS 파일 없음")
 
             # Step 3: XML 구조 분석 (LLM)
-            xml_issues = await self._analyze_xml_structure(
+            xml_issues, xml_llm_ok = await self._analyze_xml_structure(
                 file=file,
                 parse_data=parse_data,
                 js_validation=js_validation,
             )
+            if not xml_llm_ok:
+                llm_error = "XML LLM 응답 파싱 실패"
             logger.info(f"XML [{filename}] 구조 이슈: {len(xml_issues)}건")
 
             # Step 4: 인라인 JS 추출 → JSAnalyzer 위임
@@ -152,6 +155,7 @@ class XMLAnalyzerAgent(BaseAgent):
                 "issues": issues,
                 "analysis_time_seconds": round(elapsed, 2),
                 "llm_tokens_used": 0,
+                "error": llm_error,
             })
 
             logger.info(
@@ -180,8 +184,12 @@ class XMLAnalyzerAgent(BaseAgent):
         file: str,
         parse_data: dict[str, Any],
         js_validation: dict[str, Any],
-    ) -> list[dict]:
-        """XML 구조를 LLM으로 분석한다."""
+    ) -> tuple[list[dict], bool]:
+        """XML 구조를 LLM으로 분석한다.
+
+        Returns:
+            (이슈 리스트, LLM 성공 여부) 튜플
+        """
         datalist_summary = build_datalist_summary(
             parse_data.get("data_lists", []),
         )
@@ -222,11 +230,22 @@ class XMLAnalyzerAgent(BaseAgent):
         ]
 
         response = await self.call_llm(messages, json_mode=True)
-        llm_result = json.loads(response)
+        try:
+            llm_result = json.loads(response)
+        except (json.JSONDecodeError, TypeError):
+            stripped_resp = response.strip()
+            if stripped_resp.startswith("[Error:"):
+                logger.warning("XML LLM 오류 응답: %s", stripped_resp)
+            else:
+                logger.warning(
+                    "XML LLM 응답 JSON 파싱 실패 (처음 300자): %s",
+                    response[:300],
+                )
+            return [], False
 
         if isinstance(llm_result, dict):
-            return llm_result.get("issues", [])
-        return []
+            return llm_result.get("issues", []), True
+        return [], True
 
     async def _analyze_inline_js(
         self,
@@ -242,6 +261,11 @@ class XMLAnalyzerAgent(BaseAgent):
             return []
 
         js_line_count = len(js_code.splitlines())
+        if js_line_count > 2400:
+            logger.warning(
+                f"XML [{Path(file).name}] 인라인 JS 대형: "
+                f"{js_line_count}줄 → JSAnalyzer 청크 분할 분석 예정"
+            )
         logger.info(
             f"XML [{Path(file).name}] 인라인 JS 추출: "
             f"{js_line_count}줄, {len(offset_map)}블록"

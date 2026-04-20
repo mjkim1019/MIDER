@@ -540,3 +540,169 @@ class TestAdditionalEdgeCases:
         cleaned = _cleaned(result)
         assert "#define MAX 100" in cleaned
         assert "max value" not in cleaned
+
+
+# ──────────────────────────────────────────────
+# 문자열 내부 숫자-하이픈 치환 테스트
+# ──────────────────────────────────────────────
+
+
+class TestHyphenReplacementJavaScript:
+    """JS 문자열 내부 숫자-하이픈 치환 테스트."""
+
+    def test_double_quote_two_segments(self, remover: CommentRemover) -> None:
+        """쌍따옴표 문자열 내 숫자-숫자 하이픈이 *로 치환된다."""
+        code = 'var s = "1030-2300";\n'
+        result = remover.execute(content=code, language="javascript")
+        assert '"1030*2300"' in _cleaned(result)
+
+    def test_double_quote_three_segments(self, remover: CommentRemover) -> None:
+        """쌍따옴표 문자열 내 숫자-숫자-숫자 하이픈이 모두 *로 치환된다."""
+        code = 'var s = "1030-2030-3040";\n'
+        result = remover.execute(content=code, language="javascript")
+        assert '"1030*2030*3040"' in _cleaned(result)
+
+    def test_single_quote_with_text(self, remover: CommentRemover) -> None:
+        """홑따옴표 문자열 내 숫자-숫자 하이픈이 텍스트와 함께 치환된다."""
+        code = "var s = 'abc 1030-2030 def';\n"
+        result = remover.execute(content=code, language="javascript")
+        assert "'abc 1030*2030 def'" in _cleaned(result)
+
+    def test_backtick_template(self, remover: CommentRemover) -> None:
+        """백틱 템플릿 리터럴 내 숫자-숫자 하이픈이 치환된다."""
+        code = "var s = `time: 1030-2300`;\n"
+        result = remover.execute(content=code, language="javascript")
+        assert "`time: 1030*2300`" in _cleaned(result)
+
+    def test_template_expression_code_not_affected(
+        self, remover: CommentRemover,
+    ) -> None:
+        """템플릿 ${} 내부 코드의 하이픈은 치환되지 않는다."""
+        code = "var s = `${a-b} 1030-2300`;\n"
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "${a-b}" in cleaned  # 코드 영역 유지
+        assert "1030*2300" in cleaned  # 문자열 영역 치환
+
+    def test_code_arithmetic_not_affected(self, remover: CommentRemover) -> None:
+        """코드 영역의 산술식 1030-2030 은 치환되지 않는다."""
+        code = "var x = 1030-2030;\n"
+        result = remover.execute(content=code, language="javascript")
+        assert "1030-2030" in _cleaned(result)
+
+    def test_code_subtraction_not_affected(self, remover: CommentRemover) -> None:
+        """코드 영역의 a-b 는 치환되지 않는다."""
+        code = 'var x = a - b; var y = "1-2";\n'
+        result = remover.execute(content=code, language="javascript")
+        cleaned = _cleaned(result)
+        assert "a - b" in cleaned
+        assert '"1*2"' in cleaned
+
+    def test_no_digit_hyphen_unchanged(self, remover: CommentRemover) -> None:
+        """숫자-하이픈 패턴 없는 문자열은 변경되지 않는다."""
+        code = 'var s = "hello-world";\n'
+        result = remover.execute(content=code, language="javascript")
+        assert '"hello-world"' in _cleaned(result)
+
+    def test_line_count_preserved(self, remover: CommentRemover) -> None:
+        """치환 후 줄 수가 보존된다."""
+        code = 'var a = "1030-2300";\nvar b = "2030-3040";\n'
+        result = remover.execute(content=code, language="javascript")
+        assert code.count("\n") == _cleaned(result).count("\n")
+
+
+class TestHyphenReplacementC:
+    """C 문자열 내부 숫자-하이픈 치환 테스트."""
+
+    def test_c_string_hyphen_replaced(self, remover: CommentRemover) -> None:
+        """C 문자열 내 숫자-숫자 하이픈이 치환된다."""
+        code = 'char *s = "1030-2300";\n'
+        result = remover.execute(content=code, language="c")
+        assert '"1030*2300"' in _cleaned(result)
+
+    def test_c_char_literal_slash_preserved(self, remover: CommentRemover) -> None:
+        """C 문자 리터럴 '/' 는 손상되지 않는다."""
+        code = "char slash = '/';\n"
+        result = remover.execute(content=code, language="c")
+        assert "'/'" in _cleaned(result)
+
+    def test_c_char_literal_backslash_preserved(self, remover: CommentRemover) -> None:
+        r"""C 문자 리터럴 '\\' 는 손상되지 않는다."""
+        code = "char bs = '\\\\';\n"
+        result = remover.execute(content=code, language="c")
+        assert "'\\\\';" in _cleaned(result)
+
+    def test_c_code_arithmetic_not_affected(self, remover: CommentRemover) -> None:
+        """C 코드의 산술식은 치환되지 않는다."""
+        code = "int x = 1030 - 2030;\n"
+        result = remover.execute(content=code, language="c")
+        assert "1030 - 2030" in _cleaned(result)
+
+    def test_c_three_segments_in_string(self, remover: CommentRemover) -> None:
+        """C 문자열 내 3-구간 하이픈이 모두 치환된다."""
+        code = 'char *s = "1030-2030-3040";\n'
+        result = remover.execute(content=code, language="c")
+        assert '"1030*2030*3040"' in _cleaned(result)
+
+
+class TestHyphenReplacementProC:
+    """Pro*C 문자열 내부 숫자-하이픈 치환 테스트."""
+
+    def test_proc_string_hyphen_replaced(self, remover: CommentRemover) -> None:
+        """Pro*C 문자열 내 숫자-숫자 하이픈이 치환된다."""
+        code = 'char *s = "1030-2300";\n'
+        result = remover.execute(content=code, language="proc")
+        assert '"1030*2300"' in _cleaned(result)
+
+    def test_proc_exec_sql_string_hyphen_replaced(
+        self, remover: CommentRemover,
+    ) -> None:
+        """Pro*C EXEC SQL 내 문자열의 하이픈이 치환된다."""
+        code = "EXEC SQL SELECT '1030-2300' FROM dual;\n"
+        result = remover.execute(content=code, language="proc")
+        assert "'1030*2300'" in _cleaned(result)
+
+
+class TestHyphenReplacementSQL:
+    """SQL 문자열 내부 숫자-하이픈 치환 테스트."""
+
+    def test_sql_string_hyphen_replaced(self, remover: CommentRemover) -> None:
+        """SQL 문자열 내 숫자-숫자 하이픈이 치환된다."""
+        code = "SELECT '1030-2300' FROM dual;\n"
+        result = remover.execute(content=code, language="sql")
+        assert "'1030*2300'" in _cleaned(result)
+
+    def test_sql_three_segments(self, remover: CommentRemover) -> None:
+        """SQL 문자열 내 3-구간 하이픈이 모두 치환된다."""
+        code = "SELECT '1030-2030-3040' FROM dual;\n"
+        result = remover.execute(content=code, language="sql")
+        assert "'1030*2030*3040'" in _cleaned(result)
+
+    def test_sql_code_not_affected(self, remover: CommentRemover) -> None:
+        """SQL 코드의 하이픈 연산은 치환되지 않는다."""
+        code = "SELECT col1 - col2 FROM tbl;\n"
+        result = remover.execute(content=code, language="sql")
+        assert "col1 - col2" in _cleaned(result)
+
+    def test_sql_escaped_quote_in_string(self, remover: CommentRemover) -> None:
+        """SQL 이스케이프 '' 포함 문자열의 하이픈이 올바르게 치환된다."""
+        code = "SELECT 'it''s 1030-2300' FROM dual;\n"
+        result = remover.execute(content=code, language="sql")
+        cleaned = _cleaned(result)
+        assert "it''s 1030*2300" in cleaned
+
+    def test_sql_text_hyphen_not_affected(self, remover: CommentRemover) -> None:
+        """SQL 문자열 내 영문-영문 하이픈은 치환되지 않는다."""
+        code = "SELECT 'hello-world' FROM dual;\n"
+        result = remover.execute(content=code, language="sql")
+        assert "'hello-world'" in _cleaned(result)
+
+
+class TestHyphenReplacementXML:
+    """XML 문자열 하이픈 치환 미적용 테스트."""
+
+    def test_xml_not_affected(self, remover: CommentRemover) -> None:
+        """XML은 하이픈 치환이 적용되지 않는다."""
+        code = '<root attr="1030-2300">1030-2300</root>\n'
+        result = remover.execute(content=code, language="xml")
+        assert "1030-2300" in _cleaned(result)

@@ -5,6 +5,7 @@ clang-tidy를 실행하여 C 파일의 경고를 추출한다.
 """
 
 import logging
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -17,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 # 패키지 기준 기본 경로
 _PACKAGE_DIR = Path(__file__).parent.parent.parent  # mider/
-_DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "clang-tidy"
+_DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "clang-tidy.exe"
+if not _DEFAULT_BINARY.exists():
+    _DEFAULT_BINARY = _PACKAGE_DIR / "resources" / "binaries" / "clang-tidy"
 _DEFAULT_CHECKS = "-*,clang-analyzer-*,bugprone-*,-bugprone-branch-clone"
 
 # clang-tidy 출력 파싱 정규표현식
@@ -95,6 +98,10 @@ class ClangTidyRunner(BaseTool):
                 "-std=c99",
             ]
 
+            # Windows UAC 우회: temp 디렉토리의 바이너리 권한 상승 방지
+            env = os.environ.copy()
+            env["__COMPAT_LAYER"] = "RunAsInvoker"
+
             try:
                 proc = subprocess.run(
                     cmd,
@@ -103,6 +110,7 @@ class ClangTidyRunner(BaseTool):
                     encoding="utf-8",
                     errors="replace",
                     timeout=_TIMEOUT_SECONDS,
+                    env=env,
                 )
             except FileNotFoundError:
                 raise ToolExecutionError(
@@ -172,10 +180,13 @@ class ClangTidyRunner(BaseTool):
 
         logger.debug(f"clang-tidy 분석 완료: {len(warnings)} warnings")
 
-        return ToolResult(
-            success=True,
-            data={
-                "warnings": warnings,
-                "total_warnings": len(warnings),
-            },
-        )
+        result_data = {
+            "warnings": warnings,
+            "total_warnings": len(warnings),
+        }
+
+        from mider.config.debug_logger import is_enabled as _dbg_on, log_static_result
+        if _dbg_on():
+            log_static_result("clang-tidy", result_data)
+
+        return ToolResult(success=True, data=result_data)
