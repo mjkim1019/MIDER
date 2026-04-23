@@ -351,6 +351,18 @@ class ReporterAgent(BaseAgent):
                 reason="분석 중 오류 발생 → 배포 판정 불가",
             )
             # risk_description은 _determine_risk에서 이미 생성됨, LLM 호출 스킵
+        elif critical_count == 0 and high_count == 0:
+            # T70.6: LOW 위험도 — LLM 호출 skip, 템플릿 메시지 사용
+            self.rl.decision(
+                f"Decision: 배포 가능 ({risk}) — LLM skip",
+                reason=f"critical=0, high=0 → 템플릿 사용 (T70.6)",
+            )
+            risk_assessment["risk_description"] = self._default_risk_description(
+                by_severity, risk_assessment["deployment_risk"],
+            )
+            logger.info(
+                f"Reporter LLM 호출 skip: critical=0, high=0 → 템플릿 사용"
+            )
         else:
             status = "가능" if allowed else "차단"
             if critical_count > 0:

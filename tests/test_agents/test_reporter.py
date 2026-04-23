@@ -457,6 +457,56 @@ class TestLLMIntegration:
         assert len(risk["risk_description"]) > 0
 
 
+class TestLLMSkip:
+    """T70.6: LOW 위험도 LLM skip 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_low_risk_skips_llm(self, agent, run_kwargs):
+        """critical=0, high=0이면 LLM 호출을 하지 않는다."""
+        # medium 이슈만 있는 케이스 → LOW 판정
+        issues = [_make_issue(issue_id="JS-001", severity="medium")]
+        results = [_make_analysis_result(issues=issues)]
+
+        result = await agent.run(analysis_results=results, **run_kwargs)
+
+        # LLM 호출이 한 번도 없어야 함
+        agent._llm_client.chat.assert_not_called()
+        # 하지만 risk_description은 템플릿으로 채워져야 함
+        risk = result["summary"]["risk_assessment"]
+        assert risk["deployment_risk"] == "LOW"
+        assert len(risk["risk_description"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_empty_issues_skips_llm(self, agent, run_kwargs):
+        """이슈 0건이면 LLM 호출을 하지 않는다."""
+        result = await agent.run(analysis_results=[], **run_kwargs)
+
+        agent._llm_client.chat.assert_not_called()
+        risk = result["summary"]["risk_assessment"]
+        assert risk["deployment_risk"] == "LOW"
+        assert len(risk["risk_description"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_high_risk_still_calls_llm(self, agent, run_kwargs):
+        """high 이슈가 있으면 LLM을 호출한다 (skip 대상 아님)."""
+        issues = [_make_issue(severity="high")]
+        results = [_make_analysis_result(issues=issues)]
+
+        await agent.run(analysis_results=results, **run_kwargs)
+
+        agent._llm_client.chat.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_critical_still_calls_llm(self, agent, run_kwargs):
+        """critical 이슈가 있으면 LLM을 호출한다."""
+        issues = [_make_issue(severity="critical")]
+        results = [_make_analysis_result(issues=issues)]
+
+        await agent.run(analysis_results=results, **run_kwargs)
+
+        agent._llm_client.chat.assert_called_once()
+
+
 class TestProfiling:
     """T70.1: Reporter 프로파일링 로그 테스트."""
 
