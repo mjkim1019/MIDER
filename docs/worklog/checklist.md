@@ -466,9 +466,16 @@
 
 ### T73: Header 의존성 해결 — P1 (depends: T72)
 
+- [ ] T73.0: ProFrame 공통 헤더 구조 추출 + 번들 (신규)
+  - [ ] T73.0.1: `scripts/extract_pfm_symbols.py` — libclang 기반 AST 추출 (7종 batch include + 매크로 값 자동 평가)
+  - [ ] T73.0.2: 산출물 2종 생성 (`pfm.slim.h` + `pfm_symbols.yaml`)
+  - [ ] T73.0.3: 커버리지 검증 테스트 (샘플 C 파일 pfm 심볼 ↔ 산출물 diff 0)
+  - [ ] T73.0.4: `.gitignore` negation (원본 제외 + 산출물만 커밋 허용)
+  - [ ] T73.0.5: 버전 해시 주석 + CI 검증 (`// source: pfmcom.h@<sha256>`)
+  - [ ] T73.0.6: `include_resolver`의 기본 헤더 DB로 연동
 - [ ] T73.1: Include 파서 (include_resolver.py 신규)
 - [ ] T73.2: 심볼 의존성 추적 (LLM 1-shot으로 외부 심볼 목록 추출 + 헤더 매칭)
-- [ ] T73.3: 인터랙션 프롬프트 (CLI) — 트리거 3조건 AND 만족 시에만
+- [ ] T73.3: 인터랙션 프롬프트 (CLI) — 트리거 3조건 AND 만족 시에만 (pfm 외 헤더만)
 - [ ] T73.4: 세션 캐시 (`.mider_cache/header_decisions.json` — T60 완료 후 SQLite 마이그레이션)
 - [ ] T73.5: Analyzer 프롬프트 조건부 지시 (헤더 미제공 시 OOB 보고 금지)
 - [ ] T73.6: CLI 플래그 (`--headers`, `--assume-headers-missing`, `--no-interactive`)

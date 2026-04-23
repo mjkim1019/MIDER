@@ -373,11 +373,24 @@ T64 (외부 경로)
 
 #### T73: Header 의존성 해결 + 인터랙션 — P1 (depends: T72)
 
-**OOB 오탐의 근본 원인(헤더 정보 부재)을 사용자 인터랙션으로 해결**
+**OOB 오탐의 근본 원인(헤더 정보 부재)을 기본 헤더 번들 + 사용자 인터랙션으로 해결**
+
+- T73.0: **ProFrame 공통 헤더 구조 추출 + 번들** (신규, P1 최우선)
+  - 대상 헤더 7종: `pfmcom.h`, `pfmutil.h`, `pfmerr.h`, `pfmcbuf.h`, `pfmdbio.h`, `pfmioframe.h`, `pfmlframe.h` (원본 총 2,351줄)
+  - **원칙**: 원본 번들 금지 (기밀/토큰 낭비/noise). 구조만 추출하여 산출물 2종 생성
+  - 산출물 2종:
+    1. `mider/resources/headers/pfm.slim.h` — 주석/히스토리/구현 제거, 구조체/typedef/상수/프로토타입만. clang-tidy `-I`로 주입
+    2. `mider/resources/headers/pfm_symbols.yaml` — LLM 프롬프트 주입용. 심볼별 (name, kind, value, type, source) 구조화
+  - T73.0.1: `scripts/extract_pfm_symbols.py` — **libclang 기반** AST 추출 스크립트 (7종 헤더 batch include 파싱, 매크로 값 자동 평가)
+  - T73.0.2: 산출물 생성 로직 (슬림 .h + YAML 동시 출력)
+  - T73.0.3: 커버리지 검증 테스트 — 샘플 C 파일(ORDSB0100010T01 등)의 `pfm_*` 참조 심볼 ↔ 추출물 교집합/차집합 0 검증
+  - T73.0.4: `.gitignore` negation — 원본 `pfm*.h` 제외 유지 + 산출물(`pfm.slim.h`, `pfm_symbols.yaml`)만 커밋 허용
+  - T73.0.5: 버전 해시 주석 + CI 검증 — 슬림 .h 상단에 `// source: pfmcom.h@<sha256>` 기록, 원본 변경 시 CI 실패
+  - T73.0.6: `include_resolver`가 pfm 심볼을 기본 해결함 → T73.3 인터랙션 트리거는 pfm 외 사내 커스텀 헤더만 발동
 
 - T73.1: Include 파서 → `mider/tools/preprocessing/include_resolver.py` 신규
   - `#include "..."` / `#include <...>` 추출
-  - 해결 가능 여부 체크 (파일 제공됨 / 표준 경로 / 미해결)
+  - 해결 가능 여부 체크 (기본 번들 pfm / 파일 제공됨 / 표준 경로 / 미해결)
 - T73.2: 심볼 의존성 추적
   - 분석 대상 연산(버퍼 크기 상수, 구조체 정의, 함수 시그니처)이 미해결 헤더에 의존하는지 판정
   - 1차: LLM 1-shot 호출로 "이 코드가 참조하는 외부 심볼 목록" 추출
