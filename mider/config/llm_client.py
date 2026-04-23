@@ -30,32 +30,50 @@ MODEL_CD_MAP: dict[str, str] = {
 }
 
 
+# T71.3: AICA 에러 범주 — 로그/재시도 로직 분기 용도
+AICA_CATEGORY_PII = "PII_FILTER"          # detects 존재 — 마스킹 후 재시도 가능
+AICA_CATEGORY_CONTENT = "CONTENT_FILTER"  # PII 아닌 유해/차단 콘텐츠 (재시도 무의미)
+AICA_CATEGORY_SESSION = "SESSION_EXPIRED"
+AICA_CATEGORY_NETWORK = "NETWORK"         # httpx 연결/타임아웃
+AICA_CATEGORY_OTHER = "OTHER"
+
+
 class AICAError(Exception):
-    """AICA API 에러."""
+    """AICA API 에러.
+
+    T71.3: category 필드로 PII 필터 / 콘텐츠 필터 / 네트워크 분리
+    """
 
     def __init__(
         self,
         status_code: str,
         reason: str,
         detects: list[dict[str, str]] | None = None,
+        category: str = AICA_CATEGORY_OTHER,
     ) -> None:
         self.status_code = status_code
         self.reason = reason
         self.detects = detects or []
+        # detects 있으면 자동으로 PII 필터로 분류
+        self.category = AICA_CATEGORY_PII if self.detects else category
         detail = ""
         if self.detects:
             detail = " | 검출: " + ", ".join(
                 f"{d.get('detect_type_name', '?')}({d.get('detect_str', '?')})"
                 for d in self.detects
             )
-        super().__init__(f"AICA API 오류 [{status_code}]: {reason}{detail}")
+        super().__init__(f"AICA API 오류 [{self.category}/{status_code}]: {reason}{detail}")
 
 
 class AICASessionExpiredError(AICAError):
     """SSO 세션 만료 에러."""
 
     def __init__(self) -> None:
-        super().__init__("SESSION_EXPIRED", "SSO 세션이 만료되었습니다")
+        super().__init__(
+            "SESSION_EXPIRED",
+            "SSO 세션이 만료되었습니다",
+            category=AICA_CATEGORY_SESSION,
+        )
 
 
 def _mask_center(s: str) -> str:
@@ -353,7 +371,14 @@ class LLMClient:
         messages: list[dict[str, str]],
         json_mode: bool,
     ) -> str:
-        """AICA Gateway API로 호출 (SSO 재인증 + PII 마스킹 재시도)."""
+        """AICA Gateway API로 호출 (SSO 재인증 + PII 마스킹 재시도).
+
+        T71.3: 에러 범주별 처리 분기
+        - PII_FILTER: 마스킹 후 재시도 (최대 2회)
+        - CONTENT_FILTER: 재시도 무의미 — 즉시 raise
+        - SESSION_EXPIRED: 자동 재인증 후 재시도
+        - NETWORK/OTHER: 그대로 raise
+        """
         max_pii_retries = 2
         current_messages = messages
 
@@ -372,6 +397,9 @@ class LLMClient:
                 logger.info("SSO 재인증 완료: user_id=%s", self._aica_user_id)
                 return await self._chat_aica_once(model, current_messages, json_mode)
             except AICAError as e:
+                # PII 필터가 아니면 (콘텐츠 필터/기타) 재시도 의미 없음 — 즉시 raise
+                if e.category != AICA_CATEGORY_PII:
+                    raise
                 if not e.detects or pii_attempt >= max_pii_retries:
                     raise
                 # PII 검출 → 검출 문자열 가운데 마스킹 후 재시도
@@ -385,7 +413,11 @@ class LLMClient:
                 )
                 current_messages = _mask_pii_in_messages(current_messages, e.detects)
 
-        raise AICAError("PII_RETRY_EXHAUSTED", "PII 마스킹 재시도 소진")
+        raise AICAError(
+            "PII_RETRY_EXHAUSTED",
+            "PII 마스킹 재시도 소진",
+            category=AICA_CATEGORY_PII,
+        )
 
     async def _chat_aica_once(
         self,
@@ -432,15 +464,36 @@ class LLMClient:
             log_llm_request(f"AICA/{model_cd}", messages)
 
         _t0 = __import__("time").time()
-        response = await self._http_client.post(
-            url, json=payload, headers=headers, cookies=cookies,
-        )
+        try:
+            response = await self._http_client.post(
+                url, json=payload, headers=headers, cookies=cookies,
+            )
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+            # T71.3: 네트워크/타임아웃은 CONTENT_FILTER와 명확히 구분
+            logger.warning("[AICA/NETWORK] %s: %s", type(e).__name__, str(e)[:200])
+            raise AICAError(
+                "NETWORK",
+                f"{type(e).__name__}: {e}",
+                category=AICA_CATEGORY_NETWORK,
+            ) from e
 
         # SSO 만료 감지: HTML 응답이면 세션 만료
         if self._is_sso_expired_response(response):
             raise AICASessionExpiredError()
 
-        response.raise_for_status()
+        # HTTP 에러(4xx/5xx)도 네트워크 범주로 분류
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                "[AICA/NETWORK] HTTP %d: %s",
+                e.response.status_code, str(e)[:200],
+            )
+            raise AICAError(
+                f"HTTP_{e.response.status_code}",
+                str(e)[:300],
+                category=AICA_CATEGORY_NETWORK,
+            ) from e
 
         # AICA는 NDJSON(줄 단위 JSON)으로 응답 — 줄별로 파싱
         result = self._parse_aica_ndjson(response.text)
@@ -471,19 +524,33 @@ class LLMClient:
                 logger.warning("AICA 응답 JSON 파싱 실패: %s", line[:200])
                 continue
 
-            # 에러 응답 처리
+            # 에러 응답 처리 — AICA는 두 가지 포맷을 혼용:
+            #   (1) top-level: {"type": "error", "status_code": ..., "reason": ...}
+            #   (2) nested:    {"error": {"status_code": ..., "reason": ...}}
+            # T71.3: 두 포맷 모두 처리하여 AICAError로 일관되게 raise
             msg_type = data.get("type")
+            err_payload: dict | None = None
             if msg_type == "error":
-                status_code = str(data.get("status_code", "unknown"))
-                reason = data.get("reason", "알 수 없는 오류")
-                detects = data.get("detects")
+                err_payload = data
+            elif isinstance(data.get("error"), dict):
+                err_payload = data["error"]
+
+            if err_payload is not None:
+                status_code = str(err_payload.get("status_code", "unknown"))
+                reason = err_payload.get("reason", "알 수 없는 오류")
+                detects = err_payload.get("detects") or data.get("detects")
                 if detects:
                     logger.warning(
-                        "AICA PII 검출: %s",
+                        "[AICA/PII_FILTER] status=%s reason=%s 검출=%s",
+                        status_code, reason,
                         ", ".join(
                             f"{d.get('detect_type_name', '?')}({d.get('detect_str', '?')})"
                             for d in detects
                         ),
+                    )
+                else:
+                    logger.warning(
+                        "[AICA/OTHER] status=%s reason=%s", status_code, reason,
                     )
                 raise AICAError(status_code, reason, detects)
 
@@ -500,7 +567,8 @@ class LLMClient:
                 if error_code and detects:
                     reason = full_content.strip()
                     logger.warning(
-                        "AICA PII 검출 (choices): %s",
+                        "[AICA/PII_FILTER] status=%s 검출=%s",
+                        error_code,
                         ", ".join(
                             f"{d.get('detect_type_name', '?')}({d.get('detect_str', '?')})"
                             for d in detects
@@ -517,9 +585,18 @@ class LLMClient:
             raise ValueError("AICA가 빈 응답을 반환했습니다 (content가 비어 있음)")
 
         # choices content로 에러 메시지가 온 경우 감지
+        # T71.3: PII 필터는 이미 AICAError로 raise되었으므로 여기 도달하면 콘텐츠 필터로 분류
         stripped = full_content.strip()
         if stripped.startswith("[Error:") or stripped.startswith("고객 정보"):
-            logger.warning("AICA PII/콘텐츠 필터 차단 (content): %s", stripped[:300])
+            logger.warning(
+                "[AICA/CONTENT_FILTER] 콘텐츠 필터 차단 (PII 아님): %s",
+                stripped[:300],
+            )
+            raise AICAError(
+                "CONTENT_FILTER",
+                stripped[:300],
+                category=AICA_CATEGORY_CONTENT,
+            )
 
         # LLM이 마크다운 코드블록으로 감싼 경우 제거
         full_content = self._strip_markdown_json(full_content)
