@@ -357,7 +357,7 @@
 ### T71: PII 전처리 강화 — P0 (최우선)
 
 - [x] T71.1: PIDScanner 패턴 확장 (여권 1~2자, 대표번호 1XXX, 이메일 broad, 안심번호 0507)
-- [ ] T71.2: LLMClient 호출 전 로컬 선탐지 + 선마스킹 파이프라인 (llm_client.py 또는 base_agent.py)
+- [x] T71.2: LLMClient 호출 전 로컬 선탐지 + 선마스킹 파이프라인 (llm_client.py 또는 base_agent.py)
 - [ ] T71.3: AICA 에러 로그 분리 (PII 필터 / 콘텐츠 필터 / 네트워크)
 - [x] T71.4: 통신사 식별자 패턴 (IMSI/IMEI/ICCID) + Luhn 체크
 - [x] T71.5: Secret/API key 스캐너 (AWS/GitHub/JWT/Google/Stripe/Hardcoded PW/DB URL) — `secret_scanner.py` 신규

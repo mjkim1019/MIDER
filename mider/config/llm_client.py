@@ -95,6 +95,60 @@ def _mask_pii_in_messages(
     return masked
 
 
+def _pre_mask_messages(
+    messages: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """T71.2: AICA 전송 전 로컬 PII/Secret 선탐지 + 선마스킹.
+
+    PIDScanner + SecretScanner를 메시지 content에 적용하여 AICA 필터 차단/재시도 예방.
+    _mask_center()로 길이 보존 마스킹 → AICA 위치 분석 호환.
+
+    탐지된 항목은 debug 로그로 추적 가능하게 기록.
+    """
+    # Import 지연 (순환 의존 회피 + OpenAI 경로에선 쓰지 않을 수 있음)
+    from mider.tools.preprocessing.secret_scanner import SecretScanner
+    from mider.tools.static_analysis.pid_scanner import PIDScanner
+
+    masked: list[dict[str, str]] = []
+    total_masked = 0
+    type_counts: dict[str, int] = {}
+
+    for msg in messages:
+        content = msg.get("content", "")
+        if not content:
+            masked.append(msg)
+            continue
+
+        # Secret 우선 (critical) + PII — 둘 다 수집
+        findings = (
+            SecretScanner.scan_text(content) + PIDScanner.scan_text(content)
+        )
+        if not findings:
+            masked.append(msg)
+            continue
+
+        # 중복 마스킹 방지: 같은 값은 한 번만 치환 (.replace는 전체 치환)
+        seen_values: set[str] = set()
+        for f in findings:
+            val = f["value"]
+            if val in seen_values:
+                continue
+            seen_values.add(val)
+            content = content.replace(val, _mask_center(val))
+            total_masked += 1
+            type_counts[f["type_name"]] = type_counts.get(f["type_name"], 0) + 1
+
+        masked.append({**msg, "content": content})
+
+    if total_masked > 0:
+        summary = ", ".join(f"{k}={v}" for k, v in type_counts.items())
+        logger.debug(
+            "로컬 PII/Secret 선마스킹: %d건 치환 (%s)",
+            total_masked, summary,
+        )
+    return masked
+
+
 class LLMClient:
     """LLM API 클라이언트 (OpenAI/Azure/AICA 자동 스위칭).
 
@@ -339,8 +393,13 @@ class LLMClient:
         messages: list[dict[str, str]],
         json_mode: bool,
     ) -> str:
-        """AICA Gateway API 단일 호출."""
+        """AICA Gateway API 단일 호출.
+
+        T71.2: AICA 전송 전 로컬 PII/Secret 선마스킹으로 필터 차단/재시도 예방.
+        """
         model_cd = self._resolve_model_cd(model)
+        # 로컬 PII/Secret 선마스킹 (AICA 필터 차단 근본 예방)
+        messages = _pre_mask_messages(messages)
         message = self._build_message(messages)
 
         if json_mode:
