@@ -66,6 +66,14 @@ class _PIDPattern:
 
 
 _PATTERNS: list[_PIDPattern] = [
+    # 외국인등록번호: YYMMDD-5/6/7/8XXXXXX (성별코드 5-8)
+    # 주민등록번호의 부분집합이므로 **먼저** 배치해야 분류 가능 (첫 매치 우선 dedup)
+    _PIDPattern(
+        pattern=re.compile(r"\b\d{6}[-][5-8]\d{6}\b"),
+        type_code=0x008,
+        type_name="외국인등록번호",
+        severity="high",
+    ),
     # 주민등록번호: YYMMDD-SXXXXXX
     # 마스킹 후에도 \d{6}-\d{7} 형식 유지 → 탐지 가능
     # 후처리에서 원본값으로 실제 생년월일 포함 여부 판별
@@ -109,14 +117,6 @@ _PATTERNS: list[_PIDPattern] = [
         type_name="운전면허번호",
         severity="high",
     ),
-    # 외국인등록번호: YYMMDD-5XXXXXX ~ YYMMDD-8XXXXXX
-    _PIDPattern(
-        pattern=re.compile(r"\b\d{6}[-][5-8]\d{6}\b"),
-        type_code=0x008,
-        type_name="외국인등록번호",
-        severity="high",
-    ),
-
     # ── T71.1 신규 ─────────────────────────────────────────────────────────────
     # 대표번호 (15XX/16XX/18XX): 대시 유무 모두. 프리픽스 보존 필수 → original 스캔
     _PIDPattern(
@@ -178,17 +178,18 @@ _PATTERNS: list[_PIDPattern] = [
 
     # ── T71.6 로마자 한글 이름 휴리스틱 ────────────────────────────────────────
     # KMA 형태소 분석기는 한글만 처리 → 영문 표기 이름 miss
-    # 주요 성씨 50개 + 구분자 + 3~5자 영문. 순방향(성-이름) + 역방향(이름-성) 모두 커버
-    # 오탐 허용 — over-mask 선호 원칙 (개발자 이메일/주석/Git author 누출 방지)
-    # 순방향: Kim Minju, Park.Jihye, Lee Chul-soo, Park Jihye Kim
+    # 코드 리뷰 반영 (2026-04-24):
+    #   - 2자 성씨(Ma/Ha/Im/Oh/No/Ko/Jo/Na/Yu) 및 흔한 영단어/약자(Min/Moon/Song/Woo/
+    #     Seo/Jin/Ryu/Ha)는 식별자(Min_Size, No_Error, Moon_Phase 등)와 충돌 → 제외
+    #   - snake_case 구분자(_)는 C/Python 식별자와 구분 불가 → 공백/점/하이픈만
+    # 순방향: Kim Minju, Park.Jihye, Lee Chul-soo
     _PIDPattern(
         pattern=re.compile(
             r"\b(?:Kim|Lee|Park|Choi|Jung|Jang|Cho|Kang|Lim|Han|"
-            r"Yoon|Jeon|Seo|Oh|Shin|Kwon|Hwang|Song|Ahn|Yu|"
-            r"Hong|Ko|Moon|Yang|Son|Bae|Baek|Jo|Hur|Nam|"
-            r"Ryu|No|Min|Seong|Sim|Yuk|Ha|Joo|Koo|Im|"
-            r"Na|Jin|Chae|Woo|Gil|Heo|Pyo|Yeo|Ma|Noh)"
-            r"[\s._-][A-Z][a-z]{2,6}(?:[\s._-][A-Z]?[a-z]{2,6})?\b"
+            r"Yoon|Jeon|Shin|Kwon|Hwang|Ahn|Hong|Yang|Bae|Baek|"
+            r"Hur|Nam|Seong|Sim|Yuk|Gil|Heo|Pyo|Yeo|Chae|Noh|"
+            r"Joo|Koo)"
+            r"[\s.-][A-Z][a-z]{2,6}(?:[\s.-][A-Z]?[a-z]{2,6})?\b"
         ),
         type_code=0x8000,
         type_name="로마자이름",
@@ -198,12 +199,11 @@ _PATTERNS: list[_PIDPattern] = [
     # 역방향: Minju Kim, Jihye.Park, Chulsoo Lee (Git author/영문 문서에 흔함)
     _PIDPattern(
         pattern=re.compile(
-            r"\b[A-Z][a-z]{2,6}[\s._-]"
+            r"\b[A-Z][a-z]{2,6}[\s.-]"
             r"(?:Kim|Lee|Park|Choi|Jung|Jang|Cho|Kang|Lim|Han|"
-            r"Yoon|Jeon|Seo|Oh|Shin|Kwon|Hwang|Song|Ahn|Yu|"
-            r"Hong|Ko|Moon|Yang|Son|Bae|Baek|Jo|Hur|Nam|"
-            r"Ryu|No|Min|Seong|Sim|Yuk|Ha|Joo|Koo|Im|"
-            r"Na|Jin|Chae|Woo|Gil|Heo|Pyo|Yeo|Ma|Noh)\b"
+            r"Yoon|Jeon|Shin|Kwon|Hwang|Ahn|Hong|Yang|Bae|Baek|"
+            r"Hur|Nam|Seong|Sim|Yuk|Gil|Heo|Pyo|Yeo|Chae|Noh|"
+            r"Joo|Koo)\b"
         ),
         type_code=0x8001,
         type_name="로마자이름",

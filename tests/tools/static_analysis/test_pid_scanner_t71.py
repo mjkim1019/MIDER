@@ -163,6 +163,50 @@ class TestRomanizedKoreanName:
         assert not any(f["type_name"] == "로마자이름" for f in findings)
 
 
+class TestRomanizedNameFPFix:
+    """코드 리뷰 반영 — 2자/영단어 성씨 제거로 식별자 오탐 방지 (2026-04-24)."""
+
+    def test_min_size_not_matched(self) -> None:
+        """Min, Ma 등 2자 성씨는 제외 → Min_Size 식별자 미탐지."""
+        findings = PIDScanner.scan_text("#define MIN_SIZE 10")
+        assert not any(f["type_name"] == "로마자이름" for f in findings)
+
+    def test_no_error_not_matched(self) -> None:
+        findings = PIDScanner.scan_text("int No_Error = 0;")
+        assert not any(f["type_name"] == "로마자이름" for f in findings)
+
+    def test_moon_phase_not_matched(self) -> None:
+        """Moon은 영단어라 제외."""
+        findings = PIDScanner.scan_text("moon_phase = Moon.Phase")
+        assert not any(f["type_name"] == "로마자이름" for f in findings)
+
+    def test_underscore_separator_not_matched(self) -> None:
+        """snake_case 구분자(_)는 식별자 충돌 방지 차원에서 제외."""
+        findings = PIDScanner.scan_text("const kim_minju_id")
+        assert not any(f["type_name"] == "로마자이름" for f in findings)
+
+    def test_distinct_surname_still_works(self) -> None:
+        """3자+ 구분 성씨는 정상 탐지 유지."""
+        findings = PIDScanner.scan_text("Kim Minju submitted PR")
+        assert any(f["type_name"] == "로마자이름" and f["value"] == "Kim Minju" for f in findings)
+
+
+class TestForeignRegistrationOrder:
+    """코드 리뷰 반영 — 외국인등록번호 vs 주민번호 dedup 순서 수정 (2026-04-24)."""
+
+    def test_foreign_rrn_classified_correctly(self) -> None:
+        """성별코드 5-8이면 외국인등록번호로 분류 (주민번호가 아님)."""
+        findings = PIDScanner.scan_text("외국인: 850101-5234567")
+        types = {f["type_name"] for f in findings}
+        assert "외국인등록번호" in types
+        assert "주민등록번호" not in types
+
+    def test_korean_rrn_still_classified_as_korean(self) -> None:
+        """성별코드 1-4는 주민번호로 분류."""
+        findings = PIDScanner.scan_text("주민: 850101-1234567")
+        assert any(f["type_name"] == "주민등록번호" for f in findings)
+
+
 class TestBackwardCompatibility:
     """기존 6개 패턴이 계속 동작하는지 확인."""
 

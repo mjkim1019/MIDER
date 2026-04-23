@@ -113,17 +113,25 @@ def _mask_pii_in_messages(
     return masked
 
 
+# 선마스킹은 전체 치환 — _mask_center(가운데만)는 주민번호/이메일/여권 등 긴 값을
+# 사실상 노출시킴 (13자 중 1자 가림). T71 목표(AICA 필터 예방)엔 불충분.
+# LLM은 "[PII]" 구조 신호만 있으면 분석 가능 — 실제 값 알 필요 없음.
+def _apply_mask(value: str, type_name: str) -> str:
+    """탐지된 PII/Secret 값을 동일 길이 '*'로 치환 (AICA 위치 분석 호환)."""
+    return "*" * len(value)
+
+
 def _pre_mask_messages(
     messages: list[dict[str, str]],
 ) -> list[dict[str, str]]:
     """T71.2: AICA 전송 전 로컬 PII/Secret 선탐지 + 선마스킹.
 
-    PIDScanner + SecretScanner를 메시지 content에 적용하여 AICA 필터 차단/재시도 예방.
-    _mask_center()로 길이 보존 마스킹 → AICA 위치 분석 호환.
-
-    탐지된 항목은 debug 로그로 추적 가능하게 기록.
+    설계:
+    - Secret + PII findings 통합 수집 → span (start,end) 기준 dedup (cross-scanner 겹침 방지)
+    - 우측→좌측 슬라이스 치환 (str.replace는 겹치는 스팬에서 뒷순위 매치 miss — 예: "Kim Minju Lee")
+    - Secret/통신식별자는 전체 마스킹, 일반 PII는 가운데만 (길이 보존 공통)
     """
-    # Import 지연 (순환 의존 회피 + OpenAI 경로에선 쓰지 않을 수 있음)
+    # Import 지연 (순환 의존 회피)
     from mider.tools.preprocessing.secret_scanner import SecretScanner
     from mider.tools.static_analysis.pid_scanner import PIDScanner
 
@@ -137,7 +145,7 @@ def _pre_mask_messages(
             masked.append(msg)
             continue
 
-        # Secret 우선 (critical) + PII — 둘 다 수집
+        # Secret 먼저 수집 → 겹치는 스팬에서 우선권
         findings = (
             SecretScanner.scan_text(content) + PIDScanner.scan_text(content)
         )
@@ -145,16 +153,26 @@ def _pre_mask_messages(
             masked.append(msg)
             continue
 
-        # 중복 마스킹 방지: 같은 값은 한 번만 치환 (.replace는 전체 치환)
-        seen_values: set[str] = set()
+        # 스팬 기준 dedup — 같은 (start,end) 범위는 첫 탐지만 유지 (cross-scanner 포함)
+        seen_spans: set[tuple[int, int]] = set()
+        unique_findings: list[dict] = []
         for f in findings:
-            val = f["value"]
-            if val in seen_values:
+            span = (f["start"], f["end"])
+            if span in seen_spans:
                 continue
-            seen_values.add(val)
-            content = content.replace(val, _mask_center(val))
+            seen_spans.add(span)
+            unique_findings.append(f)
+
+        # 우측→좌측 슬라이스 치환: 위치 기반이므로 겹치는 스팬도 정확히 마스킹
+        unique_findings.sort(key=lambda f: f["start"], reverse=True)
+        for f in unique_findings:
+            start, end = f["start"], f["end"]
+            val = f["value"]
+            type_name = f["type_name"]
+            mask = _apply_mask(val, type_name)
+            content = content[:start] + mask + content[end:]
             total_masked += 1
-            type_counts[f["type_name"]] = type_counts.get(f["type_name"], 0) + 1
+            type_counts[type_name] = type_counts.get(type_name, 0) + 1
 
         masked.append({**msg, "content": content})
 
@@ -388,14 +406,15 @@ class LLMClient:
             except AICASessionExpiredError:
                 if not self._sso_authenticator:
                     raise
-                # 자동 재인증 후 1회 재시도
+                # 자동 재인증 후 루프 계속 — PII 재시도 경로를 보존
+                # (재인증 직후 PII 필터 발생 시 마스킹 재시도가 동작해야 함)
                 logger.info("SSO 세션 만료 — 자동 재인증 시도")
                 self._sso_authenticator.invalidate_session()
                 creds = self._sso_authenticator.authenticate(force_login=True)
                 self._aica_sso_session = creds.sso_session
                 self._aica_user_id = creds.user_id
                 logger.info("SSO 재인증 완료: user_id=%s", self._aica_user_id)
-                return await self._chat_aica_once(model, current_messages, json_mode)
+                continue
             except AICAError as e:
                 # PII 필터가 아니면 (콘텐츠 필터/기타) 재시도 의미 없음 — 즉시 raise
                 if e.category != AICA_CATEGORY_PII:

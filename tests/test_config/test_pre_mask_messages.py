@@ -85,3 +85,66 @@ class TestLengthPreservation:
         result = _pre_mask_messages(msgs)
         # 마스킹 후 길이 동일
         assert len(result[0]["content"]) == len(original_content)
+
+
+class TestReviewFixes:
+    """코드 리뷰에서 발견된 CRITICAL/HIGH 이슈 회귀 테스트 (2026-04-24)."""
+
+    def test_secret_fully_masked_not_center(self) -> None:
+        """CRITICAL: HARDCODED_SECRET은 _mask_center(가운데만)가 아닌 전체 '*'로 마스킹되어야 함.
+        이전 버그: password="admin1234" → password=**admin1234" (값 노출)
+        """
+        msgs = [{"role": "user", "content": 'password = "admin1234"'}]
+        result = _pre_mask_messages(msgs)
+        # admin1234가 어떤 형태로든 남아있으면 안 됨 (부분 문자열 검사)
+        assert "admin1234" not in result[0]["content"]
+        assert "admin" not in result[0]["content"]
+        # 전체 길이는 보존
+        assert len(result[0]["content"]) == len('password = "admin1234"')
+
+    def test_db_url_fully_masked(self) -> None:
+        """CRITICAL: DB_URL의 자격증명이 노출되지 않아야 함."""
+        content = "conn=postgres://user:superSecretPass@db.example.com:5432/app"
+        msgs = [{"role": "user", "content": content}]
+        result = _pre_mask_messages(msgs)
+        assert "superSecretPass" not in result[0]["content"]
+        assert "user:superSecret" not in result[0]["content"]
+
+    def test_imsi_fully_masked(self) -> None:
+        """CRITICAL: 통신 식별자(IMSI)도 strong mask."""
+        msgs = [{"role": "user", "content": "imsi=450050123456789"}]
+        result = _pre_mask_messages(msgs)
+        assert "450050123456789" not in result[0]["content"]
+        # 중간 숫자도 남으면 안 됨
+        assert "450" not in result[0]["content"] or "50012" not in result[0]["content"]
+
+    def test_overlapping_spans_both_masked(self) -> None:
+        """CRITICAL: 겹치는 스팬에서 뒷순위 PII도 누락 없이 마스킹되어야 함.
+        이전 버그: 'Kim Minju Lee' 순방향 'Kim Minju' + 역방향 'Minju Lee' 겹침
+        """
+        msgs = [{"role": "user", "content": "Kim Minju Lee"}]
+        result = _pre_mask_messages(msgs)
+        # Lee가 평문으로 남으면 안 됨
+        assert "Lee" not in result[0]["content"]
+        # Kim도 마스킹
+        assert "Kim Minju" not in result[0]["content"]
+
+    def test_aws_key_fully_masked(self) -> None:
+        """Strong mask: AWS/GitHub/Google/Stripe/JWT."""
+        msgs = [{"role": "user", "content": 'aws = "AKIAIOSFODNN7EXAMPLE"'}]
+        result = _pre_mask_messages(msgs)
+        assert "AKIA" not in result[0]["content"]
+        assert "IOSFODNN" not in result[0]["content"]
+
+    def test_email_fully_masked(self) -> None:
+        """PII도 전체 마스킹 — 긴 값에 center mask는 사실상 노출(13자중 1자만 가림)."""
+        msgs = [{"role": "user", "content": "contact cyber@skbroadband.com now"}]
+        result = _pre_mask_messages(msgs)
+        content = result[0]["content"]
+        assert "cyber@skbroadband.com" not in content
+        # 도메인 fragments도 노출되면 안 됨
+        assert "skbroadband" not in content
+        assert "cyber" not in content
+        # 길이 보존
+        assert len(content) == len("contact cyber@skbroadband.com now")
+
