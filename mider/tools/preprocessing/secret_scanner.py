@@ -74,10 +74,10 @@ _PATTERNS: list[_SecretPattern] = [
         type_name="HARDCODED_SECRET",
         severity="critical",
     ),
-    # Base64 blob: 40자+ base64 형식 (API 응답·토큰에 흔함)
-    # 오탐 많으므로 severity=medium, AICA가 콘텐츠 필터로 2차 방어
+    # Base64 blob: = 패딩으로 끝나는 base64 (실제 인코딩된 secret 특징)
+    # 긴 영숫자 전부 매칭하면 대형 코드에서 오탐·성능 문제 → 패딩(=) 존재로 한정
     _SecretPattern(
-        pattern=re.compile(r"\b[A-Za-z0-9+/]{40,}={0,2}\b"),
+        pattern=re.compile(r"\b[A-Za-z0-9+/]{32,}={1,2}(?=\b|$|[^A-Za-z0-9+/=])"),
         type_name="BASE64_BLOB",
         severity="medium",
     ),
