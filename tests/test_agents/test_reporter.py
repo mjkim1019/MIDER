@@ -1,6 +1,7 @@
 """ReporterAgent 단위 테스트."""
 
 import json
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -454,6 +455,40 @@ class TestLLMIntegration:
 
         risk = result["summary"]["risk_assessment"]
         assert len(risk["risk_description"]) > 0
+
+
+class TestProfiling:
+    """T70.1: Reporter 프로파일링 로그 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_profile_breakdown_logged(self, agent, run_kwargs, caplog):
+        """run() 완료 시 단계별 소요 시간 breakdown이 logger에 기록된다."""
+        with caplog.at_level(logging.INFO, logger="mider.agents.reporter"):
+            await agent.run(analysis_results=[], **run_kwargs)
+
+        messages = [r.message for r in caplog.records]
+        assert any("단계별 소요 시간 breakdown" in m for m in messages)
+        assert any("collect_and_sort_issues" in m for m in messages)
+        assert any("build_issue_list" in m for m in messages)
+        assert any("build_checklist" in m for m in messages)
+        assert any("build_summary_with_llm" in m for m in messages)
+        assert any("build_deployment_checklist" in m for m in messages)
+        assert any("TOTAL:" in m for m in messages)
+
+    @pytest.mark.asyncio
+    async def test_llm_call_timing_logged(self, agent, run_kwargs, caplog):
+        """LLM 호출 시 duration + prompt/response 토큰이 logger에 기록된다."""
+        issues = [_make_issue(severity="critical")]
+        results = [_make_analysis_result(issues=issues)]
+
+        with caplog.at_level(logging.INFO, logger="mider.agents.reporter"):
+            await agent.run(analysis_results=results, **run_kwargs)
+
+        messages = [r.message for r in caplog.records]
+        llm_msgs = [m for m in messages if "Reporter LLM 호출" in m]
+        assert len(llm_msgs) == 1
+        assert "prompt tokens" in llm_msgs[0]
+        assert "response tokens" in llm_msgs[0]
 
 
 class TestAgentInit:
