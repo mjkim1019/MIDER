@@ -916,3 +916,6 @@
 - `2026-04-13 14:48:00` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/USER_MANUAL.md`
 - `2026-04-13 14:48:11` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/USER_MANUAL.md`
 - `2026-04-13 14:48:20` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/USER_MANUAL.md`
+- `2026-04-23 22:07:39` [main] **Write**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/010-llm-first-rule-redesign.md`
+- `2026-04-23 22:35:00` [main] **Write**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/011-pii-preprocessing-enhancement.md`
+- `2026-04-23 22:44:46` [main] **Write**: `/Users/a11401/Documents/2026/Mider/docs/issue-log/012-issue-quality-control.md`
