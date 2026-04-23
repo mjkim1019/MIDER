@@ -962,3 +962,4 @@
 - `2026-04-24 00:19:34` [feat/T71-pii-preprocessing] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/tools/static_analysis/test_pid_scanner_t71.py`
 - `2026-04-24 00:21:19` [feat/T71-pii-preprocessing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
 - `2026-04-24 00:21:31` [feat/T71-pii-preprocessing] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_config/test_pre_mask_messages.py`
+- `2026-04-24 00:23:24` [feat/T71-pii-preprocessing] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/tools/preprocessing/test_secret_scanner.py`

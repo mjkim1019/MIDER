@@ -28,11 +28,14 @@ class TestSecretPatterns:
         assert any(f["type_name"] == "GOOGLE_API_KEY" for f in findings)
 
     def test_stripe_live(self) -> None:
-        findings = SecretScanner.scan_text(("sk_" + "live_" + ("X" * 30)))
+        # GitHub Push Protection 회피 — 단일 리터럴 아닌 런타임 결합으로 secret 스캐너 우회
+        fake = "sk_" + "live_" + ("X" * 30)
+        findings = SecretScanner.scan_text(fake)
         assert any(f["type_name"] == "STRIPE_KEY" for f in findings)
 
     def test_stripe_test(self) -> None:
-        findings = SecretScanner.scan_text(("sk_" + "test_" + ("X" * 30)))
+        fake = "sk_" + "test_" + ("X" * 30)
+        findings = SecretScanner.scan_text(fake)
         assert any(f["type_name"] == "STRIPE_KEY" for f in findings)
 
     def test_jwt(self) -> None:
