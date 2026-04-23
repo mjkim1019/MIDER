@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -431,45 +432,87 @@ class SSOAuthenticator:
         raise SSOAuthError("SSOSESSION 쿠키를 찾을 수 없습니다.")
 
     def _extract_user_info(self, ws: object) -> tuple[str, str]:
-        """CDP Runtime.evaluate로 /api/v1/auth를 호출하여 user_id를 추출한다."""
-        logger.debug("/api/v1/auth 호출 중...")
-        t0 = time.time()
+        """user_id를 3단계 fallback으로 추출한다.
 
-        js_code = """
-            (async () => {
-                const resp = await fetch("/api/v1/auth", {method: "POST"});
-                return await resp.text();
-            })()
+        1순위: 응답전문(API + HTML)에서 정규식 검색 (V 시작 제외)
+        2순위: /api/v1/auth JSON 파싱 (기존 방식)
+        3순위: 사용자 수동 입력
         """
-        eval_resp = _cdp_send(ws, "Runtime.evaluate", {
-            "expression": js_code,
-            "awaitPromise": True,
-            "returnByValue": True,
-        })
-
-        elapsed = time.time() - t0
-        logger.debug("/api/v1/auth 응답 시간: %.2f초", elapsed)
-
-        auth_json = eval_resp.get("result", {}).get("result", {}).get("value", "")
-
+        # /api/v1/auth 응답 + 페이지 HTML 수집 (1순위, 2순위 공용)
+        auth_json = ""
         try:
-            auth_data = json.loads(auth_json)
-        except (json.JSONDecodeError, TypeError) as e:
-            raise SSOAuthError(f"/api/v1/auth 응답 파싱 실패: {e}")
+            js_code = """
+                (async () => {
+                    const resp = await fetch("/api/v1/auth", {method: "POST"});
+                    return await resp.text();
+                })()
+            """
+            logger.debug("/api/v1/auth 호출 중...")
+            t0 = time.time()
+            eval_resp = _cdp_send(ws, "Runtime.evaluate", {
+                "expression": js_code,
+                "awaitPromise": True,
+                "returnByValue": True,
+            })
+            auth_json = eval_resp.get("result", {}).get("result", {}).get("value", "")
+            logger.debug("/api/v1/auth 응답 시간: %.2f초", time.time() - t0)
+        except Exception as e:
+            logger.debug("/api/v1/auth 호출 실패: %s", e)
 
-        if "error" in auth_data:
-            raise SSOAuthError(f"/api/v1/auth 호출 실패: {auth_data['error']}")
+        page_html = ""
+        try:
+            html_resp = _cdp_send(ws, "Runtime.evaluate", {
+                "expression": "document.documentElement.outerHTML",
+                "returnByValue": True,
+            })
+            page_html = html_resp.get("result", {}).get("result", {}).get("value", "")
+        except Exception:
+            pass
 
-        user_id = auth_data.get("user_id")
-        if not user_id:
-            raise SSOAuthError(
-                f"응답에서 user_id를 찾을 수 없습니다 (keys: {list(auth_data.keys())})"
-            )
+        # ── 1순위: 응답전문에서 user_id 정규식 검색 (V 시작 제외) ──
+        logger.info("[user_id] 1순위: 응답전문에서 user_id 검색 (V 시작 제외)")
+        combined_text = auth_json + "\n" + page_html
+        matches = re.findall(
+            r'(?i)["\']?(?:user_id|userid)["\']?\s*[:=]\s*["\']([^"\']+)["\']',
+            combined_text,
+        )
+        found_ids: list[str] = []
+        for m in matches:
+            uid = m.strip().upper()
+            if uid and uid not in found_ids:
+                found_ids.append(uid)
 
-        name = auth_data.get("name", "")
-        logger.info("user_id 추출: %s / name: %s", user_id, name)
+        for uid in found_ids:
+            if not uid.startswith("V"):
+                logger.info("[user_id] 1순위 성공: %s (응답전문 검색)", uid)
+                return uid, ""
 
-        return user_id, name
+        logger.info("[user_id] 1순위 실패 → 2순위 시도")
+
+        # ── 2순위: /api/v1/auth JSON 파싱 ──
+        logger.info("[user_id] 2순위: /api/v1/auth JSON 파싱")
+        if auth_json:
+            try:
+                auth_data = json.loads(auth_json)
+                user_id = auth_data.get("user_id")
+                name = auth_data.get("name", "")
+                if user_id:
+                    logger.info("[user_id] 2순위 성공: %s / name: %s", user_id, name)
+                    return user_id, name
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.debug("2순위 실패 (파싱 오류): %s", e)
+
+        logger.info("[user_id] 2순위 실패 → 3순위 (수동 입력)")
+
+        # ── 3순위: 사용자 수동 입력 ──
+        print("\n[user_id] 자동 추출에 모두 실패했습니다.")
+        print("로그인할 때 입력한 아이디를 직접 입력해 주세요.")
+        while True:
+            manual_id = input("login_id 입력(UX000): ").strip().upper()
+            if manual_id:
+                logger.info("[user_id] 3순위 수동 입력: %s", manual_id)
+                return manual_id, ""
+            print("아이디를 입력해 주세요.")
 
     def invalidate_session(self) -> None:
         """캐시된 세션 파일을 삭제한다 (만료 시 호출)."""
