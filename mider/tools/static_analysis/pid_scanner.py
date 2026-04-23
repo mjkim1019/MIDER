@@ -11,6 +11,7 @@
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,12 +21,35 @@ from mider.tools.base_tool import BaseTool, ToolResult
 logger = logging.getLogger(__name__)
 
 
+# ── post_check 콜러블 ─────────────────────────────────────────────────────────
+
+
+def _passes_luhn(value: str) -> bool:
+    """Luhn 알고리즘으로 숫자열 체크섬을 검증한다.
+
+    IMEI는 15자리 숫자 중 마지막이 Luhn 체크섬 → 유효 IMEI만 유지 (오탐 감소)
+    """
+    digits = [int(c) for c in value if c.isdigit()]
+    if len(digits) < 2:
+        return False
+
+    total = 0
+    for i, d in enumerate(reversed(digits)):
+        if i % 2 == 1:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
 # ── 정규식 탐지 패턴 정의 ──────────────────────────────────────────────────────
-# 각 항목: (컴파일된 패턴, 타입 코드, 한국어 이름, 심각도)
+# 각 항목: (컴파일된 패턴, 타입 코드, 한국어 이름, 심각도, scan_on, post_check)
 #
 # 설계 원칙:
 #   - 전처리 후의 마스킹된 텍스트에서 실행 (6자리+ 숫자 그룹은 첫자리+0으로 치환됨)
 #   - 탐지 위치는 원본 텍스트에서 후처리로 실제 개인정보 여부를 최종 판별
+#   - prefix가 의미 있는 패턴(대표번호/IMSI/ICCID 등)은 scan_on="original"
 
 @dataclass
 class _PIDPattern:
@@ -36,6 +60,9 @@ class _PIDPattern:
     # "masked": 6자리+ 숫자 마스킹된 텍스트에 매칭 (주민/카드/운전면허 등 digit-count만 중요한 패턴)
     # "original": 원본 텍스트에 매칭 (대표번호 1XXX/0507/이메일/IMSI 등 prefix가 의미 있는 패턴)
     scan_on: str = "masked"
+    # 정규식 매칭 후 추가 검증 콜러블 (True 반환 시 유지). None이면 검증 없음
+    # 예: IMEI는 Luhn 체크섬으로 오탐 감소
+    post_check: Callable[[str], bool] | None = None
 
 
 _PATTERNS: list[_PIDPattern] = [
@@ -119,6 +146,35 @@ _PATTERNS: list[_PIDPattern] = [
         severity="medium",
         scan_on="original",
     ),
+
+    # ── T71.4 통신사 식별자 (SKB 맥락) ─────────────────────────────────────────
+    # IMSI (International Mobile Subscriber Identity): 한국 MCC 450 + 12자리
+    # 15자리 중 "450" 프리픽스가 매우 구체적이라 FP 낮음
+    _PIDPattern(
+        pattern=re.compile(r"\b450\d{12}\b"),
+        type_code=0x1000,
+        type_name="IMSI",
+        severity="critical",
+        scan_on="original",
+    ),
+    # ICCID (SIM card ID): "89" 국제 프리픽스 + 17~19자리
+    _PIDPattern(
+        pattern=re.compile(r"\b89\d{17,19}\b"),
+        type_code=0x4000,
+        type_name="ICCID",
+        severity="critical",
+        scan_on="original",
+    ),
+    # IMEI (Mobile Equipment Identity): 15자리 숫자 + Luhn 체크섬
+    # 15자리는 광범위하므로 Luhn 검증으로 FP 감소
+    _PIDPattern(
+        pattern=re.compile(r"\b\d{15}\b"),
+        type_code=0x2000,
+        type_name="IMEI",
+        severity="critical",
+        scan_on="original",
+        post_check=_passes_luhn,
+    ),
 ]
 
 
@@ -195,6 +251,9 @@ class PIDScanner(BaseTool):
 
             if self._is_masked_false_positive(original_value):
                 logger.debug(f"오탐 제외 (마스킹 패턴): '{original_value[:30]}'")
+                continue
+            if pid_pattern.post_check is not None and not pid_pattern.post_check(original_value):
+                logger.debug(f"오탐 제외 ({pid_pattern.type_name} post_check): '{original_value[:30]}'")
                 continue
 
             line_num, col_num = self._position_to_line_col(content, start)
@@ -311,6 +370,9 @@ class PIDScanner(BaseTool):
         for start, end, pid_pattern in candidates:
             original_value = text[start:end]
             if cls._is_masked_false_positive(original_value):
+                continue
+            if pid_pattern.post_check is not None and not pid_pattern.post_check(original_value):
+                # post_check(예: Luhn)를 통과하지 못하면 제외
                 continue
             findings.append({
                 "type_name": pid_pattern.type_name,
