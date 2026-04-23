@@ -33,6 +33,9 @@ class _PIDPattern:
     type_code: int
     type_name: str
     severity: str
+    # "masked": 6자리+ 숫자 마스킹된 텍스트에 매칭 (주민/카드/운전면허 등 digit-count만 중요한 패턴)
+    # "original": 원본 텍스트에 매칭 (대표번호 1XXX/0507/이메일/IMSI 등 prefix가 의미 있는 패턴)
+    scan_on: str = "masked"
 
 
 _PATTERNS: list[_PIDPattern] = [
@@ -64,16 +67,15 @@ _PATTERNS: list[_PIDPattern] = [
         type_name="카드번호",
         severity="high",
     ),
-    # 여권번호: 영문 1자 + 숫자 8자리 (예: M12345678)
-    # 8자리 숫자는 마스킹되나 패턴은 유지됨
+    # 여권번호: 영문 1~2자 + 숫자 7~8자리 (예: M12345678, NT0000074)
+    # T71.1: 기존 1자+8자 패턴을 2자 변형까지 확장 (외교관 NT/관용 MT 등)
     _PIDPattern(
-        pattern=re.compile(r"\b[A-Z]\d{8}\b"),
+        pattern=re.compile(r"\b[A-Z]{1,2}\d{7,8}\b"),
         type_code=0x100,
         type_name="여권번호",
         severity="high",
     ),
     # 운전면허번호: XX-XX-XXXXXX-XX (예: 11-04-123456-01)
-    # 6자리 중간 그룹은 마스킹되나 패턴 구조는 유지됨
     _PIDPattern(
         pattern=re.compile(r"\b\d{2}[-]\d{2}[-]\d{6}[-]\d{2}\b"),
         type_code=0x004,
@@ -81,27 +83,59 @@ _PATTERNS: list[_PIDPattern] = [
         severity="high",
     ),
     # 외국인등록번호: YYMMDD-5XXXXXX ~ YYMMDD-8XXXXXX
-    # 주민등록번호와 형식 동일, 성별코드 5-8로 구분
     _PIDPattern(
         pattern=re.compile(r"\b\d{6}[-][5-8]\d{6}\b"),
         type_code=0x008,
         type_name="외국인등록번호",
         severity="high",
     ),
+
+    # ── T71.1 신규 ─────────────────────────────────────────────────────────────
+    # 대표번호 (15XX/16XX/18XX): 대시 유무 모두. 프리픽스 보존 필수 → original 스캔
+    _PIDPattern(
+        pattern=re.compile(
+            r"\b(?:1533|1544|1555|1566|1577|1588|1599|1600|1644|1661|1666|"
+            r"1670|1688|1800|1855|1877|1899)[-\s]?\d{4}\b"
+        ),
+        type_code=0x040,
+        type_name="대표번호",
+        severity="medium",
+        scan_on="original",
+    ),
+    # 안심번호 (0507-XXX(X)-XXXX): SKB 가상번호 서비스. 프리픽스 보존 필수
+    _PIDPattern(
+        pattern=re.compile(r"\b0507[-\s]?\d{3,4}[-\s]?\d{4}\b"),
+        type_code=0x080,
+        type_name="안심번호",
+        severity="high",
+        scan_on="original",
+    ),
+    # 이메일 (broad): 도메인 화이트리스트 없이 전체 탐지
+    # 오탐 허용 (예: LLM 프롬프트 내 샘플 이메일) — over-mask 선호 원칙
+    _PIDPattern(
+        pattern=re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+        type_code=0x020,
+        type_name="이메일",
+        severity="medium",
+        scan_on="original",
+    ),
 ]
 
 
-def _run_regex_scan(masked_text: str) -> list[tuple[int, int, _PIDPattern]]:
-    """마스킹된 텍스트에 정규식 패턴을 적용하여 후보 위치를 반환한다.
+def _run_regex_scan(
+    masked_text: str, original_text: str,
+) -> list[tuple[int, int, _PIDPattern]]:
+    """패턴별 scan_on 지정에 따라 masked/original 텍스트에 정규식을 적용한다.
 
     Returns:
-        [(시작위치, 끝위치, 패턴정보), ...] — 원본 텍스트와 위치 동일
+        [(시작위치, 끝위치, 패턴정보), ...] — 원본 텍스트와 위치 동일 (마스킹은 길이 보존)
     """
     candidates: list[tuple[int, int, _PIDPattern]] = []
     seen_ranges: set[tuple[int, int]] = set()
 
     for pid_pattern in _PATTERNS:
-        for m in pid_pattern.pattern.finditer(masked_text):
+        target = original_text if pid_pattern.scan_on == "original" else masked_text
+        for m in pid_pattern.pattern.finditer(target):
             span = (m.start(), m.end())
             # 동일 위치 중복 탐지 방지 (더 구체적인 패턴 우선)
             if span not in seen_ranges:
@@ -147,8 +181,8 @@ class PIDScanner(BaseTool):
         # STEP 1: 전처리 — 6자리 이상 연속 숫자 마스킹
         masked = self._mask_numeric_literals(content)
 
-        # 정규식 탐지 (마스킹된 텍스트 대상)
-        candidates = _run_regex_scan(masked)
+        # 정규식 탐지 (패턴별 scan_on에 따라 masked/original 분기)
+        candidates = _run_regex_scan(masked, content)
 
         # STEP 2: 후처리 — 원본 텍스트 기준으로 오탐 필터링
         lines = content.splitlines()
@@ -254,3 +288,35 @@ class PIDScanner(BaseTool):
             return "*" * len(text)
         visible = max(2, len(text) // 4)
         return text[:visible] + "*" * (len(text) - visible)
+
+    # ── 텍스트 스캐닝 인터페이스 (LLM 전송 전 선탐지용) ─────────────────────────
+
+    @classmethod
+    def scan_text(cls, text: str) -> list[dict[str, Any]]:
+        """주어진 텍스트에서 PII 후보를 탐지한다 (파일 I/O 없이).
+
+        T71.2 (LLMClient 선마스킹) 파이프라인에서 사용한다.
+
+        Returns:
+            [{type_name, severity, start, end, value}, ...]
+            — value는 원본 문자열 (마스킹 전)
+        """
+        if not text:
+            return []
+
+        masked = cls._mask_numeric_literals(text)
+        candidates = _run_regex_scan(masked, text)
+
+        findings: list[dict[str, Any]] = []
+        for start, end, pid_pattern in candidates:
+            original_value = text[start:end]
+            if cls._is_masked_false_positive(original_value):
+                continue
+            findings.append({
+                "type_name": pid_pattern.type_name,
+                "severity": pid_pattern.severity,
+                "start": start,
+                "end": end,
+                "value": original_value,
+            })
+        return findings
