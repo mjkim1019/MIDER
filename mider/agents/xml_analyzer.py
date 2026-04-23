@@ -120,13 +120,13 @@ class XMLAnalyzerAgent(BaseAgent):
                 logger.info(f"XML [{filename}] JS검증: 대응 JS 파일 없음")
 
             # Step 3: XML 구조 분석 (LLM)
-            xml_issues, xml_llm_ok = await self._analyze_xml_structure(
+            xml_issues, xml_llm_ok, xml_raw_response = await self._analyze_xml_structure(
                 file=file,
                 parse_data=parse_data,
                 js_validation=js_validation,
             )
             if not xml_llm_ok:
-                llm_error = "XML LLM 응답 파싱 실패"
+                llm_error = f"LLM 응답 파싱 실패: {xml_raw_response}"
             logger.info(f"XML [{filename}] 구조 이슈: {len(xml_issues)}건")
 
             # Step 4: 인라인 JS 추출 → JSAnalyzer 위임
@@ -184,11 +184,11 @@ class XMLAnalyzerAgent(BaseAgent):
         file: str,
         parse_data: dict[str, Any],
         js_validation: dict[str, Any],
-    ) -> tuple[list[dict], bool]:
+    ) -> tuple[list[dict], bool, str]:
         """XML 구조를 LLM으로 분석한다.
 
         Returns:
-            (이슈 리스트, LLM 성공 여부) 튜플
+            (이슈 리스트, LLM 성공 여부, 원본 응답 전문) 튜플
         """
         datalist_summary = build_datalist_summary(
             parse_data.get("data_lists", []),
@@ -241,11 +241,11 @@ class XMLAnalyzerAgent(BaseAgent):
                     "XML LLM 응답 JSON 파싱 실패 (처음 300자): %s",
                     response[:300],
                 )
-            return [], False
+            return [], False, response
 
         if isinstance(llm_result, dict):
-            return llm_result.get("issues", []), True
-        return [], True
+            return llm_result.get("issues", []), True, response
+        return [], True, response
 
     async def _analyze_inline_js(
         self,

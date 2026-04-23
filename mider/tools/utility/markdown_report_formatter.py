@@ -6,6 +6,7 @@ LLM 호출 없이 순수 문자열 가공만 수행한다.
 """
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,7 @@ def format_markdown_report(
     sections = [
         _build_title_section(summary, source_files),
         _build_summary_section(summary),
+        _build_toc_section(issue_list),
         _build_critical_high_section(issue_list),
         _build_full_issue_list_section(issue_list),
         _build_checklist_section(checklist),
@@ -192,6 +194,58 @@ def _build_summary_section(summary: dict[str, Any]) -> str:
             lines.append(f"| `{fpath}` | {cnt} |")
         lines.append("")
 
+    lines.append("---")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _build_toc_section(issue_list: dict[str, Any]) -> str:
+    """전체 이슈 목차 테이블 (severity 순, 앵커 링크 포함).
+
+    앵커는 `_render_issue_card`가 만드는 헤딩 `[SEV] issue_id title`에 대응한다.
+    동일 이슈가 Critical/High 섹션과 전체 목록 섹션에 두 번 렌더링되어도,
+    GitHub 스타일 마크다운은 첫 등장의 slug를 그대로 쓰고 두 번째에 -1 suffix를
+    붙이므로 `#{slug}` 링크는 첫 등장(더 위쪽 섹션)을 가리키게 된다.
+    """
+    issues = issue_list.get("issues", [])
+
+    lines = ["## 전체 이슈 목차(표)", ""]
+
+    if not issues:
+        lines.append("> 이슈 없음")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        return "\n".join(lines)
+
+    # severity 순으로 정렬 (상세 섹션들과 동일 순서)
+    sorted_issues = sorted(
+        issues,
+        key=lambda x: _SEVERITY_ORDER.index(x.get("severity", "low")),
+    )
+
+    lines.append("| 레벨 | 순번 | 제목 | 분류 | 출처 | 앵커 |")
+    lines.append("|---|---|---|---|---|---|")
+    for issue in sorted_issues:
+        severity = (issue.get("severity") or "").upper()
+        issue_id = issue.get("issue_id", "")
+        title = issue.get("title", "")
+        category = issue.get("category", "")
+        source = issue.get("source", "")
+
+        # 이슈 카드 헤딩과 동일한 텍스트로 slug 생성 → `#{slug}` 링크
+        heading_text = f"[{severity}] {issue_id} {title}"
+        anchor = _slugify_heading(heading_text)
+
+        lines.append(
+            f"| {severity} | {_escape_table_cell(issue_id)} | "
+            f"{_escape_table_cell(title)} | "
+            f"{_escape_table_cell(category)} | "
+            f"{_escape_table_cell(source)} | "
+            f"[링크](#{anchor}) |"
+        )
+
+    lines.append("")
     lines.append("---")
     lines.append("")
     return "\n".join(lines)
@@ -430,6 +484,31 @@ def _format_duration(seconds: float) -> str:
     minutes = int(seconds) // 60
     secs = int(seconds) % 60
     return f"{minutes}분 {secs}초"
+
+
+def _slugify_heading(text: str) -> str:
+    """Markdown 헤딩을 GitHub-style 앵커 slug로 변환한다.
+
+    규칙:
+    - 소문자 변환
+    - 유니코드 단어 문자(한글 포함), 공백, 하이픈, 언더스코어 외 문자는 제거
+    - 공백은 하이픈으로 치환
+
+    예:
+        "[CRITICAL] XML-001 데이터 바인딩/참조 실패"
+        → "critical-xml-001-데이터-바인딩참조-실패"
+    """
+    t = text.strip().lower()
+    t = re.sub(r"[^\w\s\-]", "", t, flags=re.UNICODE)
+    t = re.sub(r"\s+", "-", t)
+    return t
+
+
+def _escape_table_cell(s: str) -> str:
+    """Markdown 테이블 셀에 안전하게 들어가도록 특수문자를 이스케이프한다."""
+    if not s:
+        return ""
+    return str(s).replace("\n", " ").replace("|", "\\|")
 
 
 def _format_timestamp(iso_str: str) -> str:

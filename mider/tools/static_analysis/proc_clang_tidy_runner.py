@@ -133,13 +133,13 @@ class ProCClangTidyRunner:
         try:
             tmp_c_file.write_text(c_content, encoding="utf-8")
 
-            # 4. stub 헤더 생성
-            self._stub_gen.generate(str(tmp_c_file), stubs_dir)
-
-            # 5. clang-tidy 실행
+            # 4. clang-tidy 실행 — 헤더 해석은 ClangTidyRunner 내부에서 수행한다.
+            #    tmp_c_file은 tempfile 디렉토리에 있으므로 실제 헤더를 찾으려면
+            #    원본 .pc 파일의 디렉토리를 walk-up 앵커로 넘겨야 한다.
             result = self._clang_tidy.execute(
                 file=str(tmp_c_file),
                 checks=_PROC_CHECKS,
+                search_anchor=file_path.parent,
             )
 
             if result.data.get("skipped"):

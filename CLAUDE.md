@@ -206,3 +206,4 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 - force push 금지
 - 커밋 전 민감 정보 (.env, API 키) 포함 여부 확인
 - .gitignore에 output/, __pycache__/, .env 포함 필수
+- 빌드하라고 할 때까지 빌드 금지!

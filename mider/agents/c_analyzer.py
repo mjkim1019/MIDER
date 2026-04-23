@@ -22,11 +22,16 @@ from mider.config.settings_loader import (
     get_agent_fallback_model,
     get_agent_model,
     get_agent_temperature,
+    get_safe_function_prefixes,
 )
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.static_analysis.c_heuristic_scanner import CHeuristicScanner
 from mider.tools.static_analysis.clang_tidy_runner import ClangTidyRunner
+from mider.tools.utility.issue_filter import (
+    filter_safe_function_bounds_issues,
+    format_safe_prefixes_for_prompt,
+)
 from mider.tools.utility.token_optimizer import (
     build_all_functions_summary,
     build_structure_summary,
@@ -340,7 +345,7 @@ class CAnalyzerAgent(BaseAgent):
                             "C single LLM 응답 JSON 파싱 실패 (처음 300자): %s",
                             response[:300],
                         )
-                        llm_error = f"LLM 응답 파싱 실패: {response[:200]}"
+                        llm_error = f"LLM 응답 파싱 실패: {response}"
                     issues = []
                     tokens_estimate = 0
                 else:
@@ -355,6 +360,16 @@ class CAnalyzerAgent(BaseAgent):
                 issue for issue in issues
                 if issue.get("severity", "low").lower() != "low"
             ]
+
+            # 신뢰 함수 경계값 이슈 필터링 (프로젝트 자체 함수 예외)
+            issues, _removed_safe = filter_safe_function_bounds_issues(
+                issues, get_safe_function_prefixes()
+            )
+            if _removed_safe:
+                logger.info(
+                    f"C [{Path(file).name}] 신뢰 함수 경계값 필터: "
+                    f"{_removed_safe}건 제외"
+                )
 
             # ── 결과 생성 ──
             elapsed = time.time() - start_time
@@ -625,6 +640,16 @@ class CAnalyzerAgent(BaseAgent):
                 f"{len(all_issues)}건 ({removed}건 제거)"
             )
 
+        # 신뢰 함수 경계값 이슈 필터링 (프로젝트 자체 함수 예외)
+        all_issues, _removed_safe = filter_safe_function_bounds_issues(
+            all_issues, get_safe_function_prefixes()
+        )
+        if _removed_safe:
+            logger.info(
+                f"C [{filename}] 신뢰 함수 경계값 필터: "
+                f"{_removed_safe}건 제외"
+            )
+
         # issue_id 재번호 (C-001부터 순차)
         for i, issue in enumerate(all_issues):
             issue["issue_id"] = f"C-{i + 1:03d}"
@@ -684,6 +709,9 @@ class CAnalyzerAgent(BaseAgent):
             structure_summary=structure_summary,
             error_functions=error_functions_str,
             file_context=file_context_str,
+            safe_function_prefixes=format_safe_prefixes_for_prompt(
+                get_safe_function_prefixes()
+            ),
         )
 
         messages = [
@@ -752,6 +780,9 @@ class CAnalyzerAgent(BaseAgent):
             "c_analyzer_heuristic",
             file_path=file,
             file_content_optimized=file_content_optimized,
+            safe_function_prefixes=format_safe_prefixes_for_prompt(
+                get_safe_function_prefixes()
+            ),
         )
         messages = [
             {
@@ -982,6 +1013,9 @@ class CAnalyzerAgent(BaseAgent):
                 structure_summary=structure_summary,
                 error_functions=error_functions_str,
                 file_context=file_context_str,
+                safe_function_prefixes=format_safe_prefixes_for_prompt(
+                    get_safe_function_prefixes()
+                ),
             )
         else:
             # Heuristic 경로: scanner findings 포함
@@ -1003,6 +1037,9 @@ class CAnalyzerAgent(BaseAgent):
                 "c_analyzer_heuristic",
                 file_path=file,
                 file_content_optimized=file_content_optimized,
+                safe_function_prefixes=format_safe_prefixes_for_prompt(
+                    get_safe_function_prefixes()
+                ),
             )
 
         messages = [

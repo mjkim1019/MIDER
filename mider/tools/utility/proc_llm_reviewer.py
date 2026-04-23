@@ -19,12 +19,14 @@ from mider.config.settings_loader import (
     get_agent_fallback_model,
     get_agent_model,
     get_agent_temperature,
+    get_safe_function_prefixes,
 )
 from mider.models.analysis_result import CodeFix, Issue, Location
 from mider.models.proc_partition import (
     Finding,
     PartitionResult,
 )
+from mider.tools.utility.issue_filter import format_safe_prefixes_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,19 @@ _PROFRAME_NOTES = """## Proframe 환경 면제 사항
 - 프레임워크 변수 (INPUT, NGMHEADER, ctx): NULL 체크 불필요
 - 전역 변수 thread safety: 단일 프로세스 환경이므로 불필요
 """
+
+
+def _build_safe_function_note() -> str:
+    """신뢰 함수 접두사 안내 블록을 생성한다 (runtime-evaluated for config updates)."""
+    prefixes_display = format_safe_prefixes_for_prompt(get_safe_function_prefixes())
+    return (
+        "## 프로젝트 신뢰 함수 (경계 검증 보장)\n"
+        f"다음 접두사의 프로젝트 자체 함수는 반환값의 경계를 내부에서 보장합니다: "
+        f"{prefixes_display}\n"
+        "이 함수들의 반환값이 배열 인덱스/루프 한계값으로 사용되는 경우를 "
+        "\"배열 인덱스 경계값 미검증\" 류로 **보고하지 마세요**.\n"
+        "예시 (이슈 아님): `totcnt = mpfmdbio_reccnt(); for(i=0;i<totcnt;i++) arr[i]=...;`\n"
+    )
 
 _REVIEW_INSTRUCTIONS = """## 지시사항
 1. 각 finding을 판정하세요: true positive / false positive
@@ -309,8 +324,9 @@ class ProCLLMReviewer(BaseAgent):
             inc_list = ", ".join(i.statement for i in gc.includes[:10])
             sections.append(f"### Include\n{inc_list}")
 
-        # 4. Proframe 면제 + 지시사항
+        # 4. Proframe 면제 + 신뢰 함수 + 지시사항
         sections.append(f"\n{_PROFRAME_NOTES}")
+        sections.append(f"\n{_build_safe_function_note()}")
         sections.append(f"\n{_REVIEW_INSTRUCTIONS}")
 
         # 파일 경로
