@@ -361,7 +361,7 @@
 - [ ] T71.3: AICA 에러 로그 분리 (PII 필터 / 콘텐츠 필터 / 네트워크)
 - [x] T71.4: 통신사 식별자 패턴 (IMSI/IMEI/ICCID) + Luhn 체크
 - [ ] T71.5: Secret/API key 스캐너 (AWS/GitHub/JWT/Google/Stripe/Hardcoded PW/DB URL) — `secret_scanner.py` 신규
-- [ ] T71.6: 로마자 한글 이름 휴리스틱 (주요 성씨 50개 + 3~5자 영문)
+- [x] T71.6: 로마자 한글 이름 휴리스틱 (주요 성씨 50개 + 3~5자 영문)
 - [ ] T71.7: 단위 테스트 + 실측 검증 (실측 3건 재현 + AICA 재시도 0 확인)
 
 ---

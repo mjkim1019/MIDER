@@ -175,6 +175,41 @@ _PATTERNS: list[_PIDPattern] = [
         scan_on="original",
         post_check=_passes_luhn,
     ),
+
+    # ── T71.6 로마자 한글 이름 휴리스틱 ────────────────────────────────────────
+    # KMA 형태소 분석기는 한글만 처리 → 영문 표기 이름 miss
+    # 주요 성씨 50개 + 구분자 + 3~5자 영문. 순방향(성-이름) + 역방향(이름-성) 모두 커버
+    # 오탐 허용 — over-mask 선호 원칙 (개발자 이메일/주석/Git author 누출 방지)
+    # 순방향: Kim Minju, Park.Jihye, Lee Chul-soo, Park Jihye Kim
+    _PIDPattern(
+        pattern=re.compile(
+            r"\b(?:Kim|Lee|Park|Choi|Jung|Jang|Cho|Kang|Lim|Han|"
+            r"Yoon|Jeon|Seo|Oh|Shin|Kwon|Hwang|Song|Ahn|Yu|"
+            r"Hong|Ko|Moon|Yang|Son|Bae|Baek|Jo|Hur|Nam|"
+            r"Ryu|No|Min|Seong|Sim|Yuk|Ha|Joo|Koo|Im|"
+            r"Na|Jin|Chae|Woo|Gil|Heo|Pyo|Yeo|Ma|Noh)"
+            r"[\s._-][A-Z][a-z]{2,6}(?:[\s._-][A-Z]?[a-z]{2,6})?\b"
+        ),
+        type_code=0x8000,
+        type_name="로마자이름",
+        severity="medium",
+        scan_on="original",
+    ),
+    # 역방향: Minju Kim, Jihye.Park, Chulsoo Lee (Git author/영문 문서에 흔함)
+    _PIDPattern(
+        pattern=re.compile(
+            r"\b[A-Z][a-z]{2,6}[\s._-]"
+            r"(?:Kim|Lee|Park|Choi|Jung|Jang|Cho|Kang|Lim|Han|"
+            r"Yoon|Jeon|Seo|Oh|Shin|Kwon|Hwang|Song|Ahn|Yu|"
+            r"Hong|Ko|Moon|Yang|Son|Bae|Baek|Jo|Hur|Nam|"
+            r"Ryu|No|Min|Seong|Sim|Yuk|Ha|Joo|Koo|Im|"
+            r"Na|Jin|Chae|Woo|Gil|Heo|Pyo|Yeo|Ma|Noh)\b"
+        ),
+        type_code=0x8001,
+        type_name="로마자이름",
+        severity="medium",
+        scan_on="original",
+    ),
 ]
 
 
