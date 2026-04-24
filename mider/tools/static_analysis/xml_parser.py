@@ -1,16 +1,19 @@
 """XMLParser: WebSquare(Proframe) XML 정적 분석 도구.
 
-ElementTree 기반으로 WebSquare XML을 파싱하여
+lxml 기반으로 WebSquare XML을 파싱하여
 데이터 리스트, 컬럼 정의, 이벤트 바인딩, 컴포넌트 ID를 추출한다.
+lxml.Element의 sourceline 속성으로 라인 번호를 함께 수집한다.
 """
 
 import codecs
 import logging
 import re
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from lxml import etree
+from lxml.etree import XMLSyntaxError, _Element
 
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 
@@ -42,6 +45,20 @@ _DATA_DEFINITION_TAGS = frozenset({"column", "columnInfo", "data"})
 
 # 인라인 JS 판별 키워드
 _JS_KEYWORDS_RE = re.compile(r"(?:function\b|var\b|let\b|const\b|scwin\.|return\b|if\s*\(|\{)")
+
+
+def _local_name(tag: str) -> str:
+    """`{namespace}name` 또는 `prefix:name`에서 로컬 이름만 분리한다."""
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def _make_safe_parser() -> etree.XMLParser:
+    """XXE/네트워크 접근/Billion Laughs 방어가 적용된 lxml 파서."""
+    return etree.XMLParser(
+        resolve_entities=False,
+        no_network=True,
+        huge_tree=False,
+    )
 
 
 @dataclass
@@ -108,9 +125,10 @@ class XMLParser(BaseTool):
                     },
                     error="보안: DOCTYPE/ENTITY 선언 포함",
                 )
-            root = ET.fromstring(content)
-        except ET.ParseError as e:
-            parse_errors.append(f"XML 파싱 오류: {e}")
+            parser = _make_safe_parser()
+            root = etree.fromstring(content.encode("utf-8"), parser)
+        except XMLSyntaxError as e:
+            parse_errors.append(f"L{e.lineno}: XML 파싱 오류: {e.msg}")
             return ToolResult(
                 success=False,
                 data={
@@ -130,8 +148,10 @@ class XMLParser(BaseTool):
         for dl in data_lists:
             dl_id = dl.get("id", "")
             if not dl_id or not dl_id.strip() or dl_id.strip() == ":":
+                line = dl.get("line") or 0
+                prefix = f"L{line}: " if line > 0 else ""
                 parse_errors.append(
-                    f"dataList ID가 비어있거나 유효하지 않음: '{dl_id}'"
+                    f"{prefix}dataList ID가 비어있거나 유효하지 않음: '{dl_id}'"
                 )
 
         # 2) 이벤트 바인딩 추출
@@ -241,16 +261,15 @@ class XMLParser(BaseTool):
         return "\n".join(js_blocks), offset_map
 
     @staticmethod
-    def _extract_data_lists(root: ET.Element) -> list[dict[str, Any]]:
+    def _extract_data_lists(root: _Element) -> list[dict[str, Any]]:
         """w2:dataList 요소에서 데이터 리스트와 컬럼을 추출한다."""
         result: list[dict[str, Any]] = []
 
         # 네임스페이스 포함/미포함 모두 탐색
         for dl in root.iter():
-            tag = dl.tag
-            # w2:dataList 또는 {namespace}dataList
-            local_name = tag.rsplit("}", 1)[-1] if "}" in tag else tag
-            if local_name != "dataList":
+            if not isinstance(dl.tag, str):  # 주석/PI 등 스킵
+                continue
+            if _local_name(dl.tag) != "dataList":
                 continue
 
             dl_id = dl.get("id", "")
@@ -258,8 +277,9 @@ class XMLParser(BaseTool):
 
             # 하위 w2:column 추출 (columnInfo 래퍼 포함 재귀 탐색)
             for col in dl.iter():
-                col_local = col.tag.rsplit("}", 1)[-1] if "}" in col.tag else col.tag
-                if col_local == "column":
+                if not isinstance(col.tag, str):
+                    continue
+                if _local_name(col.tag) == "column":
                     columns.append({
                         "id": col.get("id", ""),
                         "name": col.get("name", ""),
@@ -269,27 +289,30 @@ class XMLParser(BaseTool):
             result.append({
                 "id": dl_id,
                 "columns": columns,
+                "line": dl.sourceline or 0,
             })
 
         return result
 
     @staticmethod
-    def _extract_events(root: ET.Element) -> list[dict[str, Any]]:
+    def _extract_events(root: _Element) -> list[dict[str, Any]]:
         """이벤트 바인딩(ev:on*, onclick 등)을 추출한다."""
         events: list[dict[str, Any]] = []
 
         for elem in root.iter():
+            if not isinstance(elem.tag, str):
+                continue
             # 요소의 모든 속성에서 이벤트 패턴 탐색
             for attr_name, attr_value in elem.attrib.items():
                 if _EVENT_ATTR_RE.match(attr_name):
                     # 이벤트 타입 추출 (on 이후 부분)
-                    local_attr = attr_name.rsplit("}", 1)[-1] if "}" in attr_name else attr_name
+                    local_attr = _local_name(attr_name)
                     # ev:onclick → onclick, onclick → onclick
                     if local_attr.startswith("ev:"):
                         local_attr = local_attr[3:]
 
                     elem_id = elem.get("id", "")
-                    local_tag = elem.tag.rsplit("}", 1)[-1] if "}" in elem.tag else elem.tag
+                    local_tag = _local_name(elem.tag)
 
                     # 핸들러 함수명 추출 (scwin.funcName() 패턴)
                     handler_functions = _extract_handler_functions(attr_value)
@@ -300,13 +323,14 @@ class XMLParser(BaseTool):
                         "event_type": local_attr,
                         "handler": attr_value.strip(),
                         "handler_functions": handler_functions,
+                        "line": elem.sourceline or 0,
                     })
 
         return events
 
     @staticmethod
     def _extract_component_ids(
-        root: ET.Element,
+        root: _Element,
         content: str = "",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """UI 컴포넌트의 ID를 추출하고 중복을 검사한다.
@@ -319,11 +343,13 @@ class XMLParser(BaseTool):
         all_ids: list[dict[str, Any]] = []
 
         for elem in root.iter():
+            if not isinstance(elem.tag, str):
+                continue
             elem_id = elem.get("id")
             if not elem_id:
                 continue
 
-            local_tag = elem.tag.rsplit("}", 1)[-1] if "}" in elem.tag else elem.tag
+            local_tag = _local_name(elem.tag)
 
             # 데이터 정의 내부 요소는 컴포넌트 ID가 아니므로 제외
             if local_tag in _DATA_DEFINITION_TAGS:
@@ -332,6 +358,7 @@ class XMLParser(BaseTool):
             all_ids.append({
                 "id": elem_id,
                 "tag": local_tag,
+                "line": elem.sourceline or 0,
             })
 
             if elem_id not in id_map:
