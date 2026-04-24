@@ -14,6 +14,9 @@ from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
 from mider.tools.static_analysis.cursor_close_scanner import (
     scan_cursor_duplicate_close,
 )
+from mider.tools.static_analysis.format_arg_scanner import (
+    scan_format_arg_mismatch,
+)
 from mider.tools.utility.token_optimizer import find_function_boundaries
 
 logger = logging.getLogger(__name__)
@@ -146,6 +149,26 @@ class CHeuristicScanner(BaseTool):
                 "function": cf["function"],
                 "variable": cf["variable"],
                 "all_lines": cf["all_lines"],
+            })
+
+        # FORMAT_ARG_MISMATCH — 공용 모듈 사용
+        for ff in scan_format_arg_mismatch(content):
+            # 해당 호출이 속한 함수 이름 찾기
+            func_name = None
+            for start_1, end_1 in func_boundaries:
+                if start_1 <= ff["line"] <= end_1:
+                    func_name = func_names.get((start_1, end_1))
+                    break
+            findings.append({
+                "pattern_id": ff["pattern_id"],
+                "severity": ff["severity"],
+                "description": ff["description"],
+                "line": ff["line"],
+                "content": ff["code"],
+                "match": f"{ff['function_call']}(...)",
+                "function": func_name,
+                "format_count": ff["format_count"],
+                "arg_count": ff["arg_count"],
             })
 
         # 위험 함수 목록 (중복 제거, 순서 유지)
