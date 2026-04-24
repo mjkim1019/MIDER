@@ -351,17 +351,17 @@ class ReporterAgent(BaseAgent):
                 reason="분석 중 오류 발생 → 배포 판정 불가",
             )
             # risk_description은 _determine_risk에서 이미 생성됨, LLM 호출 스킵
-        elif critical_count == 0 and high_count == 0:
-            # T70.6: LOW 위험도 — LLM 호출 skip, 템플릿 메시지 사용
+        elif allowed:
+            # T70.6.1: 배포 허용 (MEDIUM + LOW) — LLM 호출 skip, 템플릿 사용
             self.rl.decision(
                 f"Decision: 배포 가능 ({risk}) — LLM skip",
-                reason=f"critical=0, high=0 → 템플릿 사용 (T70.6)",
+                reason=f"deployment_allowed=True → 템플릿 사용 (T70.6.1)",
             )
             risk_assessment["risk_description"] = self._default_risk_description(
                 by_severity, risk_assessment["deployment_risk"],
             )
             logger.info(
-                f"Reporter LLM 호출 skip: critical=0, high=0 → 템플릿 사용"
+                f"Reporter LLM 호출 skip: {risk} 위험도 → 템플릿 사용"
             )
         else:
             status = "가능" if allowed else "차단"
@@ -437,20 +437,18 @@ class ReporterAgent(BaseAgent):
 
         blocking_issues: list[str] = []
 
+        # T70.6.2: CRITICAL만 배포 차단. HIGH 탐지 신뢰도가 확보되기 전까지
+        # 오탐으로 인한 가짜 차단을 방지하기 위한 보수적 정책.
         if critical_count > 0:
             deployment_risk = "CRITICAL"
             deployment_allowed = False
             blocking_issues = [
                 issue.get("issue_id", "") for issue in sorted_issues
-                if issue.get("severity") in ("critical", "high")
+                if issue.get("severity") == "critical"
             ]
         elif high_count >= 3:
             deployment_risk = "HIGH"
-            deployment_allowed = False
-            blocking_issues = [
-                issue.get("issue_id", "") for issue in sorted_issues
-                if issue.get("severity") == "high"
-            ]
+            deployment_allowed = True  # T70.6.2: 배포 허용, 강력 수정 권고만
         elif high_count >= 1:
             deployment_risk = "MEDIUM"
             deployment_allowed = True
@@ -588,7 +586,7 @@ class ReporterAgent(BaseAgent):
         elif deployment_risk == "HIGH":
             return (
                 f"High 이슈 {high}건 발견. "
-                f"조건부 장애 가능성 있음. 배포 전 수정 권고."
+                f"배포 가능하나 강력 수정 권고 (조건부 장애 가능성)."
             )
         elif deployment_risk == "MEDIUM":
             return (
