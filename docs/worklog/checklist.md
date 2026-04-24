@@ -311,3 +311,16 @@
 - [x] T56: 인터랙티브 Explain Plan 프롬프트
   - [x] T56.1: `prompt_for_explain_plan()` + `main()` 연동
   - [x] T56.2: 단위 테스트 (SQL 포함→질문, SQL 미포함→미질문, Enter→None)
+
+---
+
+## 외부 리소스 경로 레이어 (피처 A 기반)
+
+- [x] T64: 외부 리소스 경로 레이어 — P0
+  - [x] T64.1: `mider/config/resource_path.py` 신설 (환경변수 > exe옆 > 번들 fallback)
+  - [x] T64.2: `prompt_loader.py` 리팩토링 (resource_path 사용, PROMPTS_DIR alias 유지)
+  - [x] T64.3: rule_loader/skill_loader API 자리 확보 (`get_rule_path`/`get_skill_path` 제공, 실 loader는 T57.2/T65.2에서 구현)
+  - [x] T64.4: `mider.spec` 업데이트 (rules/skills 번들 블록 추가)
+  - [x] T64.5: `scripts/export_default_resources.py` (번들 → 외부 디렉토리 복사 헬퍼)
+  - [x] T64.6: 단위 테스트 (test_resource_path.py 16개 + test_prompt_loader.py 업데이트, 총 68 통과)
+  - [x] docs: `docs/dev_vs_prod.md` — 개발기/운영기 운영 가이드 (사용자 요청)

@@ -399,3 +399,4 @@
 | 2026-04-13 | T55 리뷰: regex `^[ld][lcds]_` → `^l[lcds]_` | `d`접두사 과도 매칭 방지 (HIGH). `_HIGH_PRIORITY_PATTERNS`에 추가 (MEDIUM) |
 | 2026-04-13 | T56: `prompt_for_explain_plan()` 추가 — SQL 감지 시 인터랙티브 질문 | `--explain-plan` CLI 플래그는 exe 인터랙티브 모드와 UX 불일치. 자동 질문으로 해결 |
 | 2026-04-13 | T56 리뷰: main.py 구버전 함수 중복 정의 제거 + 테스트 중복 클래스 제거 | 머지 시 유입된 dead code (HIGH 2건) |
+| 2026-04-24 | T64 완료 (리소스 경로 레이어): resource_path.py 신설 — 3단계 우선순위(환경변수 > exe옆 > 번들). prompt_loader 리팩토링, mider.spec에 rules/skills 번들 블록 추가, export_default_resources.py 스크립트, docs/dev_vs_prod.md 운영 가이드 작성 | T65(Skills 로더)의 선결 조건. 운영기에서 번들 기본값 유지하면서 exe 옆 drop-in 커스터마이징 지원. 사용자 요청으로 개발기/운영기 차이 가이드 동반 작성. T59 서명 기능은 별도 Task로 잔존 |
