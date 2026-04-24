@@ -1,10 +1,11 @@
 """ProCHeuristicScanner: Pro*C 코드 위험 패턴 정적 스캐너.
 
-실제 장애 유발 패턴 4종을 regex로 사전 스캔한다:
+실제 장애 유발 패턴 5종을 regex로 사전 스캔한다:
 1. FORMAT_STRUCT: %s에 구조체 전달 (Core Dump)
 2. MEMSET_SIZEOF_MISMATCH: memset 변수/sizeof 타입 불일치
-3. LOOP_INIT_MISSING: 루프 내 구조체 초기화 누락
+3. LOOP_INIT_MISSING: 루프 내 구조체 초기화 누락 (구조체별 추적)
 4. FCLOSE_MISSING: fopen/fclose 짝 불일치
+5. CURSOR_DUPLICATE_CLOSE: 같은 함수 안에서 같은 커서 2회 이상 close
 """
 
 import logging
@@ -13,6 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
+from mider.tools.static_analysis.cursor_close_scanner import (
+    scan_cursor_duplicate_close,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +100,9 @@ class ProCHeuristicScanner(BaseTool):
 
         # Pattern 4: FCLOSE_MISSING
         findings.extend(self._scan_fclose_missing(lines, content))
+
+        # Pattern 5: CURSOR_DUPLICATE_CLOSE
+        findings.extend(scan_cursor_duplicate_close(content, language="proc"))
 
         logger.debug(
             f"Pro*C 휴리스틱 스캔 완료: {file} → {len(findings)} findings"

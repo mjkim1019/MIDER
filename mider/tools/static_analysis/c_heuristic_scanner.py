@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
+from mider.tools.static_analysis.cursor_close_scanner import (
+    scan_cursor_duplicate_close,
+)
 from mider.tools.utility.token_optimizer import find_function_boundaries
 
 logger = logging.getLogger(__name__)
@@ -130,6 +133,20 @@ class CHeuristicScanner(BaseTool):
 
         # 패턴 스캔
         findings = self._scan_patterns(lines, func_boundaries, func_names)
+
+        # CURSOR_DUPLICATE_CLOSE — 공용 모듈 사용
+        for cf in scan_cursor_duplicate_close(content, language="c"):
+            findings.append({
+                "pattern_id": cf["pattern_id"],
+                "severity": cf["severity"],
+                "description": cf["description"],
+                "line": cf["line"],
+                "content": cf["code"],
+                "match": f"close({cf['variable']})",
+                "function": cf["function"],
+                "variable": cf["variable"],
+                "all_lines": cf["all_lines"],
+            })
 
         # 위험 함수 목록 (중복 제거, 순서 유지)
         seen: set[str] = set()
