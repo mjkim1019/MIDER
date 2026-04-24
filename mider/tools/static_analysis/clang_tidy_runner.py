@@ -48,12 +48,16 @@ class ClangTidyRunner(BaseTool):
         *,
         file: str,
         checks: str | None = None,
+        search_anchor: Path | None = None,
     ) -> ToolResult:
         """clang-tidy를 실행하여 분석 결과를 반환한다.
 
         Args:
             file: 분석할 C 파일 경로
             checks: clang-tidy 체크 옵션 (없으면 기본값 사용)
+            search_anchor: 실제 헤더 walk-up 탐색의 시작 디렉토리.
+                           Pro*C처럼 tmp 경로를 분석할 때 원본 .pc 경로를 넘긴다.
+                           None이면 file의 부모 디렉토리가 사용된다.
 
         Returns:
             ToolResult (data: warnings, total_warnings)
@@ -83,18 +87,30 @@ class ClangTidyRunner(BaseTool):
 
         checks_arg = checks or _DEFAULT_CHECKS
 
-        # 1. stub 생성
+        # 1. 실제 헤더 우선 해석, 미해결은 stub 생성
         stub_gen = StubHeaderGenerator()
         stubs_dir = file_path.parent / "stubs"
         try:
-            stub_gen.generate(str(file_path), stubs_dir)
+            anchor = search_anchor if search_anchor is not None else file_path.parent
+            if anchor.is_file():
+                anchor = anchor.parent
+            resolve_result = stub_gen.resolve(
+                str(file_path),
+                stubs_dir,
+                search_anchor=anchor,
+            )
+
+            # 실제 헤더 디렉토리를 stubs보다 앞에 두어 실제 typedef가 우선 매칭되도록 한다
+            include_flags = [f"-I{d}" for d in resolve_result.real_include_dirs]
+            if resolve_result.stub_files:
+                include_flags.append(f"-I{stubs_dir}")
 
             cmd = [
                 str(self._binary),
                 f"--checks={checks_arg}",
                 str(file_path),
                 "--",  # 컴파일 옵션 구분자
-                f"-I{stubs_dir}",
+                *include_flags,
                 "-std=c99",
             ]
 

@@ -78,6 +78,14 @@ static_analysis:
       - "/usr/include/oracle"
     binary: "resources/binaries/proc"
 
+c_analysis:
+  # 경계 검증을 보장하는 프로젝트 자체 함수 접두사.
+  # 이 함수들의 반환값이 배열 인덱스/루프 한계값으로 사용될 때
+  # "배열 인덱스 경계값 미검증" 류 이슈는 보고하지 않는다.
+  # C analyzer + ProC analyzer 양쪽 모두에 적용된다.
+  safe_function_prefixes:
+    - "mpfm"
+
 output:
   directory: "./output"
   files:

@@ -601,11 +601,10 @@ async def run_analysis(
         console.print("[red bold]LLM 분석 실패:[/]")
         for ae in analysis_errors:
             fname = Path(ae["file"]).name
-            console.print(f"  [red]- {fname}:[/] {ae['error'][:100]}")
+            console.print(f"  [red]- {fname}:[/] {ae['error']}")
         console.print(
             "\n[yellow bold]분석 실패 — LLM이 정상 응답하지 못해 결과를 신뢰할 수 없습니다.[/]"
         )
-        console.print("[yellow]개인정보 검출 필터 차단 가능성이 높습니다. 소스코드를 확인해주세요.[/]")
         write_output_files(output_dir, result, files)
         return EXIT_LLM_ERROR
 
@@ -618,8 +617,12 @@ async def run_analysis(
     return determine_exit_code(result)
 
 
-def _run_sso_login(console: Console) -> bool:
+def _run_sso_login(console: Console, force: bool = False) -> bool:
     """SSO 브라우저 로그인을 실행하고 환경변수에 세션을 설정한다.
+
+    Args:
+        console: Rich Console
+        force: True이면 캐시 파일을 삭제하고 무조건 브라우저 로그인 수행
 
     Returns:
         True이면 로그인 성공
@@ -637,8 +640,11 @@ def _run_sso_login(console: Console) -> bool:
     auth = SSOAuthenticator(
         base_url=os.environ.get("AICA_ENDPOINT", ""),
     )
+    if force:
+        # 서버에서는 만료됐는데 로컬 캐시가 아직 유효할 수 있으므로 선제 삭제
+        auth.invalidate_session()
     try:
-        creds = auth.authenticate()
+        creds = auth.authenticate(force_login=force)
     except Exception as e:
         console.print(f"[red bold]SSO 인증 실패:[/] {e}")
         return False
@@ -745,7 +751,8 @@ def prompt_for_files(console: Console, *, is_repeat: bool = False) -> list[str] 
             return None
 
         if user_input.lower() == "login":
-            _run_sso_login(console)
+            # 사용자가 명시적으로 login을 요청한 경우 — 캐시를 무시하고 항상 새로 로그인
+            _run_sso_login(console, force=True)
             print("\n분석하고자 하는 소스파일을 입력해주세요.")
             print("(예: ZORDSB0100010.xml, payspmt10050t04.c, zinvbreps8030.pc / 현위치의 하위 폴더는 모두 접근가능합니다)")
             continue
@@ -991,7 +998,7 @@ def _run_once(
     except AICASessionExpiredError:
         logger.warning("SSO 세션 만료 — 분석 중단")
         console.print("\n[yellow bold]SSO 세션이 만료되었습니다. 재로그인합니다...[/]")
-        _run_sso_login(console)
+        _run_sso_login(console, force=True)
         console.print("[green]재로그인 완료. 파일을 다시 입력해주세요.[/]")
         return EXIT_LLM_ERROR
     except (APIError, APIConnectionError, RateLimitError, APITimeoutError, AICAError, httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException, EnvironmentError) as e:

@@ -164,7 +164,7 @@ class JavaScriptAnalyzerAgent(BaseAgent):
                             "JS single LLM 응답 JSON 파싱 실패 (처음 300자): %s",
                             response[:300],
                         )
-                        llm_error = f"LLM 응답 파싱 실패: {response[:200]}"
+                        llm_error = f"LLM 응답 파싱 실패: {response}"
                     issues = []
                     tokens_estimate = 0
                 else:

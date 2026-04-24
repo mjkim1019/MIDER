@@ -30,6 +30,7 @@ from mider.config.settings_loader import (
     get_agent_temperature,
     get_mini_model,
     get_proc_grouping_config,
+    get_safe_function_prefixes,
 )
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
@@ -40,6 +41,10 @@ from mider.tools.utility.sql_extractor import SQLExtractor
 from mider.tools.static_analysis.embedded_sql_analyzer import EmbeddedSQLStaticAnalyzer
 from mider.tools.static_analysis.proc_clang_tidy_runner import ProCClangTidyRunner
 from mider.tools.static_analysis.proc_cross_checker import ProCCrossChecker
+from mider.tools.utility.issue_filter import (
+    filter_safe_function_bounds_issues,
+    format_safe_prefixes_for_prompt,
+)
 from mider.tools.utility.issue_merger import IssueMerger
 from mider.tools.utility.proc_llm_reviewer import ProCLLMReviewer
 from mider.tools.utility.proc_partitioner import ProCPartitioner
@@ -298,7 +303,17 @@ class ProCAnalyzerAgent(BaseAgent):
             issue for issue in merged_issues
             if issue.get("severity", "low").lower() != "low"
         ]
-        
+
+        # 신뢰 함수 경계값 이슈 필터링 (프로젝트 자체 함수 예외)
+        final_issues, _removed_safe = filter_safe_function_bounds_issues(
+            final_issues, get_safe_function_prefixes()
+        )
+        if _removed_safe:
+            logger.info(
+                f"ProC V3 [{filename}] 신뢰 함수 경계값 필터: "
+                f"{_removed_safe}건 제외"
+            )
+
         merge_ms = int((time.time() - merge_start) * 1000)
 
         self.rl.scan(
@@ -477,6 +492,16 @@ class ProCAnalyzerAgent(BaseAgent):
                     issue["source"] = "llm"
                 filtered_issues.append(issue)
             issues = filtered_issues
+
+            # 신뢰 함수 경계값 이슈 필터링 (프로젝트 자체 함수 예외)
+            issues, _removed_safe = filter_safe_function_bounds_issues(
+                issues, get_safe_function_prefixes()
+            )
+            if _removed_safe:
+                logger.info(
+                    f"ProC V1 [{filename}] 신뢰 함수 경계값 필터: "
+                    f"{_removed_safe}건 제외"
+                )
 
             # ── 결과 생성 ──
             elapsed = time.time() - start_time
@@ -990,6 +1015,9 @@ class ProCAnalyzerAgent(BaseAgent):
             sql_blocks=sql_blocks_str,
             code=code,
             file_path=file,
+            safe_function_prefixes=format_safe_prefixes_for_prompt(
+                get_safe_function_prefixes()
+            ),
         )
 
     # ──────────────────────────────────────────────

@@ -271,6 +271,16 @@ class LLMClient:
         else:
             self._aica_sso_session = os.environ.get("AICA_SSO_SESSION", "")
             self._aica_user_id = os.environ.get("AICA_USER_ID", "mider_agent")
+            # 세션 만료 시 자체 치유가 가능하도록 내부 authenticator를 생성한다.
+            # 이 authenticator는 서버에서 SESSION_EXPIRED가 오면 _chat_aica 루프에서
+            # invalidate + force_login=True 로 브라우저 재로그인을 트리거한다.
+            try:
+                from mider.config.sso_auth import SSOAuthenticator
+                self._sso_authenticator = SSOAuthenticator(
+                    base_url=self._aica_endpoint,
+                )
+            except Exception as e:
+                logger.debug("내부 SSOAuthenticator 생성 실패: %s", e)
             logger.info("AICA LLM 클라이언트 초기화: %s", self._aica_base_url)
 
     async def aclose(self) -> None:
@@ -413,6 +423,10 @@ class LLMClient:
                 creds = self._sso_authenticator.authenticate(force_login=True)
                 self._aica_sso_session = creds.sso_session
                 self._aica_user_id = creds.user_id
+                # 다른 LLMClient 인스턴스와 외부 핸들러가 최신 세션을 사용할 수 있도록
+                # 환경변수도 함께 갱신한다.
+                os.environ["AICA_SSO_SESSION"] = creds.sso_session
+                os.environ["AICA_USER_ID"] = creds.user_id
                 logger.info("SSO 재인증 완료: user_id=%s", self._aica_user_id)
                 continue
             except AICAError as e:
@@ -422,13 +436,15 @@ class LLMClient:
                 if not e.detects or pii_attempt >= max_pii_retries:
                     raise
                 # PII 검출 → 검출 문자열 가운데 마스킹 후 재시도
-                detect_summary = ", ".join(
-                    f"{d.get('detect_type_name', '?')}({d.get('detect_str', '?')})"
+                # 원문 → 마스킹 결과를 나란히 보여 어떻게 치환됐는지 확인 가능하게 한다.
+                mask_summary = ", ".join(
+                    f"{d.get('detect_type_name', '?')}("
+                    f"{d.get('detect_str', '?')} → {_mask_center(d.get('detect_str', ''))})"
                     for d in e.detects
                 )
                 logger.info(
                     "PII 검출 → 마스킹 후 재시도 (%d/%d): %s",
-                    pii_attempt + 1, max_pii_retries, detect_summary,
+                    pii_attempt + 1, max_pii_retries, mask_summary,
                 )
                 current_messages = _mask_pii_in_messages(current_messages, e.detects)
 
@@ -462,12 +478,18 @@ class LLMClient:
             "Content-Type": "application/json",
         }
 
+        # 외부에서 재로그인(_run_sso_login 등)으로 환경변수가 갱신될 수 있으므로
+        # 매 호출마다 env var의 최신 값을 우선 사용한다. env var이 비어 있을 때만
+        # 초기화 시점에 저장했던 값으로 폴백한다.
+        current_session = os.environ.get("AICA_SSO_SESSION") or self._aica_sso_session
+        current_user_id = os.environ.get("AICA_USER_ID") or self._aica_user_id
+
         cookies: dict[str, str] = {}
-        if self._aica_sso_session:
-            cookies["SSOSESSION"] = self._aica_sso_session
+        if current_session:
+            cookies["SSOSESSION"] = current_session
 
         payload = {
-            "user_id": self._aica_user_id,
+            "user_id": current_user_id,
             "model_cd": model_cd,
             "message": message,
             "usecase_mode": "GENERAL",
