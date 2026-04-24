@@ -311,3 +311,196 @@
 - [x] T56: 인터랙티브 Explain Plan 프롬프트
   - [x] T56.1: `prompt_for_explain_plan()` + `main()` 연동
   - [x] T56.2: 단위 테스트 (SQL 포함→질문, SQL 미포함→미질문, Enter→None)
+
+---
+
+## 우선순위 요약
+
+| 순위 | Task | 피처 | 상태 | 비고 |
+|------|------|------|------|------|
+| **P0 (최우선)** | **T71 (PII 전처리 강화)** | **F** | **✅ 완료** | SOC 반복 테스트 블로커 해결 |
+| P0 | T64 (외부 경로) | A | 미착수 | 독립 |
+| P0 | T65 (Skills + Navigator) | A | 미착수 | **T72와 동시 진행** |
+| P0 | T72 (이슈 타입 분류) | G | 미착수 | **T65와 동시, T70과 reporter 통합** |
+| P0 | T70 (Reporter 속도) | E | 미착수 | T72와 reporter 부분 통합 |
+| P1 | T57 (YAML 축소) | A | 미착수 | — |
+| P1 | T58 (Scanner 리팩토링) | A | 미착수 | — |
+| P1 | T73 (Header 의존성) | G | 미착수 | depends: T72. OOB 근본 해결 |
+| P2 | T66 (문서) | A | 미착수 | — |
+| P2 | T68 (Orphan 정리) | A | 미착수 | — |
+| P2 | T59 (서명 + 배포) | A | 미착수 | — |
+| P3 | T60~T63 | B | 미착수 | 병렬 가능 |
+
+### 착수 순서 권장
+
+1. **T71** (단독 최우선)
+2. **T64** 기반 + **T70** 병렬
+3. **T65 + T72** 동시 진행 (Skills frontmatter에 issue_type 통합)
+4. T57 → T58 → **T73** (OOB 근본 해결)
+5. T66 → T68 → T59 (정리·배포)
+6. 피처 B는 별도 일정 병행
+
+### 충돌 조정 규칙 (요약)
+
+- **T65 + T72** → 프롬프트/스키마 공유. Skill frontmatter에 `issue_type` 필드
+- **T70 + T72** → reporter.py 공동 작업. 템플릿에 `# 🔴 오류` / `# 🟡 개선사항` 분리
+- **T65.3 + T73** → Skills(framework별) + T73(general fallback). 역할 분담
+- **T58 + T68** → T58.5 패턴 상수 제거, T68.1 전수 검증. 순서 엄수
+- **T73.4 + T60** → JSON 캐시 → SQLite 마이그레이션 경로
+
+---
+
+## 피처 F (신규, 최우선): PII 전처리 강화
+
+**배경**: 실측 AICA 로그에서 `PASSPORT(NT0000074)`, `EMAIL(@skbroadband.com)`, `PHONE(1600-2000)` 등이 필터에 걸려 재시도/Connection error 발생. 로컬 PIDScanner가 놓치는 패턴을 보강하여 AICA 전송 전에 선마스킹.
+
+### T71: PII 전처리 강화 — P0 (최우선)
+
+- [x] T71.1: PIDScanner 패턴 확장 (여권 1~2자, 대표번호 1XXX, 이메일 broad, 안심번호 0507)
+- [x] T71.2: LLMClient 호출 전 로컬 선탐지 + 선마스킹 파이프라인 (llm_client.py 또는 base_agent.py)
+- [x] T71.3: AICA 에러 로그 분리 (PII 필터 / 콘텐츠 필터 / 네트워크)
+- [x] T71.4: 통신사 식별자 패턴 (IMSI/IMEI/ICCID) + Luhn 체크
+- [x] T71.5: Secret/API key 스캐너 (AWS/GitHub/JWT/Google/Stripe/Hardcoded PW/DB URL) — `secret_scanner.py` 신규
+- [x] T71.6: 로마자 한글 이름 휴리스틱 (주요 성씨 50개 + 3~5자 영문)
+- [x] T71.7: 단위 테스트 + 실측 검증 (실측 3건 재현 + AICA 재시도 0 확인)
+
+---
+
+## 피처 A (재설계): LLM-first 룰 시스템
+
+**통합**: 구 피처 A(룰 외부화) + C(Skills) + D(ProFrame) → 단일 피처. Scanner Navigator 강등, Skills를 판단 1차 소스로.
+
+### T64: 외부 리소스 경로 레이어 (기반) — P0
+
+- [ ] T64.1: `resource_path.py` 신설 (환경변수 > exe옆 > 번들 fallback)
+- [ ] T64.2: `prompt_loader.py` 리팩토링 (resource_path 사용)
+- [ ] T64.3: `rule_loader.py` / `skill_loader.py` resource_path 통합
+- [ ] T64.4: `mider.spec` 업데이트 (rules + skills 번들, overlay 주석)
+- [ ] T64.5: `scripts/export_default_resources.py` (기본 리소스 추출)
+- [ ] T64.6: 단위 테스트 (fallback + 환경변수 우선순위)
+
+### T65: Skill 포맷 + 로더 + Navigator 강등 (핵심) — P0 (depends: T64)
+
+- [ ] T65.1: Skill 파일 포맷 정의 + `_SCHEMA.md`
+- [ ] T65.2: `SkillLoader` 구현 (frontmatter 파싱, graceful degradation)
+- [ ] T65.3: 초기 Skill 작성
+  - C 기본 3개: UNSAFE_FUNC / UNINIT_VAR / MEMSET_SIZE_MISMATCH
+  - **ProFrame 4개** (구 T67 흡수): PROFRAME_A000_INIT / PROFRAME_DBIO_RECCNT / PROFRAME_LEN_CONSTANT / PROFRAME_CTX_ALLOCATED
+  - JS/SQL 3개: XSS_INNERHTML / EVAL_USAGE / SQL_INJECTION_RISK
+- [ ] T65.4: Scanner Navigator 강등 (`ScannerFinding` → `NavigationHint`, 단독 보고 경로 제거)
+- [ ] T65.5: 5개 Analyzer few-shot 자동 주입 (`_build_messages()` + 토큰 예산 관리)
+- [ ] T65.6: `_REMOVE_KEYWORDS` 보강 (c_analyzer.py, issue_merger.py)
+- [ ] T65.7: 오답 예시 → post_check 자동 변환 (선택, 간단 케이스)
+- [ ] T65.8: 단위/통합 테스트 + 실측 검증 (ordsb0100010t01.c 오탐률 비교)
+
+### T57: 룰 YAML 스키마 + 로더 (스코프 축소) — P1 (depends: T65)
+
+- [ ] T57.1: Rule 모델 정의 (severity/post_check 제거, navigation 필드만)
+- [ ] T57.2: RuleLoader 구현 (내장 + 외부 병합)
+- [ ] T57.3: 기본 룰 YAML 생성 (navigation 키워드만)
+- [ ] T57.4: 단위 테스트
+
+### T58: Scanner 리팩토링 (하드코딩 → YAML 로드) — P1 (depends: T57)
+
+- [ ] T58.1: CHeuristicScanner 리팩토링
+- [ ] T58.2: JSHeuristicScanner 리팩토링 (상태머신 코드 유지)
+- [ ] T58.3: ProCHeuristicScanner 리팩토링 (루프/파일 추적 유지)
+- [ ] T58.4: AstGrepSearch 리팩토링
+- [ ] T58.5: 기존 테스트 호환성 확인 + 단위 테스트 + dead pattern 상수 완전 제거 검증
+
+### T66: 문서화 — P2 (depends: T65, T58)
+
+- [ ] T66.1: 아키텍처 문서 (`docs/architecture/llm_first_rules.md`)
+- [ ] T66.2: USER_MANUAL 커스텀 Skill/룰 섹션 + MIDER_DEV_MODE 사용법
+- [x] T66.3: 이슈 로그 010 (llm-first-rule-redesign) — 작성 완료
+
+### T68: Orphan 파일/코드 정리 (신규) — P2 (depends: T65, T58, T66)
+
+- [ ] T68.1: dead import / 미사용 상수 전수 스캔 (vulture, ruff F401/F841)
+- [ ] T68.2: 구 Scanner 테스트 fixture 정리 (NavigationHint 검증으로 변경 또는 제거)
+- [ ] T68.3: 프롬프트 템플릿 내 Skill 이관 섹션 삭제 (c_analyzer_*.txt, c_prescan_fewshot.txt)
+- [ ] T68.4: 문서 업데이트 (TECH_SPEC.md, DATA_SCHEMA.md — 구 Scanner 역할 → Navigator)
+- [ ] T68.5: docs/worklog 내 완료 계획 아카이브 (`docs/archive/` 필요 시 생성)
+- [ ] T68.6: git grep 기반 deprecated 심볼 참조 0 확인 (ScannerFinding, 구 _PATTERNS 등)
+
+### T59: PyInstaller + 서명 + dev_mode — P2 (depends: T58)
+
+- [ ] T59.1: `mider.spec` 데이터 파일 번들 (rules + skills + 공개키)
+- [ ] T59.2: `settings.yaml` rules_dir / skills_dir 설정
+- [ ] T59.3: Ed25519 서명 시스템 (개인키 운영자만, exe에 공개키 번들)
+- [ ] T59.4: `MIDER_DEV_MODE=1` 환경변수 (서명 검증 skip, SOC 반복 테스트)
+- [ ] T59.5: `scripts/sign_resources.py` (개인키 서명 스크립트)
+- [ ] T59.6: 단위 테스트 (서명 검증, dev_mode 우회)
+
+---
+
+## 피처 E (신규): Reporter 속도 개선
+
+### T70: Reporter 속도 개선 — P0 (피처 A와 병렬)
+
+**목표**: Phase 3 Reporter 20초 → 3~5초
+
+- [ ] T70.1: Reporter 프로파일링 (LLM 호출 수, 호출별 시간, 출력 토큰 측정)
+- [ ] T70.2: 템플릿 기반 결정적 섹션 분리 (`_build_deterministic_sections()`) — 이슈 테이블/severity 카운트/배포 체크리스트
+- [ ] T70.3: LLM 호출 범위 축소 — Executive Summary 내러티브만 (출력 토큰 max 400)
+- [ ] T70.4: Reporter 모델 다운그레이드 옵션 (settings.yaml reporter 전용 모델, 기본 gpt-5-mini)
+- [ ] T70.5: 병렬 LLM 호출 (Executive Summary / RiskAssessment / 권고안 asyncio.gather)
+- [ ] T70.6: LLM skip 조건 (이슈 0건 또는 low severity only → 템플릿만 출력)
+- [ ] T70.7: 단위 테스트 + 실측 (before/after 시간 + 품질 회귀 확인)
+
+---
+
+## 피처 G (신규): 이슈 품질 관리
+
+**배경**: Mider가 "개선사항"(strcpy→strlcpy 권장, 매직 넘버 등)을 "오류"로 보고하여 진짜 오류가 파묻힘. OOB는 헤더 정보 부족으로 LLM이 추측성 오탐.
+
+### T72: 이슈 타입 분류 강화 — P0 (T65와 동시 진행)
+
+- [ ] T72.1: AnalysisResult.Issue 스키마에 `issue_type` 필드 추가 (error|suggestion|info)
+- [ ] T72.2: 5개 Analyzer 프롬프트에 분류 기준 + 예시 추가 ("애매하면 suggestion")
+- [ ] T72.3: Skill frontmatter에 `issue_type` 필드 추가 (T65와 통합)
+- [ ] T72.4: Reporter 분리 출력 (T70과 통합, error primary / suggestion secondary)
+- [ ] T72.5: CLI `--include-suggestions` 옵션 (기본 off)
+- [ ] T72.6: issue_merger.py — issue_type 필드 보존·전파
+- [ ] T72.7: 단위 테스트 + 실측 (보고 이슈 수 before/after)
+
+### T73: Header 의존성 해결 — P1 (depends: T72)
+
+- [ ] T73.0: ProFrame 공통 헤더 구조 추출 + 번들 (신규)
+  - [ ] T73.0.1: `scripts/extract_pfm_symbols.py` — libclang 기반 AST 추출 (7종 batch include + 매크로 값 자동 평가)
+  - [ ] T73.0.2: 산출물 2종 생성 (`pfm.slim.h` + `pfm_symbols.yaml`)
+  - [ ] T73.0.3: 커버리지 검증 테스트 (샘플 C 파일 pfm 심볼 ↔ 산출물 diff 0)
+  - [ ] T73.0.4: `.gitignore` negation (원본 제외 + 산출물만 커밋 허용)
+  - [ ] T73.0.5: 버전 해시 주석 + CI 검증 (`// source: pfmcom.h@<sha256>`)
+  - [ ] T73.0.6: `include_resolver`의 기본 헤더 DB로 연동
+- [ ] T73.1: Include 파서 (include_resolver.py 신규)
+- [ ] T73.2: 심볼 의존성 추적 (LLM 1-shot으로 외부 심볼 목록 추출 + 헤더 매칭)
+- [ ] T73.3: 인터랙션 프롬프트 (CLI) — 트리거 3조건 AND 만족 시에만 (pfm 외 헤더만)
+- [ ] T73.4: 세션 캐시 (`.mider_cache/header_decisions.json` — T60 완료 후 SQLite 마이그레이션)
+- [ ] T73.5: Analyzer 프롬프트 조건부 지시 (헤더 미제공 시 OOB 보고 금지)
+- [ ] T73.6: CLI 플래그 (`--headers`, `--assume-headers-missing`, `--no-interactive`)
+- [ ] T73.7: 단위 테스트 + 실측 검증 (헤더 제공/미제공 OOB 정확도)
+
+---
+
+## 피처 B: 구조분석 캐싱 + 누적 학습
+
+- [ ] T60: StructureStore 인프라 (SQLite) — P3
+  - [ ] T60.1: 구조 캐싱 스키마 정의 (`models/structure_store.py`)
+  - [ ] T60.2: StructureStore 구현 (`tools/utility/structure_store.py`)
+  - [ ] T60.3: 단위 테스트
+- [ ] T61: 파이프라인 연동 — P3 (depends: T60)
+  - [ ] T61.1: Phase 1 → StructureStore 자동 저장
+  - [ ] T61.2: Phase 2 → 이전 분석 컨텍스트 프롬프트 주입
+  - [ ] T61.3: Phase 3 → 이력 비교 보고 (delta)
+  - [ ] T61.4: 단위 테스트
+- [ ] T62: CLI + 관리 — P3 (depends: T61)
+  - [ ] T62.1: CLI 명령 (cache status/clear/show)
+  - [ ] T62.2: settings.yaml cache 섹션
+  - [ ] T62.3: --no-cache CLI 옵션
+  - [ ] T62.4: 단위 테스트
+- [ ] T63: 벡터 DB 확장 (2단계, 선택적) — P3 (depends: T62)
+  - [ ] T63.1: ChromaDB + sentence-transformers 통합
+  - [ ] T63.2: 유사 코드 이슈 검색 → 프롬프트 주입
+  - [ ] T63.3: AICA 임베딩 API 옵션
+  - [ ] T63.4: 단위 테스트
