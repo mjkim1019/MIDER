@@ -59,6 +59,12 @@ Explain Plan이 제공된 경우, 반드시 아래를 수행하세요:
 - [ ] UPDATE/DELETE에 WHERE 절이 있는가?
 - [ ] 트랜잭션 범위가 적절한가?
 
+## 라인 번호 사용 규칙 (필수)
+- `{file_content}`의 실제 라인 번호를 location.line_start/line_end에 사용합니다.
+- 문제가 있는 SQL 구문이 시작되는 줄을 line_start, 끝나는 줄을 line_end로 명시합니다.
+- 라인을 정확히 짚을 수 없는 경우에만 0을 사용합니다. **임의로 0을 채우지 마세요.**
+- 단일 라인 이슈는 line_end == line_start로 둡니다.
+
 ## 출력 형식
 반드시 아래 JSON 스키마로 응답하세요:
 {{
