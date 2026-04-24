@@ -137,6 +137,62 @@ class TestLoopInitMissing:
                     if x["pattern_id"] == "LOOP_INIT_MISSING"]
         assert len(findings) == 0
 
+    def test_detect_partial_init(self, scanner, tmp_path):
+        """일부 구조체만 초기화되고 다른 구조체가 누락된 케이스.
+
+        zinvbreps8030.pc L5951 실사례: gst_aia/gst_reisu는 초기화하지만
+        gst_sec_06에 쓰는 strncpy가 초기화 없이 수행됨.
+        """
+        f = tmp_path / "test.pc"
+        f.write_text(
+            'while (li_flag == TRUE) {\n'
+            '    INIT2VCHAR(gst_aia);\n'
+            '    INIT2VCHAR(gst_reisu);\n'
+            '    EXEC SQL FETCH C1 INTO :gst_aia;\n'
+            '    for (i = 0; i < n; i++) {\n'
+            '        strncpy(gst_reisu.use_dt, src1, 10);\n'
+            '        strncpy(gst_sec_06.lcl_cd[0], src2, 10);\n'
+            '        strncpy(gst_sec_06.amt[0], src3, 20);\n'
+            '    }\n'
+            '}\n'
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "LOOP_INIT_MISSING"]
+        # gst_sec_06 만 누락으로 보고되어야 한다
+        variables = {x.get("variable") for x in findings}
+        assert "gst_sec_06" in variables
+        assert "gst_aia" not in variables
+        assert "gst_reisu" not in variables
+
+    def test_detect_multiple_missing_structs(self, scanner, tmp_path):
+        """루프 안 여러 구조체 모두 초기화 누락 — 각각 보고."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            'while (cond) {\n'
+            '    strncpy(gst_a.field, src, 10);\n'
+            '    strncpy(gst_b.field, src, 10);\n'
+            '}\n'
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "LOOP_INIT_MISSING"]
+        variables = {x.get("variable") for x in findings}
+        assert variables == {"gst_a", "gst_b"}
+
+    def test_no_detect_plain_buffer_copy(self, scanner, tmp_path):
+        """구조체 멤버가 아닌 단순 문자열 복사는 미탐지 (false-positive 방지)."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            'while (n-- > 0) {\n'
+            '    strncpy(buf, src, 10);\n'
+            '}\n'
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "LOOP_INIT_MISSING"]
+        assert len(findings) == 0
+
 
 class TestFcloseMissing:
     """Pattern 4: fopen/fclose 짝 불일치 탐지."""

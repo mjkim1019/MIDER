@@ -38,6 +38,8 @@ _LOOP_START_RE = re.compile(r"^\s*(while|for)\s*\(")
 _INIT_CALL_RE = re.compile(
     r"(INIT2VCHAR|INIT2STR|memset|memcpy)\s*\("
 )
+# C 주석(블록 + 라인) 제거용 — 구조체별 초기화 판정 시 주석 제거본과 원본을 비교
+_COMMENT_RE = re.compile(r"/\*[\s\S]*?\*/|//[^\n]*")
 
 # ── 패턴 4: 파일 open/close (Proframe seq_open 포함) ───
 _FOPEN_RE = re.compile(r"\b(fopen|seq_open)\s*\(")
@@ -172,55 +174,79 @@ class ProCHeuristicScanner(BaseTool):
     def _scan_loop_init_missing(lines: list[str]) -> list[dict[str, Any]]:
         """Pattern 3: 루프 내 구조체 초기화 누락 탐지.
 
-        while/for 루프 본문에서 구조체에 쓰기(strncpy, snprintf 등)는
-        하지만 INIT2VCHAR/memset 초기화가 없는 경우를 탐지한다.
+        while/for 루프 본문에서 `strncpy/snprintf/memcpy/strcpy(<var>.<멤버>, ...)`로
+        쓰여지는 각 구조체에 대해 `INIT2VCHAR/INIT2STR/memset(&?<var>, ...)`로
+        초기화되는지 개별 확인한다. 일부 구조체만 초기화되고 다른 구조체가
+        누락된 경우도 구조체마다 finding으로 보고한다.
         """
         findings: list[dict[str, Any]] = []
         i = 0
         while i < len(lines):
             line = lines[i]
-            if _LOOP_START_RE.match(line):
-                # 루프 시작 → 본문 범위 탐색 (중괄호 매칭)
-                loop_start = i
-                brace_count = 0
-                loop_end = i
-                for j in range(i, min(i + 500, len(lines))):
-                    brace_count += lines[j].count("{") - lines[j].count("}")
-                    if brace_count > 0 and lines[j].count("{") > 0:
-                        loop_start = j
-                    if brace_count <= 0 and j > i and "{" in "".join(lines[i:j+1]):
-                        loop_end = j
-                        break
+            if not _LOOP_START_RE.match(line):
+                i += 1
+                continue
 
-                if loop_end > loop_start:
-                    loop_body = "\n".join(lines[loop_start:loop_end + 1])
-                    # 루프 내에 쓰기 패턴이 있는지
-                    has_write = bool(re.search(
-                        r"(strncpy|snprintf|memcpy|strcpy)\s*\(", loop_body
-                    ))
-                    # 루프 내에 초기화 패턴이 있는지
-                    has_init = bool(_INIT_CALL_RE.search(loop_body))
-                    # 주석 처리된 초기화가 있는지
-                    has_commented_init = bool(re.search(
-                        r"/\*\s*(INIT2VCHAR|INIT2STR|memset)", loop_body
-                    ))
+            # 루프 본문 범위 탐색 (중괄호 매칭)
+            # 루프 시작 라인 뒤 첫 `{`를 loop_start로 기록, 같은 depth의
+            # `}`를 만나면 loop_end. 중첩된 `{...}`는 brace_count로 추적하되
+            # loop_start는 한 번만 기록.
+            loop_start: int | None = None
+            loop_end: int | None = None
+            brace_count = 0
+            for j in range(i, min(i + 500, len(lines))):
+                opens = lines[j].count("{")
+                closes = lines[j].count("}")
+                brace_count += opens - closes
+                if loop_start is None and opens > 0:
+                    loop_start = j
+                if loop_start is not None and brace_count <= 0 and j >= loop_start:
+                    loop_end = j
+                    break
 
-                    if has_write and (not has_init or has_commented_init):
-                        findings.append({
-                            "pattern_id": "LOOP_INIT_MISSING",
-                            "severity": "high",
-                            "line": i + 1,  # 1-based
-                            "code": line.strip()[:120],
-                            "description": (
-                                "루프 본문에서 구조체에 쓰기(strncpy/snprintf 등)를 "
-                                "수행하지만 INIT2VCHAR/memset 초기화가 "
-                                f"{'주석 처리되어 있음' if has_commented_init else '없음'}. "
-                                "반복 시 이전 데이터가 누적되어 금액 오표기 등 발생 가능"
-                            ),
-                        })
-                    i = loop_end + 1
+            if loop_start is None or loop_end is None or loop_end <= loop_start:
+                i += 1
+                continue
+
+            loop_body = "\n".join(lines[loop_start:loop_end + 1])
+            # 주석 제거본(블록/라인 주석 둘 다) — 실제 컴파일되는 코드
+            code_only = _COMMENT_RE.sub("", loop_body)
+
+            # 쓰기 대상 구조체 이름 집합 (strncpy/snprintf/memcpy/strcpy의 첫 인자에서
+            # `<var>.<member>` 형식을 찾는다. `(char *)` 등 캐스트는 건너뛴다.)
+            written_structs = set(re.findall(
+                r"(?:strncpy|snprintf|memcpy|strcpy)\s*\("
+                r"\s*(?:\([^)]*\))?\s*&?\s*(\w+)\.",
+                code_only,
+            ))
+            if not written_structs:
+                i = loop_end + 1
+                continue
+
+            for struct in sorted(written_structs):
+                init_pat = re.compile(
+                    r"(?:INIT2VCHAR|INIT2STR|memset|memcpy)\s*\(\s*&?\s*"
+                    + re.escape(struct) + r"\b"
+                )
+                # 실제 코드(주석 제거본)에 초기화가 있으면 정상
+                if init_pat.search(code_only):
                     continue
-            i += 1
+                # 원본에는 있는데 주석 제거본에 없다 = 주석 처리된 초기화
+                has_commented_init = bool(init_pat.search(loop_body))
+                findings.append({
+                    "pattern_id": "LOOP_INIT_MISSING",
+                    "severity": "high",
+                    "line": i + 1,  # 1-based 루프 헤더 라인
+                    "variable": struct,
+                    "code": line.strip()[:120],
+                    "description": (
+                        f"루프 본문에서 구조체 {struct}에 쓰기(strncpy/snprintf 등)를 "
+                        "수행하지만 INIT2VCHAR/memset 초기화가 "
+                        f"{'주석 처리되어 있음' if has_commented_init else '없음'}. "
+                        "반복 시 이전 데이터가 누적되어 금액 오표기 등 발생 가능"
+                    ),
+                })
+            i = loop_end + 1
         return findings
 
     @staticmethod
