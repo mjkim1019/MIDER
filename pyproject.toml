@@ -18,6 +18,10 @@ dependencies = [
     "lxml>=5.0.0,<7.0.0",
 ]
 
+[project.optional-dependencies]
+# SSO 브라우저 로그인용 (일반 CLI/폐쇄망 exe 빌드에는 불필요)
+sso = ["selenium>=4.0.0,<5.0.0"]
+
 [project.scripts]
 mider = "mider.main:main"
 
