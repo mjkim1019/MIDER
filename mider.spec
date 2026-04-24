@@ -35,6 +35,20 @@ if prompts_dir.exists():
     for txt in prompts_dir.glob("*.txt"):
         datas.append((str(txt), os.path.join("mider", "config", "prompts")))
 
+# 룰 YAML (T64 리소스 경로 레이어 — resource_path.get_rule_path 참조)
+# 런타임 오버라이드: 환경변수 MIDER_RULES_PATH 또는 exe 옆 mider_rules/
+rules_dir = ROOT / "mider" / "config" / "rules"
+if rules_dir.exists():
+    for yml in rules_dir.glob("*.yaml"):
+        datas.append((str(yml), os.path.join("mider", "config", "rules")))
+
+# Skill Markdown (T64 리소스 경로 레이어 — resource_path.get_skill_path 참조)
+# 런타임 오버라이드: 환경변수 MIDER_SKILLS_PATH 또는 exe 옆 mider_skills/
+skills_dir = ROOT / "mider" / "config" / "skills"
+if skills_dir.exists():
+    for md in skills_dir.glob("*.md"):
+        datas.append((str(md), os.path.join("mider", "config", "skills")))
+
 # lint 설정 파일
 lint_dir = ROOT / "mider" / "resources" / "lint-configs"
 if lint_dir.exists():

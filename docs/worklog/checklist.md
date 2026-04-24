@@ -319,10 +319,10 @@
 | 순위 | Task | 피처 | 상태 | 비고 |
 |------|------|------|------|------|
 | **P0 (최우선)** | **T71 (PII 전처리 강화)** | **F** | **✅ 완료** | SOC 반복 테스트 블로커 해결 |
-| P0 | T64 (외부 경로) | A | 미착수 | 독립 |
+| P0 | T64 (외부 경로) | A | ✅ 완료 | 독립 |
 | P0 | T65 (Skills + Navigator) | A | 미착수 | **T72와 동시 진행** |
 | P0 | T72 (이슈 타입 분류) | G | 미착수 | **T65와 동시, T70과 reporter 통합** |
-| P0 | T70 (Reporter 속도) | E | 미착수 | T72와 reporter 부분 통합 |
+| P0 | T70 (Reporter 속도) | E | ✅ 완료 | T72와 reporter 부분 통합 |
 | P1 | T57 (YAML 축소) | A | 미착수 | — |
 | P1 | T58 (Scanner 리팩토링) | A | 미착수 | — |
 | P1 | T73 (Header 의존성) | G | 미착수 | depends: T72. OOB 근본 해결 |
@@ -370,14 +370,15 @@
 
 **통합**: 구 피처 A(룰 외부화) + C(Skills) + D(ProFrame) → 단일 피처. Scanner Navigator 강등, Skills를 판단 1차 소스로.
 
-### T64: 외부 리소스 경로 레이어 (기반) — P0
+### T64: 외부 리소스 경로 레이어 (기반) — P0 ✅ 완료
 
-- [ ] T64.1: `resource_path.py` 신설 (환경변수 > exe옆 > 번들 fallback)
-- [ ] T64.2: `prompt_loader.py` 리팩토링 (resource_path 사용)
-- [ ] T64.3: `rule_loader.py` / `skill_loader.py` resource_path 통합
-- [ ] T64.4: `mider.spec` 업데이트 (rules + skills 번들, overlay 주석)
-- [ ] T64.5: `scripts/export_default_resources.py` (기본 리소스 추출)
-- [ ] T64.6: 단위 테스트 (fallback + 환경변수 우선순위)
+- [x] T64.1: `resource_path.py` 신설 (환경변수 > exe옆 > 번들 fallback)
+- [x] T64.2: `prompt_loader.py` 리팩토링 (resource_path 사용, PROMPTS_DIR alias 유지)
+- [x] T64.3: rule_loader/skill_loader API 자리 확보 (`get_rule_path`/`get_skill_path` 제공, 실 loader는 T57.2/T65.2에서 구현)
+- [x] T64.4: `mider.spec` 업데이트 (rules + skills 번들 블록)
+- [x] T64.5: `scripts/export_default_resources.py` (번들 → 외부 디렉토리 복사)
+- [x] T64.6: 단위 테스트 (test_resource_path.py 16개 + test_prompt_loader.py 업데이트, 총 68 통과)
+- [x] docs: `docs/dev_vs_prod.md` — 개발기/운영기 운영 가이드 (사용자 요청)
 
 ### T65: Skill 포맷 + 로더 + Navigator 강등 (핵심) — P0 (depends: T64)
 
@@ -436,17 +437,18 @@
 
 ## 피처 E (신규): Reporter 속도 개선
 
-### T70: Reporter 속도 개선 — P0 (피처 A와 병렬)
+### T70: Reporter 속도 개선 — P0 (피처 A와 병렬) ✅ 완료
 
-**목표**: Phase 3 Reporter 20초 → 3~5초
+**목표**: Phase 3 Reporter 20초 → 3~5초 (달성)
 
-- [ ] T70.1: Reporter 프로파일링 (LLM 호출 수, 호출별 시간, 출력 토큰 측정)
-- [ ] T70.2: 템플릿 기반 결정적 섹션 분리 (`_build_deterministic_sections()`) — 이슈 테이블/severity 카운트/배포 체크리스트
-- [ ] T70.3: LLM 호출 범위 축소 — Executive Summary 내러티브만 (출력 토큰 max 400)
-- [ ] T70.4: Reporter 모델 다운그레이드 옵션 (settings.yaml reporter 전용 모델, 기본 gpt-5-mini)
-- [ ] T70.5: 병렬 LLM 호출 (Executive Summary / RiskAssessment / 권고안 asyncio.gather)
-- [ ] T70.6: LLM skip 조건 (이슈 0건 또는 low severity only → 템플릿만 출력)
-- [ ] T70.7: 단위 테스트 + 실측 (before/after 시간 + 품질 회귀 확인)
+- [x] T70.1: Reporter 프로파일링 (단계별 시간 + LLM 호출 토큰/시간 인스트루먼테이션)
+- [x] T70.2: 템플릿 기반 결정적 섹션 — 이미 결정적으로 구현됨 (코드 변경 불필요)
+- [x] T70.3: LLM 호출 범위 축소 — 프롬프트 140줄 → 25줄 (risk_description 전용)
+- [x] T70.4: Reporter 모델 다운그레이드 — settings.yaml에 이미 `gpt-4.1-mini` 설정됨
+- [x] T70.5: 병렬 LLM 호출 — 단일 호출이라 대상 없음 (T72 이후 재평가)
+- [x] T70.6: LLM skip 조건 (critical=0 AND high=0 → 템플릿만 출력)
+- [x] T70.6.1 + T70.6.2: 배포 판정 정책 개편 (사용자 추가 커밋, main 병합)
+- [x] T70.7: 단위 테스트 + 실측 (사용자 검증 후 main 병합 완료)
 
 ---
 

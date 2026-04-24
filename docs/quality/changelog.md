@@ -963,3 +963,5 @@
 - `2026-04-24 00:21:19` [feat/T71-pii-preprocessing] **Edit**: `/Users/a11401/Documents/2026/Mider/mider/config/llm_client.py`
 - `2026-04-24 00:21:31` [feat/T71-pii-preprocessing] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/test_config/test_pre_mask_messages.py`
 - `2026-04-24 00:23:24` [feat/T71-pii-preprocessing] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/tools/preprocessing/test_secret_scanner.py`
+- `2026-04-24 14:24:18` [feat/T64-resource-path] **Edit**: `/Users/a11401/Documents/2026/Mider-T64/scripts/export_default_resources.py`
+- `2026-04-24 14:25:26` [feat/T64-resource-path] **Write**: `/Users/a11401/Documents/2026/Mider-T64/docs/dev_vs_prod.md`

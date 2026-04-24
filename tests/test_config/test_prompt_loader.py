@@ -12,13 +12,11 @@ class TestLoadPrompt:
             load_prompt("nonexistent_prompt")
 
     def test_load_without_variables(self, tmp_path, monkeypatch):
-        """변수 없이 프롬프트를 로드한다."""
+        """변수 없이 프롬프트를 로드한다 (MIDER_PROMPTS_PATH 환경변수 경유)."""
         prompt_file = tmp_path / "test_simple.txt"
         prompt_file.write_text("Hello, this is a test prompt.", encoding="utf-8")
 
-        monkeypatch.setattr(
-            "mider.config.prompt_loader.PROMPTS_DIR", tmp_path
-        )
+        monkeypatch.setenv("MIDER_PROMPTS_PATH", str(tmp_path))
 
         result = load_prompt("test_simple")
         assert result == "Hello, this is a test prompt."
@@ -31,9 +29,7 @@ class TestLoadPrompt:
             encoding="utf-8",
         )
 
-        monkeypatch.setattr(
-            "mider.config.prompt_loader.PROMPTS_DIR", tmp_path
-        )
+        monkeypatch.setenv("MIDER_PROMPTS_PATH", str(tmp_path))
 
         result = load_prompt(
             "test_vars",
@@ -50,14 +46,32 @@ class TestLoadPrompt:
             "Content: {required_var} and {other_var}", encoding="utf-8"
         )
 
-        monkeypatch.setattr(
-            "mider.config.prompt_loader.PROMPTS_DIR", tmp_path
-        )
+        monkeypatch.setenv("MIDER_PROMPTS_PATH", str(tmp_path))
 
         with pytest.raises(KeyError):
             load_prompt("test_missing", other_var="provided")
 
     def test_prompts_dir_exists(self):
-        """PROMPTS_DIR 경로가 올바르게 설정되어 있다."""
+        """PROMPTS_DIR 경로(번들 fallback)가 올바르게 설정되어 있다."""
         assert "config" in str(PROMPTS_DIR)
         assert str(PROMPTS_DIR).endswith("prompts")
+
+    def test_env_override_takes_precedence(self, tmp_path, monkeypatch):
+        """MIDER_PROMPTS_PATH가 번들보다 우선한다."""
+        # 환경변수 디렉토리에 override 프롬프트 배치
+        override_file = tmp_path / "reporter.txt"
+        override_file.write_text("OVERRIDE CONTENT", encoding="utf-8")
+
+        monkeypatch.setenv("MIDER_PROMPTS_PATH", str(tmp_path))
+
+        result = load_prompt("reporter")
+        assert result == "OVERRIDE CONTENT"
+
+    def test_env_missing_falls_back_to_bundle(self, tmp_path, monkeypatch):
+        """환경변수 디렉토리에 해당 파일이 없으면 번들로 fallback."""
+        # tmp_path는 비어있음, reporter.txt는 번들에만 존재
+        monkeypatch.setenv("MIDER_PROMPTS_PATH", str(tmp_path))
+
+        result = load_prompt("reporter")
+        # 번들의 실제 reporter.txt가 로드됨 (존재 확인)
+        assert len(result) > 0
