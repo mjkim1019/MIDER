@@ -3,13 +3,11 @@ name: Build Windows EXE
 on:
   push:
     branches: [deploy]
-    paths:
-      - 'mider/**'
-      - 'mider.spec'
-      - 'requirements.txt'
-      - 'scripts/build_exe.py'
-      - '.github/workflows/build-windows-exe.yml'
+    tags: ['v*.*.*']
   workflow_dispatch:
+
+permissions:
+  contents: write  # GitHub Release 생성 권한
 
 jobs:
   build:
@@ -32,28 +30,129 @@ jobs:
           python -m pip install pyinstaller
 
       - name: Create .env from secrets
+        shell: bash
         run: |
           echo "API_PROVIDER=aica" >> .env
           echo "AICA_API_KEY=${{ secrets.AICA_API_KEY }}" >> .env
           echo "AICA_ENDPOINT=${{ secrets.AICA_ENDPOINT }}" >> .env
+
+      - name: Verify tag matches __version__
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          CODE=$(grep -oP '__version__\s*=\s*"\K[^"]+' mider/__init__.py)
+          echo "tag=$TAG code=$CODE"
+          if [ "$TAG" != "$CODE" ]; then
+            echo "::error::Tag ($TAG) does not match mider/__init__.py __version__ ($CODE)"
+            exit 1
+          fi
+
+      - name: Generate version_info.txt
+        run: python scripts/gen_version_info.py
 
       - name: Build EXE
         run: python -m PyInstaller --clean --noconfirm mider.spec
 
       - name: Verify build
+        shell: pwsh
         run: |
-          if (Test-Path "dist\mider.exe") {
-            Write-Host "Build successful: dist\mider.exe"
-            Get-Item "dist\mider.exe" | Select-Object Name, Length
-          } else {
+          if (-not (Test-Path "dist\mider.exe")) {
             Write-Error "Build failed: mider.exe not found"
             exit 1
           }
+          $info = Get-Item "dist\mider.exe"
+          $mb = [math]::Round($info.Length / 1MB, 2)
+          Write-Host "Build OK: $($info.Name) = $mb MB"
 
-      - name: Upload artifact
+      - name: Smoke test (--version)
+        shell: pwsh
+        run: |
+          $out = & "dist\mider.exe" --version 2>&1 | Out-String
+          Write-Host "OUT: $out"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "smoke test failed: exit $LASTEXITCODE"
+            exit 1
+          }
+          if ($out -notmatch 'mider') {
+            Write-Error "unexpected --version output"
+            exit 1
+          }
+
+      - name: Split into 6 zip volumes
+        shell: pwsh
+        run: |
+          $src = "dist\mider.exe"
+          $size = (Get-Item $src).Length
+          # 6등분 → bytes 단위로 7z에 전달 (ceil로 정확히 6볼륨 이하 보장)
+          $volumeBytes = [math]::Ceiling($size / 6)
+          $mb = [math]::Round($volumeBytes / 1MB, 2)
+          Write-Host "Source: $size bytes, volume: $volumeBytes bytes (~$mb MB) x 6"
+          New-Item -ItemType Directory -Force -Path "dist\split" | Out-Null
+          & 7z a -tzip -mx=5 "-v${volumeBytes}b" "dist\split\mider.zip" $src
+          if ($LASTEXITCODE -ne 0) { Write-Error "7z split failed"; exit 1 }
+          Write-Host "--- split result ---"
+          Get-ChildItem "dist\split" | ForEach-Object {
+            $m = [math]::Round($_.Length / 1MB, 2)
+            Write-Host (" {0,-30} {1,8} MB" -f $_.Name, $m)
+          }
+          $count = (Get-ChildItem "dist\split" -Filter 'mider.zip.*').Count
+          Write-Host "Volume count: $count"
+          if ($count -ne 6) {
+            Write-Warning "Expected 6 volumes, got $count (원본 크기에 따라 반올림 오차 가능)"
+          }
+
+      - name: Write split reassembly README
+        shell: pwsh
+        run: |
+          $readme = @'
+          # Mider 분할압축 재조립 안내
+
+          이 zip은 6개 볼륨(mider.zip.001 ~ mider.zip.006)으로 분할되어 있습니다.
+
+          ## 재조립 방법
+
+          ### 방법 1: 7-Zip (권장)
+          1. 6개 파일을 같은 폴더에 모읍니다.
+          2. `mider.zip.001`을 우클릭 → 7-Zip → "여기에 풀기"
+          3. 자동으로 합쳐져 `mider.exe`가 추출됩니다.
+
+          ### 방법 2: Windows 기본 명령 (cmd)
+          ```
+          copy /b mider.zip.001 + mider.zip.002 + mider.zip.003 + mider.zip.004 + mider.zip.005 + mider.zip.006 mider.zip
+          ```
+          그 후 `mider.zip`을 우클릭 → 압축 풀기.
+
+          ### 방법 3: PowerShell
+          ```
+          cmd /c "copy /b mider.zip.001+mider.zip.002+mider.zip.003+mider.zip.004+mider.zip.005+mider.zip.006 mider.zip"
+          Expand-Archive mider.zip -DestinationPath .
+          ```
+          '@
+          Set-Content -Path "dist\split\README.txt" -Value $readme -Encoding UTF8
+
+      - name: Upload exe artifact
         uses: actions/upload-artifact@v4
         with:
           name: mider-windows-${{ github.sha }}
-          path: dist\mider.exe
+          path: dist/mider.exe
           retention-days: 30
+
+      - name: Upload split archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mider-windows-split-${{ github.sha }}
+          path: dist/split/*
+          retention-days: 30
+
+      - name: Create GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Mider ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/mider.exe
+            dist/split/mider.zip.*
+            dist/split/README.txt

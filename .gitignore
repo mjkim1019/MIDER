@@ -42,6 +42,9 @@ input/*
 *.log
 err.txt
 
+# PyInstaller 버전 리소스 (CI에서 매 빌드마다 생성)
+version_info.txt
+
 # 분석 참고자료
 분석/
 

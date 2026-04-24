@@ -390,3 +390,91 @@ cp $(which proc) mider/resources/binaries/proc
 
 ESLint 룰셋은 `mider/resources/lint-configs/.eslintrc.json`에 미리 포함되어 있습니다.
 프로젝트에 맞게 수정하려면 해당 파일을 편집하세요.
+
+---
+
+## Windows EXE 빌드 (GitHub Actions CI)
+
+`.github/workflows/build-windows-exe.yml`이 Windows 환경에서 PyInstaller로 단일 실행파일(`mider.exe`)을 자동 빌드합니다. **로컬에 PyInstaller/7-Zip 설치 불필요** — 모든 작업은 CI에서 수행됩니다.
+
+### 트리거 3종
+
+| 이벤트 | 빌드 | GitHub Release 생성 |
+|---|---|---|
+| `deploy` 브랜치 push | ✅ | ❌ (Artifact만) |
+| `v*.*.*` 태그 push (main 기준) | ✅ | ✅ |
+| Actions 탭에서 수동 실행 (`workflow_dispatch`) | ✅ | ❌ |
+
+### CI 자동 수행 단계
+
+1. `__version__` ↔ 태그 일치 검증 (태그 빌드 한정)
+2. `scripts/gen_version_info.py` 실행 → `version_info.txt` 생성 (exe 파일 속성에 버전/회사/설명 주입)
+3. PyInstaller 빌드 → `dist/mider.exe` (아이콘 포함)
+4. **Smoke test**: `mider.exe --version` 실행 확인
+5. **분할압축**: `mider.zip.001 ~ .006`으로 6등분 + 재조립 README 생성
+6. Artifact 업로드 (30일 보관)
+7. (태그 빌드 한정) **GitHub Release 자동 생성** — exe + 분할 zip 6개 + README 첨부
+
+### 정식 릴리스 절차
+
+```bash
+# main 기준. __version__ bump가 반드시 먼저.
+git checkout main
+git pull
+
+# 1) 버전 bump (두 파일 동시 수정)
+vim mider/__init__.py     # __version__ = "1.0.3"
+vim pyproject.toml        # version = "1.0.3"
+
+# 2) 릴리스 커밋
+git commit -am "chore: release v1.0.3"
+
+# 3) 같은 커밋에 태그 부착 후 push
+git tag v1.0.3
+git push origin main --tags
+```
+
+CI가 태그와 `__version__` 일치 여부를 검증하며, 불일치 시 빌드가 실패합니다.
+
+### 필요한 Repository Secrets
+
+| Secret | 용도 |
+|---|---|
+| `AICA_API_KEY` | 폐쇄망 AICA 게이트웨이 인증 |
+| `AICA_ENDPOINT` | AICA 엔드포인트 URL |
+
+> `Settings → Secrets and variables → Actions`에서 설정.
+
+### 분할압축 재조립 방법
+
+릴리스 페이지 또는 Artifact에서 `mider.zip.001 ~ mider.zip.006` 6개 파일을 모두 다운로드한 뒤:
+
+**방법 1: 7-Zip (권장)**
+1. 6개 파일을 같은 폴더에 모으기
+2. `mider.zip.001`을 우클릭 → 7-Zip → "여기에 풀기"
+3. 자동으로 합쳐져 `mider.exe` 추출
+
+**방법 2: Windows cmd**
+```cmd
+copy /b mider.zip.001 + mider.zip.002 + mider.zip.003 + mider.zip.004 + mider.zip.005 + mider.zip.006 mider.zip
+```
+→ 생성된 `mider.zip`을 우클릭하여 압축 풀기
+
+**방법 3: PowerShell**
+```powershell
+cmd /c "copy /b mider.zip.001+mider.zip.002+mider.zip.003+mider.zip.004+mider.zip.005+mider.zip.006 mider.zip"
+Expand-Archive mider.zip -DestinationPath .
+```
+
+> 각 볼륨은 원본 exe 크기의 1/6로 자동 계산됩니다 (사내 반입 시 파일 크기 제한 대응).
+
+### 로컬 빌드 (참고)
+
+CI 없이 로컬에서 직접 빌드할 때는 다음을 수행:
+
+```bash
+pip install pyinstaller
+python scripts/gen_version_info.py      # version_info.txt 생성 (선택)
+pyinstaller --clean --noconfirm mider.spec
+# → dist/mider (또는 dist/mider.exe on Windows)
+```

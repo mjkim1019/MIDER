@@ -117,6 +117,10 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Windows 버전 리소스 (있을 때만 주입 — scripts/gen_version_info.py로 생성)
+version_file = ROOT / "version_info.txt"
+exe_extra = {"version": str(version_file)} if version_file.exists() else {}
+
 # onefile 모드: 단일 실행파일로 빌드
 exe = EXE(
     pyz,
@@ -132,4 +136,5 @@ exe = EXE(
     upx=True,
     console=True,
     icon=str(ROOT / "mider_icon.ico"),
+    **exe_extra,
 )

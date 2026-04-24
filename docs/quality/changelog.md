@@ -965,3 +965,9 @@
 - `2026-04-24 00:23:24` [feat/T71-pii-preprocessing] **Edit**: `/Users/a11401/Documents/2026/Mider/tests/tools/preprocessing/test_secret_scanner.py`
 - `2026-04-24 14:24:18` [feat/T64-resource-path] **Edit**: `/Users/a11401/Documents/2026/Mider-T64/scripts/export_default_resources.py`
 - `2026-04-24 14:25:26` [feat/T64-resource-path] **Write**: `/Users/a11401/Documents/2026/Mider-T64/docs/dev_vs_prod.md`
+- `2026-04-24 15:05:34` [main] **Write**: `/Users/a11401/Documents/2026/Mider/scripts/gen_version_info.py`
+- `2026-04-24 15:05:55` [main] **Edit**: `/Users/a11401/Documents/2026/Mider/mider.spec`
+- `2026-04-24 15:06:24` [main] **Edit**: `/Users/a11401/Documents/2026/Mider/.gitignore`
+- `2026-04-24 15:10:16` [main] **Write**: `/Users/a11401/Documents/2026/Mider/.github/workflows/build-windows-exe.yml`
+- `2026-04-24 15:10:48` [main] **Edit**: `/Users/a11401/Documents/2026/Mider/.github/workflows/build-windows-exe.yml`
+- `2026-04-24 15:11:49` [main] **Edit**: `/Users/a11401/Documents/2026/Mider/README.md`
