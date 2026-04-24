@@ -271,6 +271,10 @@ class SSOAuthenticator:
             if cached:
                 return cached
 
+        # force_login=True → Chrome 쿠키 잔존으로 인한 auto-login을 방지하기 위해
+        # 프로필을 초기화하고 완전히 새로운 로그인 페이지에서 시작하도록 한다.
+        self.clear_chrome_profile()
+
         return self._browser_login()
 
     def _load_session(self) -> SSOCredentials | None:
@@ -519,3 +523,24 @@ class SSOAuthenticator:
         if self._session_file.exists():
             self._session_file.unlink()
             logger.info("세션 파일 삭제: %s", self._session_file)
+
+    def clear_chrome_profile(self) -> None:
+        """Chrome CDP 프로필 디렉토리를 삭제한다.
+
+        이전 세션의 쿠키/저장된 자격증명을 완전히 제거하여
+        Chrome이 새 로그인 페이지를 표시하도록 강제한다.
+        사용자의 개인 Chrome 프로필과는 무관한 mider 전용 디렉토리
+        (`.chrome_cdp_profile/`)만 삭제한다.
+        """
+        profile_path = Path(self._chrome_profile_dir)
+        if not profile_path.exists():
+            return
+        try:
+            import shutil
+            shutil.rmtree(profile_path)
+            logger.info("Chrome CDP 프로필 삭제: %s", profile_path)
+        except Exception as e:
+            logger.warning(
+                "Chrome CDP 프로필 삭제 실패 (다음 실행에서 재시도됨): %s - %s",
+                profile_path, e,
+            )

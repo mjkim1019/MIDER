@@ -122,6 +122,20 @@ def get_js_grouping_config() -> tuple[int, int]:
     return target, hard_cap
 
 
+def get_safe_function_prefixes() -> list[str]:
+    """경계 검증을 보장하는 프로젝트 자체 함수 접두사 리스트를 반환한다.
+
+    C/Pro*C analyzer의 LLM 프롬프트와 이슈 후처리 필터에서 공통으로 사용된다.
+
+    Returns:
+        접두사 리스트 (예: ["mpfm"]). 설정 없으면 빈 리스트.
+    """
+    settings = _load_settings()
+    c_analysis = settings.get("c_analysis", {})
+    prefixes = c_analysis.get("safe_function_prefixes", []) or []
+    return [str(p).strip() for p in prefixes if str(p).strip()]
+
+
 def get_stub_extra_types() -> list[str]:
     """clang-tidy 분석용 가짜 헤더(stub)에 추가할 커스텀 타입/매크로를 반환한다.
 

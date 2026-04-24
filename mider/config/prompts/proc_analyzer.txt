@@ -189,6 +189,9 @@ Scanner 결과가 없더라도 Step 6에서 독립적으로 찾은 이슈는 보
   - critical: 즉시 장애 발생 가능성, 데이터 유실, 보안 크래시
   - high: 특정 조건에서 로직 오작동, 트랜잭션 무결성 저해
   - medium: 품질 저하, 잠재적 버그, 유지보수 위험
+- **🛡 프로젝트 신뢰 함수 (경계 검증 보장):** 다음 접두사로 시작하는 프로젝트 자체 함수는 반환값의 경계를 내부에서 보장합니다. 이 함수들의 반환값이 배열 인덱스 또는 루프 한계값으로 사용되는 경우를 "배열 인덱스 경계값 미검증", "경계값 미검사" 등으로 **절대 보고하지 마세요.**
+  - 신뢰 함수 접두사: {safe_function_prefixes}
+  - 예시 (이슈 아님): `totcnt = mpfmdbio_reccnt(); for(i=0;i<totcnt;i++) arr[i]=...;`
 - **[Proframe 환경] 아래 패턴은 이슈로 보고하지 마세요:**
   - INDICATOR 변수 누락 — Proframe은 WHENEVER SQLERROR + NVL()로 NULL을 처리
   - memset에서 sizeof(타입명) 사용 — Proframe 표준 관행이며 타입명과 변수 타입이 일치

@@ -1,6 +1,7 @@
 """ReporterAgent 단위 테스트."""
 
 import json
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -275,8 +276,8 @@ class TestRiskAssessment:
         assert len(risk["blocking_issues"]) > 0
 
     @pytest.mark.asyncio
-    async def test_high_3_or_more_blocks_deployment(self, agent, run_kwargs):
-        """high 이슈 3개 이상이면 HIGH, 배포 차단."""
+    async def test_high_3_or_more_allows_deployment(self, agent, run_kwargs):
+        """T70.6.2: high 3개 이상이면 HIGH, 배포 허용 (CRITICAL만 차단)."""
         issues = [
             _make_issue(issue_id="JS-001", severity="high"),
             _make_issue(issue_id="JS-002", severity="high"),
@@ -287,7 +288,9 @@ class TestRiskAssessment:
 
         risk = result["summary"]["risk_assessment"]
         assert risk["deployment_risk"] == "HIGH"
-        assert risk["deployment_allowed"] is False
+        assert risk["deployment_allowed"] is True
+        # HIGH는 더 이상 차단하지 않으므로 blocking_issues는 비어있음
+        assert risk["blocking_issues"] == []
 
     @pytest.mark.asyncio
     async def test_high_1_2_allows_deployment(self, agent, run_kwargs):
@@ -454,6 +457,117 @@ class TestLLMIntegration:
 
         risk = result["summary"]["risk_assessment"]
         assert len(risk["risk_description"]) > 0
+
+
+class TestLLMSkip:
+    """T70.6 + T70.6.1: 배포 허용(MEDIUM/LOW) 시 LLM skip 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_low_risk_skips_llm(self, agent, run_kwargs):
+        """critical=0, high=0이면 LOW → LLM 호출 skip."""
+        # medium 이슈만 있는 케이스 → LOW 판정
+        issues = [_make_issue(issue_id="JS-001", severity="medium")]
+        results = [_make_analysis_result(issues=issues)]
+
+        result = await agent.run(analysis_results=results, **run_kwargs)
+
+        # LLM 호출이 한 번도 없어야 함
+        agent._llm_client.chat.assert_not_called()
+        # 하지만 risk_description은 템플릿으로 채워져야 함
+        risk = result["summary"]["risk_assessment"]
+        assert risk["deployment_risk"] == "LOW"
+        assert len(risk["risk_description"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_empty_issues_skips_llm(self, agent, run_kwargs):
+        """이슈 0건이면 LLM 호출을 하지 않는다."""
+        result = await agent.run(analysis_results=[], **run_kwargs)
+
+        agent._llm_client.chat.assert_not_called()
+        risk = result["summary"]["risk_assessment"]
+        assert risk["deployment_risk"] == "LOW"
+        assert len(risk["risk_description"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_medium_risk_skips_llm(self, agent, run_kwargs):
+        """T70.6.1: high 1~2건이면 MEDIUM(배포 허용) → LLM skip."""
+        issues = [
+            _make_issue(issue_id="JS-001", severity="high"),
+            _make_issue(issue_id="JS-002", severity="high"),
+        ]
+        results = [_make_analysis_result(issues=issues)]
+
+        result = await agent.run(analysis_results=results, **run_kwargs)
+
+        # MEDIUM도 배포 허용이므로 템플릿 사용 — LLM 호출 없음
+        agent._llm_client.chat.assert_not_called()
+        risk = result["summary"]["risk_assessment"]
+        assert risk["deployment_risk"] == "MEDIUM"
+        assert risk["deployment_allowed"] is True
+        # 템플릿 문구 포함 검증 (high 건수 명시)
+        assert "High 2건" in risk["risk_description"]
+
+    @pytest.mark.asyncio
+    async def test_high_risk_skips_llm(self, agent, run_kwargs):
+        """T70.6.2: high>=3이어도 HIGH(배포 허용)로 바뀌었으므로 LLM skip."""
+        issues = [
+            _make_issue(issue_id=f"JS-{i:03d}", severity="high")
+            for i in range(3)
+        ]
+        results = [_make_analysis_result(issues=issues)]
+
+        result = await agent.run(analysis_results=results, **run_kwargs)
+
+        # HIGH는 배포 허용이므로 템플릿 사용 — LLM 호출 없음
+        agent._llm_client.chat.assert_not_called()
+        risk = result["summary"]["risk_assessment"]
+        assert risk["deployment_risk"] == "HIGH"
+        assert risk["deployment_allowed"] is True
+        assert "배포 가능하나 강력 수정 권고" in risk["risk_description"]
+
+    @pytest.mark.asyncio
+    async def test_critical_still_calls_llm(self, agent, run_kwargs):
+        """CRITICAL(배포 차단)만 LLM 호출한다 — 차단 설명 필요."""
+        issues = [_make_issue(severity="critical")]
+        results = [_make_analysis_result(issues=issues)]
+
+        await agent.run(analysis_results=results, **run_kwargs)
+
+        agent._llm_client.chat.assert_called_once()
+
+
+class TestProfiling:
+    """T70.1: Reporter 프로파일링 로그 테스트."""
+
+    @pytest.mark.asyncio
+    async def test_profile_breakdown_logged(self, agent, run_kwargs, caplog):
+        """run() 완료 시 단계별 소요 시간 breakdown이 logger에 기록된다."""
+        with caplog.at_level(logging.INFO, logger="mider.agents.reporter"):
+            await agent.run(analysis_results=[], **run_kwargs)
+
+        messages = [r.message for r in caplog.records]
+        assert any("단계별 소요 시간 breakdown" in m for m in messages)
+        assert any("collect_and_sort_issues" in m for m in messages)
+        assert any("build_issue_list" in m for m in messages)
+        assert any("build_checklist" in m for m in messages)
+        assert any("build_summary_with_llm" in m for m in messages)
+        assert any("build_deployment_checklist" in m for m in messages)
+        assert any("TOTAL:" in m for m in messages)
+
+    @pytest.mark.asyncio
+    async def test_llm_call_timing_logged(self, agent, run_kwargs, caplog):
+        """LLM 호출 시 duration + prompt/response 토큰이 logger에 기록된다."""
+        issues = [_make_issue(severity="critical")]
+        results = [_make_analysis_result(issues=issues)]
+
+        with caplog.at_level(logging.INFO, logger="mider.agents.reporter"):
+            await agent.run(analysis_results=results, **run_kwargs)
+
+        messages = [r.message for r in caplog.records]
+        llm_msgs = [m for m in messages if "Reporter LLM 호출" in m]
+        assert len(llm_msgs) == 1
+        assert "prompt tokens" in llm_msgs[0]
+        assert "response tokens" in llm_msgs[0]
 
 
 class TestAgentInit:
