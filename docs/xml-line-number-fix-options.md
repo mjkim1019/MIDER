@@ -77,31 +77,23 @@ for elem in root.iter():
 
 #### 🔥 폐쇄망 검증 체크리스트 (Option A 적용 전 필수)
 
-개발 환경과 폐쇄망 실행 환경이 다르므로, 아래 항목을 순서대로 확인해야 한다:
+**전제**: 빌드는 인터넷 가능한 개발 PC에서 PyInstaller로 수행하고, 폐쇄망에는 완성된 exe만 반입한다.
+따라서 폐쇄망 머신에 lxml/Python을 설치할 필요가 없으며, 검증 초점은 **"번들된 exe가 깨끗한 머신에서 정상 동작하는가"** 에 있다.
 
-##### A-1. wheel 확보 가능성
-- [ ] `pip download lxml -d ./wheels --platform win_amd64 --python-version 3.11 --only-binary :all:` 로 wheel 다운로드 (인터넷 가능한 곳에서)
-- [ ] 다운로드된 wheel 파일이 **순수 Python이 아니라 C 확장(.pyd 포함)**인지 확인 — `lxml-X.X.X-cp311-cp311-win_amd64.whl` 내부에 `libxml2`/`libxslt` DLL이 정적 링크되어 있어야 폐쇄망에서 별도 라이브러리 설치 불필요
-- [ ] 해당 wheel을 폐쇄망 빌드 서버에 복사 가능한지 확인 (보안팀 승인 등)
-
-##### A-2. 빌드 환경 설치 검증
-- [ ] 폐쇄망 또는 동일 구성의 오프라인 환경에서 `pip install ./wheels/lxml-*.whl` 로 설치 성공하는지 확인
-- [ ] `python -c "from lxml import etree; print(etree.__version__)"` 으로 import 정상 확인
-- [ ] `python -c "from lxml import etree; e = etree.fromstring(b'<a><b/></a>'); print(e[0].sourceline)"` 로 **sourceline 속성 실제 동작** 확인 (일부 빌드에서 누락될 수 있음)
-
-##### A-3. PyInstaller 번들 호환성
+##### A-1. PyInstaller 번들 호환성 (가장 중요)
 - [ ] `pyinstaller mider.spec` 실행 시 lxml 관련 hidden import 경고 여부 확인
-- [ ] 번들된 exe 크기 측정 (목표: 200MB 이하)
-- [ ] 번들 후 mider.exe를 **lxml이 설치되지 않은** 깨끗한 Windows 머신에 복사해서 실행 — lxml의 DLL이 exe 내부에 제대로 포함되었는지 검증
 - [ ] [`mider.spec`](mider.spec) 의 `hiddenimports` 에 `lxml.etree`, `lxml._elementpath` 추가 필요 여부 확인 (PyInstaller가 자동 탐지하지만 누락될 수 있음)
+- [ ] 번들된 exe 크기 측정 (목표: 200MB 이하)
+- [ ] 번들 후 mider.exe를 **lxml이 설치되지 않은** 깨끗한 Windows 머신(가능하면 폐쇄망과 동일 Windows 버전)에 복사해서 실행 — `libxml2`/`libxslt` DLL이 exe 내부에 제대로 포함되었는지 검증
 
-##### A-4. 런타임 동작 검증
+##### A-2. 런타임 동작 검증
 - [ ] 기존 XML 파일(작은 샘플)로 분석 정상 동작 확인
+- [ ] `sourceline` 속성이 실제로 값을 반환하는지 확인 (일부 빌드에서 누락 가능)
 - [ ] WebSquare 네임스페이스(`xmlns:w2="..."`) 처리가 stdlib ET와 동일한지 확인
-- [ ] DOCTYPE/ENTITY 방어 로직이 lxml에서도 동작하는지 확인 (lxml은 기본적으로 XXE에 취약, 명시적 resolver 비활성화 필요)
+- [ ] DOCTYPE/ENTITY 방어 로직이 lxml에서도 동작하는지 확인
 - [ ] `ET.ParseError` → `lxml.etree.XMLSyntaxError` 로 예외 타입이 바뀜 — except 절 수정 필요
 
-##### A-5. 보안 고려사항 (lxml 특유)
+##### A-3. 보안 고려사항 (lxml 특유)
 lxml은 기본 설정에서 external entity 해석을 허용할 수 있어 **XXE 취약점** 우려가 있음. stdlib ET는 기본 비활성화.
 
 대응:
@@ -114,7 +106,13 @@ parser = ET.XMLParser(
 root = ET.fromstring(content.encode("utf-8"), parser)
 ```
 
-##### A-6. 배포 롤백 계획
+##### A-4. 빌드 머신 설치 (간단)
+- [ ] 개발 PC에서 `pip install lxml>=5.0` 정상 설치
+- [ ] `python -c "from lxml import etree; e = etree.fromstring(b'<a><b/></a>'); print(e[0].sourceline)"` 으로 sourceline 동작 확인
+
+> 폐쇄망 빌드 서버에 wheel을 따로 반입할 필요 없음. 빌드 산출물(exe)만 반입하면 됨.
+
+##### A-5. 배포 롤백 계획
 - [ ] 기존 stdlib ET 기반 코드를 git tag로 보존 (예: `v1.0.2-pre-lxml`)
 - [ ] lxml 도입 후 문제 발생 시 해당 tag로 즉시 롤백 가능한지 확인
 
@@ -202,14 +200,13 @@ def _find_event_line(lines, elem_id, attr_value):
 ## 5. 결정 가이드
 
 ### Option A를 선택해도 좋은 경우
-- 폐쇄망 검증 체크리스트(§A-1 ~ §A-6) 모두 통과
+- 폐쇄망 검증 체크리스트(§A-1 ~ §A-5) 모두 통과
 - 향후 XML 분석 기능 확장 계획 있음 (XPath, XSLT 등)
 - 번들 크기 증가(+15MB)가 수용 가능
-- lxml wheel을 배포 채널(내부 PyPI, 사내 파일 공유 등)로 운반 가능
 
 ### Option C로 후퇴해야 하는 경우
-- 폐쇄망에서 lxml wheel 반입 불가
-- PyInstaller 번들에 lxml DLL이 제대로 포함되지 않음
+- PyInstaller 번들에 lxml DLL이 제대로 포함되지 않음 (A-1 실패)
+- 깨끗한 머신에서 sourceline 미동작 또는 XXE 방어 설정 적용 난항 (A-2/A-3 실패)
 - 번들 크기 증가가 현장 배포 제약에 걸림
 
 ### Option B를 고려하는 경우
@@ -220,9 +217,9 @@ def _find_event_line(lines, elem_id, attr_value):
 
 ## 6. 권장 실행 순서 (Option A 확정 시)
 
-1. **폐쇄망 검증** (§3. Option A의 A-1 ~ A-6)
-   - 사전에 작은 샘플로 lxml을 번들한 테스트 빌드 1회 실행
-   - 깨끗한 머신에서 sourceline 동작 확인
+1. **번들 호환성 검증** (§3. Option A의 A-1 ~ A-5)
+   - 개발 PC에 `pip install lxml>=5.0` 후 작은 샘플로 테스트 빌드 1회 실행
+   - 번들된 exe를 lxml 미설치 깨끗한 머신에 복사하여 sourceline 동작 확인
 
 2. **검증 통과 시 본 적용**
    - [`pyproject.toml`](pyproject.toml) dependencies 에 `lxml>=5.0` 추가
