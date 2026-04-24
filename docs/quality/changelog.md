@@ -916,3 +916,5 @@
 - `2026-04-13 14:48:00` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/USER_MANUAL.md`
 - `2026-04-13 14:48:11` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/USER_MANUAL.md`
 - `2026-04-13 14:48:20` [feat/T54-c-analyzer-smart-routing] **Edit**: `/Users/a11401/Documents/2026/Mider/docs/USER_MANUAL.md`
+- `2026-04-24 14:24:18` [feat/T64-resource-path] **Edit**: `/Users/a11401/Documents/2026/Mider-T64/scripts/export_default_resources.py`
+- `2026-04-24 14:25:26` [feat/T64-resource-path] **Write**: `/Users/a11401/Documents/2026/Mider-T64/docs/dev_vs_prod.md`
