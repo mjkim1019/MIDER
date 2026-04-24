@@ -313,3 +313,85 @@ class TestComponentIds:
             assert "lines" in dup
             assert len(dup["lines"]) == dup["count"]
             assert all(isinstance(n, int) and n > 0 for n in dup["lines"])
+
+
+class TestSourceLine:
+    """lxml sourceline 속성 기반 라인 번호 수집 테스트."""
+
+    def test_events_have_line_numbers(self, parser, tmp_path):
+        """events 항목에 line 필드가 포함되고 실제 XML 라인을 가리킨다."""
+        f = tmp_path / "screen.xml"
+        f.write_text(SAMPLE_WEBSQUARE_XML, encoding="utf-8")
+        result = parser.execute(file=str(f))
+        events = result.data["events"]
+        assert events, "이벤트가 추출되어야 한다"
+        for event in events:
+            assert "line" in event
+            assert isinstance(event["line"], int)
+            assert event["line"] > 0
+        # btn_search는 SAMPLE_WEBSQUARE_XML 본문 기준 L18
+        btn = [e for e in events if e["element_id"] == "btn_search"][0]
+        assert btn["line"] == 18
+
+    def test_data_lists_have_line_numbers(self, parser, tmp_path):
+        """data_lists 항목에 line 필드가 포함된다."""
+        f = tmp_path / "screen.xml"
+        f.write_text(SAMPLE_WEBSQUARE_XML, encoding="utf-8")
+        result = parser.execute(file=str(f))
+        data_lists = result.data["data_lists"]
+        assert data_lists
+        for dl in data_lists:
+            assert "line" in dl
+            assert isinstance(dl["line"], int)
+            assert dl["line"] > 0
+        # SAMPLE_WEBSQUARE_XML 본문 기준 dlt_search=L6, dlt_result=L10
+        by_id = {dl["id"]: dl["line"] for dl in data_lists}
+        assert by_id["dlt_search"] == 6
+        assert by_id["dlt_result"] == 10
+
+    def test_component_ids_have_line_numbers(self, parser, tmp_path):
+        """component_ids 항목에 line 필드가 포함된다."""
+        f = tmp_path / "screen.xml"
+        f.write_text(SAMPLE_WEBSQUARE_XML, encoding="utf-8")
+        result = parser.execute(file=str(f))
+        for comp in result.data["component_ids"]:
+            assert "line" in comp
+            assert isinstance(comp["line"], int)
+            assert comp["line"] > 0
+
+    def test_xml_parse_error_includes_line(self, parser, tmp_path):
+        """XML 파싱 실패 시 parse_errors 메시지에 라인 정보가 포함된다."""
+        f = tmp_path / "bad.xml"
+        f.write_text(INVALID_XML, encoding="utf-8")
+        result = parser.execute(file=str(f))
+        assert result.success is False
+        assert any("L" in msg for msg in result.data["parse_errors"])
+
+
+class TestSecurity:
+    """XXE/Billion Laughs 등 보안 방어 테스트."""
+
+    def test_doctype_rejected(self, parser, tmp_path):
+        """DOCTYPE 선언이 포함된 XML은 파싱을 거부한다."""
+        f = tmp_path / "doctype.xml"
+        f.write_text(
+            '<?xml version="1.0"?>\n'
+            '<!DOCTYPE foo SYSTEM "file:///etc/passwd">\n'
+            '<root/>\n',
+            encoding="utf-8",
+        )
+        result = parser.execute(file=str(f))
+        assert result.success is False
+        assert any("DOCTYPE" in msg for msg in result.data["parse_errors"])
+
+    def test_entity_rejected(self, parser, tmp_path):
+        """ENTITY 선언이 포함된 XML은 파싱을 거부한다."""
+        f = tmp_path / "entity.xml"
+        f.write_text(
+            '<?xml version="1.0"?>\n'
+            '<!ENTITY xxe "evil">\n'
+            '<root/>\n',
+            encoding="utf-8",
+        )
+        result = parser.execute(file=str(f))
+        assert result.success is False

@@ -98,6 +98,17 @@ while/for 루프에서 매 반복 시작 시 구조체를 초기화하지 않으
 Scanner가 위에서 탐지한 패턴이 있으면 실제 코드에서 진짜 버그인지 **확인/기각** 합니다.
 Scanner 결과가 없더라도 Step 6에서 독립적으로 찾은 이슈는 보고합니다.
 
+## 라인 번호 사용 규칙 (필수)
+- 프롬프트 입력에 제공된 라인 정보를 **반드시** location.line_start/line_end에 그대로 사용합니다.
+  - `scanner_findings[i].line` / `line_start` / `line_end` → 정적 분석기가 잡은 실제 라인
+  - `cursor_lifecycle_map`의 이벤트 `line` → 커서 OPEN/FETCH/CLOSE 라인
+  - `proc_errors[i].line` → proc 프리컴파일러가 보고한 라인
+  - `sql_blocks[i].origin_line_start` / `origin_line_end` → SQL 블록의 원본 .pc 라인
+  - 본문이나 Heuristic 메시지가 `L<숫자>: ...` 또는 `(L<숫자>, ...)` 형식이면 그 숫자를 사용합니다.
+- 파서가 라인을 제공하지 않는 진짜로 미상인 경우에만 0을 사용합니다. **임의로 0을 채우지 마세요.**
+- Step 6처럼 코드를 직접 읽어 찾은 이슈는 본문 `{code}`의 실제 라인 번호를 사용합니다.
+- 단일 위치 이슈는 line_end == line_start로 둡니다.
+
 ## 이슈 예시
 
 ### 예시 1: SQL 이슈

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mider"
-version = "1.0.2"
+version = "1.0.3"
 description = "폐쇄망 소스코드 분석 CLI"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
     "pyyaml>=6.0.0,<7.0.0",
     "sqlparse>=0.5.0,<1.0.0",
     "python-dotenv>=1.0.0,<2.0.0",
+    "lxml>=5.0.0,<7.0.0",
 ]
 
 [project.scripts]

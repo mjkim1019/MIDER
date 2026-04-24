@@ -68,6 +68,13 @@ clang-tidy가 감지하지 못하는 아래 패턴을 추가로 검사합니다:
 - source가 "llm"인 이슈: LLM이 추가로 발견한 것
 - source가 "hybrid"인 이슈: clang-tidy 결과를 LLM이 재분석한 것
 
+## 라인 번호 사용 규칙 (필수)
+- `{clang_tidy_warnings}`의 각 항목에 포함된 라인 번호(`line`, `line_start`, `L<숫자>` 표기 등)를 **반드시** location.line_start/line_end에 그대로 사용합니다.
+- `{error_functions}`, `{structure_summary}`, `{file_context}`의 코드 스니펫에 라인 번호가 명시되어 있으면 그 값을 사용합니다.
+- LLM이 추가로 찾은 이슈(source=llm)는 원본 파일의 실제 라인 번호를 명시합니다.
+- 라인을 정확히 짚을 수 없는 경우에만 0을 사용합니다. **임의로 0을 채우지 마세요.**
+- 단일 위치 이슈는 line_end == line_start로 둡니다.
+
 ## 이슈 예시
 {{
   "issue_id": "C-001",

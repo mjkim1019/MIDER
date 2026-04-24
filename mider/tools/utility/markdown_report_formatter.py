@@ -422,8 +422,8 @@ def _render_issue_card(issue: dict[str, Any], heading_level: str) -> str:
 
     location = issue.get("location", {})
     loc_file = location.get("file", "")
-    line_start = location.get("line_start", 0)
-    line_end = location.get("line_end", 0)
+    line_start = location.get("line_start") or 0
+    line_end = location.get("line_end") or 0
 
     fix = issue.get("fix", {})
     before = fix.get("before", "")
@@ -435,9 +435,14 @@ def _render_issue_card(issue: dict[str, Any], heading_level: str) -> str:
 
     sub = "#" * (len(heading_level) + 1)  # heading_level + 1
 
-    loc_str = f"{loc_file}:{line_start}"
-    if line_end and line_end != line_start:
-        loc_str = f"{loc_file}:{line_start}~{line_end}"
+    if line_start > 0:
+        if line_end > 0 and line_end != line_start:
+            loc_str = f"{loc_file}:{line_start}~{line_end}"
+        else:
+            loc_str = f"{loc_file}:{line_start}"
+    else:
+        # 라인을 알 수 없는 이슈 (parser가 line을 못 제공한 경우 등)
+        loc_str = loc_file
 
     lines = [
         f"{heading_level} [{severity}] {issue_id} {title}",

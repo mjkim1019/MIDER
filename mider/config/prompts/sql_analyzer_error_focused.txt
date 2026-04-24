@@ -85,6 +85,13 @@ Explain Plan이 제공된 경우:
 - source가 "llm"인 이슈: LLM이 추가로 발견한 것
 - source가 "hybrid"인 이슈: 패턴 분석 결과를 LLM이 재분석한 것
 
+## 라인 번호 사용 규칙 (필수)
+- `{static_patterns}`, `{syntax_errors}`의 각 항목에 라인 정보(`line`, `line_start`, `L<숫자>` 등)가 있으면 **반드시** 그 값을 location.line_start/line_end에 사용합니다.
+- LLM이 코드에서 추가로 찾은 이슈는 `{file_content}`의 실제 라인 번호를 명시합니다.
+- 문제 SQL 블록이 여러 줄에 걸치면 시작 줄을 line_start, 끝 줄을 line_end에 둡니다.
+- 라인을 정확히 짚을 수 없는 경우에만 0을 사용합니다. **임의로 0을 채우지 마세요.**
+- 단일 라인 이슈는 line_end == line_start로 둡니다.
+
 ## 이슈 예시 1: 인덱스 억제
 {{
   "issue_id": "SQL-001",
