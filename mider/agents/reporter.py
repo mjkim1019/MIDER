@@ -91,24 +91,31 @@ class ReporterAgent(BaseAgent):
              "deployment_checklist": ...}
         """
         start_time = time.time()
+        step_times: dict[str, float] = {}
         logger.info(f"리포트 생성 시작: {len(analysis_results)}개 분석 결과")
 
         try:
             generated_at = datetime.now(timezone.utc)
 
             # Step 1: 모든 이슈를 통합하고 심각도별 정렬
+            t = time.time()
             all_issues = self._collect_all_issues(analysis_results)
             sorted_issues = self._sort_issues(all_issues)
+            step_times["collect_and_sort_issues"] = time.time() - t
 
             # Step 2: IssueList 생성
+            t = time.time()
             issue_list = self._build_issue_list(
                 sorted_issues, generated_at, session_id,
             )
+            step_times["build_issue_list"] = time.time() - t
 
             # Step 3: Checklist 생성 (ChecklistGenerator Tool 사용)
+            t = time.time()
             checklist = self._build_checklist(
                 analysis_results, generated_at, session_id,
             )
+            step_times["build_checklist"] = time.time() - t
 
             # 분석 에러 감지 (에러 발생 시 분석불가 판정)
             analysis_errors = [
@@ -119,6 +126,7 @@ class ReporterAgent(BaseAgent):
             total_llm_tokens = sum(
                 r.get("llm_tokens_used", 0) for r in analysis_results
             )
+            t = time.time()
             summary = await self._build_summary(
                 sorted_issues=sorted_issues,
                 generated_at=generated_at,
@@ -129,16 +137,23 @@ class ReporterAgent(BaseAgent):
                 total_llm_tokens=total_llm_tokens,
                 analysis_errors=analysis_errors,
             )
+            step_times["build_summary_with_llm"] = time.time() - t
 
             # Step 5: 배포 체크리스트 생성
+            t = time.time()
             deployment_checklist = self._build_deployment_checklist(
                 file_paths=file_paths or [],
                 file_first_lines=file_first_lines or {},
                 generated_at=generated_at,
                 session_id=session_id,
             )
+            step_times["build_deployment_checklist"] = time.time() - t
 
             elapsed = time.time() - start_time
+
+            # T70.1: Reporter 단계별 소요 시간 breakdown 로깅
+            self._log_profile_breakdown(step_times, elapsed)
+
             logger.info(
                 f"리포트 생성 완료: {issue_list.total_issues}개 이슈, "
                 f"{checklist.total_checks}개 체크항목, "
@@ -156,6 +171,27 @@ class ReporterAgent(BaseAgent):
         except Exception as e:
             logger.error(f"리포트 생성 실패: {e}")
             raise
+
+    def _log_profile_breakdown(
+        self,
+        step_times: dict[str, float],
+        total: float,
+    ) -> None:
+        """Reporter 각 단계 소요 시간을 stdlib logger + ReasoningLogger에 출력한다.
+
+        T70.1 프로파일링용. stdlib logger는 항상, ReasoningLogger는 verbose 모드에서만.
+        """
+        logger.info("Reporter 단계별 소요 시간 breakdown:")
+        for step, duration in step_times.items():
+            pct = (duration / total * 100) if total > 0 else 0
+            logger.info(f"  - {step}: {duration:.2f}s ({pct:.1f}%)")
+        logger.info(f"  - TOTAL: {total:.2f}s")
+
+        if self.rl.enabled:
+            self.rl.scan(f"Reporter 단계별 시간 (총 {total:.2f}s):")
+            for step, duration in step_times.items():
+                pct = (duration / total * 100) if total > 0 else 0
+                self.rl.scan(f"    {step}: {duration:.2f}s ({pct:.1f}%)")
 
     def _collect_all_issues(
         self,
@@ -315,6 +351,18 @@ class ReporterAgent(BaseAgent):
                 reason="분석 중 오류 발생 → 배포 판정 불가",
             )
             # risk_description은 _determine_risk에서 이미 생성됨, LLM 호출 스킵
+        elif allowed:
+            # T70.6.1: 배포 허용 (MEDIUM + LOW) — LLM 호출 skip, 템플릿 사용
+            self.rl.decision(
+                f"Decision: 배포 가능 ({risk}) — LLM skip",
+                reason=f"deployment_allowed=True → 템플릿 사용 (T70.6.1)",
+            )
+            risk_assessment["risk_description"] = self._default_risk_description(
+                by_severity, risk_assessment["deployment_risk"],
+            )
+            logger.info(
+                f"Reporter LLM 호출 skip: {risk} 위험도 → 템플릿 사용"
+            )
         else:
             status = "가능" if allowed else "차단"
             if critical_count > 0:
@@ -389,20 +437,18 @@ class ReporterAgent(BaseAgent):
 
         blocking_issues: list[str] = []
 
+        # T70.6.2: CRITICAL만 배포 차단. HIGH 탐지 신뢰도가 확보되기 전까지
+        # 오탐으로 인한 가짜 차단을 방지하기 위한 보수적 정책.
         if critical_count > 0:
             deployment_risk = "CRITICAL"
             deployment_allowed = False
             blocking_issues = [
                 issue.get("issue_id", "") for issue in sorted_issues
-                if issue.get("severity") in ("critical", "high")
+                if issue.get("severity") == "critical"
             ]
         elif high_count >= 3:
             deployment_risk = "HIGH"
-            deployment_allowed = False
-            blocking_issues = [
-                issue.get("issue_id", "") for issue in sorted_issues
-                if issue.get("severity") == "high"
-            ]
+            deployment_allowed = True  # T70.6.2: 배포 허용, 강력 수정 권고만
         elif high_count >= 1:
             deployment_risk = "MEDIUM"
             deployment_allowed = True
@@ -453,11 +499,25 @@ class ReporterAgent(BaseAgent):
                 {"role": "user", "content": prompt},
             ]
 
-            self.rl.prompt(f"Prompt: reporter ({by_severity} 이슈 요약 요청)")
+            prompt_tokens = len(prompt) // 4
+            self.rl.prompt(f"Prompt: reporter (~{prompt_tokens:,} tokens)")
             self.rl.llm_request(f"LLM 호출: {self.model} 요청 중...")
+
+            # T70.1: LLM 호출 시간 측정
+            llm_start = time.time()
             response = await self.call_llm(messages, json_mode=True)
-            tokens = (len(prompt) + len(response)) // 4
-            self.rl.llm_response(f"LLM 응답: {tokens:,} tokens")
+            llm_elapsed = time.time() - llm_start
+
+            response_tokens = len(response) // 4
+            logger.info(
+                f"Reporter LLM 호출: {llm_elapsed:.2f}s, "
+                f"~{prompt_tokens:,} prompt tokens, "
+                f"~{response_tokens:,} response tokens"
+            )
+            self.rl.llm_response(
+                f"LLM 응답: {llm_elapsed:.2f}s, "
+                f"~{prompt_tokens:,} prompt + ~{response_tokens:,} response tokens"
+            )
             result = json.loads(response)
 
             if not isinstance(result, dict):
@@ -526,7 +586,7 @@ class ReporterAgent(BaseAgent):
         elif deployment_risk == "HIGH":
             return (
                 f"High 이슈 {high}건 발견. "
-                f"조건부 장애 가능성 있음. 배포 전 수정 권고."
+                f"배포 가능하나 강력 수정 권고 (조건부 장애 가능성)."
             )
         elif deployment_risk == "MEDIUM":
             return (
