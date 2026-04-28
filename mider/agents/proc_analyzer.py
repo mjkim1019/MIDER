@@ -49,6 +49,7 @@ from mider.tools.utility.issue_merger import IssueMerger
 from mider.tools.utility.proc_llm_reviewer import ProCLLMReviewer
 from mider.tools.utility.proc_partitioner import ProCPartitioner
 from mider.tools.utility.proc_symbol_graph import ProCSymbolGraphBuilder
+from mider.tools.utility.scanner_to_issue import dedupe_issues, promote_findings
 from mider.tools.utility.token_optimizer import (
     build_all_functions_summary,
     build_cursor_lifecycle_map,
@@ -481,6 +482,21 @@ class ProCAnalyzerAgent(BaseAgent):
                     boundaries=boundaries,
                     func_names=func_names,
                 )
+
+            # ── 안전망: high-confidence scanner finding 직접 promotion ──
+            # LLM 응답에서 누락되었더라도 결정적 패턴은 최종 보고에 포함되도록 보장.
+            # source="static_analysis" 우선으로 dedupe.
+            promoted = promote_findings(
+                scanner_findings,
+                file=file,
+                id_prefix="PC-S",
+                static_tool="proc_heuristic",
+            )
+            if promoted:
+                logger.info(
+                    f"ProC V1 [{filename}] scanner 직접 promotion: {len(promoted)}건"
+                )
+                issues = dedupe_issues(promoted + issues, prefer_static=True)
 
             # ── source 필드 보정 및 Low 등급 필터링 ──
             _VALID_SOURCES = {"static_analysis", "llm", "hybrid"}
