@@ -38,6 +38,10 @@ EXIT_CRITICAL_FOUND = 1
 EXIT_FILE_ERROR = 2
 EXIT_LLM_ERROR = 3
 
+# 1회 분석 시 허용할 최대 파일 수
+# (LLM 호출 비용/시간/안정성 보호)
+MAX_FILES_PER_RUN = 20
+
 # 심각도별 색상
 _SEVERITY_COLORS = {
     "critical": "red bold",
@@ -966,6 +970,20 @@ def _run_once(
     # 파일 경로 해석
     resolved_files = resolve_input_files(base_dir, file_args)
     if not resolved_files:
+        return EXIT_FILE_ERROR
+
+    # 1회 분석 최대 파일 수 제한 (LLM 비용/시간/안정성 보호)
+    if len(resolved_files) > MAX_FILES_PER_RUN:
+        console.print(
+            f"[red bold]오류:[/] 1회 분석 가능한 파일 수는 최대 "
+            f"{MAX_FILES_PER_RUN}개입니다. (입력: {len(resolved_files)}개)"
+        )
+        console.print(
+            "[yellow]대상을 줄이거나 여러 번 나누어 실행하세요.[/]"
+        )
+        logger.warning(
+            f"파일 수 한도 초과: {len(resolved_files)} > {MAX_FILES_PER_RUN}"
+        )
         return EXIT_FILE_ERROR
 
     # 파일 목록 출력
