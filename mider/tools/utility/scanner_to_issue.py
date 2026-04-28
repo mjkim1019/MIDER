@@ -16,8 +16,10 @@ _PROMOTABLE_PATTERNS: frozenset[str] = frozenset({
     "CURSOR_DUPLICATE_CLOSE",       # proc/c: 같은 함수 같은 cursor 2회+ close
     "FORMAT_ARG_MISMATCH",          # proc/c: printf 포맷 수 vs 인자 수
     "FORMAT_STRUCT",                # proc: %s에 구조체 직접 전달 (Core Dump)
-    "MEMSET_SIZEOF_MISMATCH",       # proc: memset 변수/sizeof 타입 불일치
-    "MEMSET_SIZE_MISMATCH",         # c_heuristic 명칭 (동일 패턴)
+    # MEMSET_SIZEOF_MISMATCH / MEMSET_SIZE_MISMATCH는 ProFrame 명명규약(prefix 차이)
+    # 때문에 이름 비교 휴리스틱이 false positive를 다수 만든다. 이미 scanner가
+    # 선언 타입 lookup을 1차 필터링하지만 누락 가능성이 있어 LLM 검토를 거치도록
+    # whitelist에서 제외 — scanner_findings를 통해 LLM에 finding은 그대로 전달됨.
 })
 
 _PATTERN_TO_CATEGORY: dict[str, str] = {

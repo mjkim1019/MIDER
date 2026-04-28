@@ -91,6 +91,91 @@ class TestMemsetMismatch:
                     if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
         assert len(findings) == 0
 
+    def test_proframe_prefix_with_declaration(self, scanner, tmp_path):
+        """ProFrame 명명규약 (`l_ctx: bat_ctx_t`) — 실 선언 lookup으로 false positive 제거."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "void main() {\n"
+            "    bat_ctx_t l_ctx;\n"
+            "    memset(&l_ctx, 0x00, sizeof(bat_ctx_t));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
+    def test_global_struct_prefix_with_declaration(self, scanner, tmp_path):
+        """전역 struct prefix 케이스 (`gst_hd: sms_file_header_bo_t`)."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "sms_file_header_bo_t gst_hd;\n"
+            "void f() {\n"
+            "    memset(&gst_hd, 0x20, sizeof(sms_file_header_bo_t));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
+    def test_typedef_without_t_suffix(self, scanner, tmp_path):
+        """`_t` 접미사 없는 ProFrame 타입(`st_result_set gst_rpset;`)."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "st_result_set gst_rpset;\n"
+            "void f() {\n"
+            "    memset(&gst_rpset, 0x00, sizeof(st_result_set));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
+    def test_sizeof_self_pattern_safe(self, scanner, tmp_path):
+        """`memset(buf, 0, sizeof(buf))` 자기 자신 크기 패턴은 안전."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "void f() {\n"
+            "    char lc_file_name[256];\n"
+            "    memset(lc_file_name, 0x00, sizeof(lc_file_name));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
+    def test_real_mismatch_via_declaration_still_detected(self, scanner, tmp_path):
+        """선언 타입이 sizeof 타입과 진짜 다르면 정탐 보존."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "zord_u0010_in_t var;\n"
+            "void f() {\n"
+            "    memset(&var, 0x00, sizeof(zord_s0009_in_t));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert len(findings) == 1
+
+    def test_commented_old_declaration_ignored(self, scanner, tmp_path):
+        """주석 처리된 옛 선언이 활성 선언보다 위에 있어도 활성 선언이 매칭됨."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "// sms_file_header_t gst_hd;  /* 옛 정의 */\n"
+            "sms_file_header_bo_t gst_hd;  /* 현재 정의 */\n"
+            "void f() {\n"
+            "    memset(&gst_hd, 0x20, sizeof(sms_file_header_bo_t));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
 
 class TestLoopInitMissing:
     """Pattern 3: 루프 내 초기화 누락 탐지."""

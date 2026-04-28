@@ -66,6 +66,43 @@ def _extract_core_name(name: str) -> str:
     return cleaned
 
 
+# ProFrame 변수 prefix 패턴 (memset/sizeof 비교 시 prefix 제거 후 비교)
+# l_/lc_/ll_/ld_/ls_/li_/lf_/lb_  : 로컬
+# g_/gc_/gst_/gl_/gn_/gb_         : 전역
+_PROFRAME_VAR_PREFIX_RE = re.compile(
+    r"^(?:l|ll|lc|ld|ls|li|lf|lb|g|gc|gst|gl|gn|gb)_"
+)
+
+
+def _strip_proframe_prefix(var_name: str) -> str:
+    """ProFrame 명명 규약의 prefix 제거 (예: l_ctx → ctx, gst_hd → hd)."""
+    return _PROFRAME_VAR_PREFIX_RE.sub("", var_name)
+
+
+# 주석 제거용 (라인/블록 둘 다)
+_COMMENT_STRIP_RE = re.compile(r"/\*[\s\S]*?\*/|//[^\n]*")
+
+
+def _find_var_declaration_type(content: str, var_name: str) -> str | None:
+    """파일 안에서 var_name의 실제 선언 타입을 찾는다.
+
+    형식: `<type> [*]<var>;` 또는 `<type> <var>[...];`. ProFrame 타입은
+    `_t` 접미사가 없는 경우도 흔함 (예: `st_result_set gst_rpset;`)이라
+    type 식별자에 접미사 강제하지 않음. 검색 전에 C 주석 제거 (주석 처리된
+    옛 선언이 활성 선언보다 앞에 있는 경우 매칭됨 방지).
+
+    매칭 실패 시 None. 다중 매칭 시 첫 번째 사용 (대부분의 경우 충분).
+    """
+    cleaned = _COMMENT_STRIP_RE.sub("", content)
+    # f-string 대신 concatenation으로 빌드 (regex의 `{` 와 충돌 회피)
+    pat = re.compile(
+        r"(?:^|[\s;{])(\w+)\s+(?:\*\s*)?"
+        + re.escape(var_name) + r"\b\s*[;,\[]"
+    )
+    m = pat.search(cleaned)
+    return m.group(1) if m else None
+
+
 class ProCHeuristicScanner(BaseTool):
     """Pro*C 코드 위험 패턴 스캐너.
 
@@ -97,7 +134,7 @@ class ProCHeuristicScanner(BaseTool):
         findings.extend(self._scan_format_struct(lines))
 
         # Pattern 2: MEMSET_SIZEOF_MISMATCH
-        findings.extend(self._scan_memset_mismatch(lines))
+        findings.extend(self._scan_memset_mismatch(lines, content))
 
         # Pattern 3: LOOP_INIT_MISSING
         findings.extend(self._scan_loop_init_missing(lines))
@@ -149,39 +186,70 @@ class ProCHeuristicScanner(BaseTool):
         return findings
 
     @staticmethod
-    def _scan_memset_mismatch(lines: list[str]) -> list[dict[str, Any]]:
-        """Pattern 2: memset sizeof 변수/타입 불일치 탐지."""
+    def _scan_memset_mismatch(
+        lines: list[str], content: str = "",
+    ) -> list[dict[str, Any]]:
+        """Pattern 2: memset sizeof 변수/타입 불일치 탐지.
+
+        판정 우선순위:
+        1. 파일에서 var의 실제 선언 타입을 찾을 수 있으면 그것과 sizeof 타입을 비교.
+           일치 → 정상, 불일치 → 진짜 정탐.
+        2. 선언을 못 찾으면 prefix-stripped 핵심명 + abbreviation 휴리스틱으로 판정.
+
+        ProFrame 명명규약(`l_ctx: bat_ctx_t`, `gst_hd: sms_file_header_bo_t` 등)
+        때문에 단순 이름 비교는 false positive가 다수 발생함.
+        """
         findings: list[dict[str, Any]] = []
         for line_num, line in enumerate(lines, start=1):
             stripped = line.strip()
             if stripped.startswith("//") or stripped.startswith("/*"):
                 continue
             m = _MEMSET_RE.search(line)
-            if m:
-                var_name = m.group(1)
-                type_name = m.group(2)
-                var_core = _extract_core_name(var_name)
+            if not m:
+                continue
+            var_name = m.group(1)
+            type_name = m.group(2)
+
+            # `sizeof(var)` 패턴은 자기 자신 크기 — 안전
+            if var_name == type_name:
+                continue
+
+            # 1차: 실제 선언 타입과 비교 (가장 정확)
+            declared_type = (
+                _find_var_declaration_type(content, var_name) if content else None
+            )
+            if declared_type:
+                if declared_type == type_name:
+                    continue  # 정상: 선언 타입과 sizeof 타입 일치
+                # 진짜 mismatch — finding으로 보고 (아래 finding append 흐름으로 진입)
+                var_core = declared_type
+                type_core = type_name
+            else:
+                # 2차: prefix-aware 휴리스틱 (선언 없으면 fallback)
+                var_core = _strip_proframe_prefix(_extract_core_name(var_name))
                 type_core = _extract_core_name(type_name)
-                # Proframe 축약 허용: gst_read ↔ st_db_read, ls_ctx ↔ bat_ctx
-                # 변수 핵심명이 타입 핵심명에 포함되거나 그 반대면 정상
+                # 핵심명이 서로 substring이면 안전 (gst_read ↔ st_db_read 등)
                 var_lower = var_core.lower().replace("_", "")
                 type_lower = type_core.lower().replace("_", "")
                 is_abbreviation = (
-                    var_lower in type_lower
-                    or type_lower in var_lower
+                    bool(var_lower) and bool(type_lower)
+                    and (var_lower in type_lower or type_lower in var_lower)
                 )
-                if var_core and type_core and var_core != type_core and not is_abbreviation:
-                    findings.append({
-                        "pattern_id": "MEMSET_SIZEOF_MISMATCH",
-                        "severity": "critical",
-                        "line": line_num,
-                        "code": stripped[:120],
-                        "description": (
-                            f"memset 대상 변수({var_name})와 sizeof 타입({type_name})의 "
-                            f"핵심 이름이 불일치: '{var_core}' ≠ '{type_core}'. "
-                            "잘못된 크기로 초기화되어 이전 데이터가 잔류할 수 있음"
-                        ),
-                    })
+                if not (var_core and type_core and var_core != type_core
+                        and not is_abbreviation):
+                    continue  # 안전 추정 — finding 안 만듦
+
+            findings.append({
+                "pattern_id": "MEMSET_SIZEOF_MISMATCH",
+                "severity": "critical",
+                "line": line_num,
+                "code": stripped[:120],
+                "description": (
+                    f"memset 대상 변수({var_name})와 sizeof 타입({type_name})의 "
+                    f"핵심 이름이 불일치: '{var_core}' ≠ '{type_core}'. "
+                    "잘못된 크기로 초기화되어 이전 데이터가 잔류할 수 있음"
+                ),
+            })
         return findings
 
     @staticmethod
