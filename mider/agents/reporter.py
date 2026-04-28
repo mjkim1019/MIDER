@@ -136,6 +136,7 @@ class ReporterAgent(BaseAgent):
                 analysis_duration_seconds=analysis_duration_seconds,
                 total_llm_tokens=total_llm_tokens,
                 analysis_errors=analysis_errors,
+                analysis_results=analysis_results,
             )
             step_times["build_summary_with_llm"] = time.time() - t
 
@@ -308,6 +309,7 @@ class ReporterAgent(BaseAgent):
         analysis_duration_seconds: float,
         total_llm_tokens: int,
         analysis_errors: list[dict[str, Any]] | None = None,
+        analysis_results: list[dict[str, Any]] | None = None,
     ) -> Summary:
         """Summary 모델을 생성한다. LLM으로 risk_description을 작성한다."""
         # 통계 집계
@@ -334,12 +336,19 @@ class ReporterAgent(BaseAgent):
             if file_path:
                 by_file[file_path] = by_file.get(file_path, 0) + 1
 
-        # RiskAssessment 결정
+        # RiskAssessment 결정 (전체 통합 판정)
         critical_count = by_severity.get("critical", 0)
         high_count = by_severity.get("high", 0)
         risk_assessment = self._determine_risk(
             critical_count, high_count, sorted_issues,
             analysis_errors=analysis_errors,
+        )
+
+        # 파일별 개별 판정 (analysis_results의 모든 파일에 대해 계산)
+        risk_assessment["by_file"] = self._build_per_file_risks(
+            sorted_issues=sorted_issues,
+            analysis_results=analysis_results or [],
+            analysis_errors=analysis_errors or [],
         )
 
         allowed = risk_assessment["deployment_allowed"]
@@ -405,6 +414,95 @@ class ReporterAgent(BaseAgent):
             risk_assessment=RiskAssessment.model_validate(risk_assessment),
         )
 
+    @staticmethod
+    def _build_per_file_risks(
+        *,
+        sorted_issues: list[dict[str, Any]],
+        analysis_results: list[dict[str, Any]],
+        analysis_errors: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """파일별로 개별 배포 판정을 계산한다.
+
+        같은 판정 규칙(_determine_risk)을 파일 단위로 적용:
+        - critical>0           → CRITICAL, 배포 불가
+        - high>=3              → HIGH,     배포 가능 (강력 권고)
+        - high>=1              → MEDIUM,   배포 가능
+        - 그 외                → LOW,      배포 가능
+        - 분석 에러 발생 파일  → UNABLE_TO_ANALYZE, 배포 불가
+
+        파일 목록은 analysis_results 기반 (이슈 0건도 LOW로 보고).
+        analysis_results가 비면 sorted_issues의 file 필드로 fallback.
+        """
+        # 분석 에러 파일
+        error_files: dict[str, str] = {
+            r.get("file", ""): (r.get("error") or "")
+            for r in analysis_errors if r.get("file")
+        }
+
+        # 분석된 모든 파일
+        if analysis_results:
+            all_files = [r.get("file", "") for r in analysis_results if r.get("file")]
+        else:
+            all_files = sorted({i.get("file", "") for i in sorted_issues if i.get("file")})
+
+        # 파일별 이슈 그룹핑
+        issues_by_file: dict[str, list[dict[str, Any]]] = {}
+        for issue in sorted_issues:
+            fp = issue.get("file", "")
+            if fp:
+                issues_by_file.setdefault(fp, []).append(issue)
+
+        per_file: list[dict[str, Any]] = []
+        for file_path in all_files:
+            if file_path in error_files:
+                per_file.append({
+                    "file": file_path,
+                    "deployment_risk": "UNABLE_TO_ANALYZE",
+                    "deployment_allowed": False,
+                    "critical_count": 0,
+                    "high_count": 0,
+                    "medium_count": 0,
+                    "blocking_issues": [],
+                })
+                continue
+
+            file_issues = issues_by_file.get(file_path, [])
+            crit = sum(1 for i in file_issues if i.get("severity") == "critical")
+            high = sum(1 for i in file_issues if i.get("severity") == "high")
+            med = sum(1 for i in file_issues if i.get("severity") == "medium")
+
+            blocking: list[str] = []
+            if crit > 0:
+                risk = "CRITICAL"
+                allowed = False
+                blocking = [
+                    i.get("issue_id", "") for i in file_issues
+                    if i.get("severity") == "critical" and i.get("issue_id")
+                ]
+            elif high >= 3:
+                risk = "HIGH"
+                allowed = True
+            elif high >= 1:
+                risk = "MEDIUM"
+                allowed = True
+            else:
+                risk = "LOW"
+                allowed = True
+
+            per_file.append({
+                "file": file_path,
+                "deployment_risk": risk,
+                "deployment_allowed": allowed,
+                "critical_count": crit,
+                "high_count": high,
+                "medium_count": med,
+                "blocking_issues": blocking,
+            })
+
+        # 파일명 정렬
+        per_file.sort(key=lambda x: x["file"])
+        return per_file
+
     def _determine_risk(
         self,
         critical_count: int,
@@ -433,6 +531,7 @@ class ReporterAgent(BaseAgent):
                         for f, e in zip(error_files, error_details)
                     )
                 ),
+                "by_file": [],
             }
 
         blocking_issues: list[str] = []
