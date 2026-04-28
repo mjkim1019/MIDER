@@ -111,6 +111,36 @@ _CURSOR_OPEN_PAT = re.compile(r"EXEC\s+SQL\s+OPEN\s+(\w+)", re.IGNORECASE)
 _CURSOR_FETCH_PAT = re.compile(r"EXEC\s+SQL\s+FETCH\s+(\w+)", re.IGNORECASE)
 _CURSOR_CLOSE_PAT = re.compile(r"EXEC\s+SQL\s+CLOSE\s+(\w+)", re.IGNORECASE)
 
+# 안 A: cursor SELECT 본문 추적용 패턴
+# DECLARE C_x CURSOR FOR (SELECT ...) — 직접 SELECT
+_CURSOR_DECLARE_FOR_DIRECT_PAT = re.compile(
+    r"EXEC\s+SQL\s+DECLARE\s+\w+\s+CURSOR\s+FOR\s+(SELECT\s[\s\S]+)",
+    re.IGNORECASE,
+)
+# DECLARE C_x CURSOR FOR P_x — dynamic, P_x는 PREPARE 대상명
+# (?!SELECT\b) 부정선두단언으로 직접 SELECT 케이스 배제
+_CURSOR_DECLARE_FOR_PREP_PAT = re.compile(
+    r"EXEC\s+SQL\s+DECLARE\s+\w+\s+CURSOR\s+FOR\s+(?!SELECT\b)(\w+)\s*[;\s]",
+    re.IGNORECASE,
+)
+# PREPARE P_x FROM :var  — :var를 prepare 변수로 매핑
+_PREPARE_FROM_PAT = re.compile(
+    r"EXEC\s+SQL\s+PREPARE\s+(\w+)\s+FROM\s+:(\w+)",
+    re.IGNORECASE,
+)
+# PREPARE P_x FROM "literal SQL"  — 직접 리터럴 SELECT
+_PREPARE_FROM_LITERAL_PAT = re.compile(
+    r'EXEC\s+SQL\s+PREPARE\s+(\w+)\s+FROM\s+"([^"]+)"',
+    re.IGNORECASE,
+)
+# snprintf/sprintf로 변수에 SQL 본문 채우기 (변수.arr 또는 변수)
+# 예: snprintf((char *)ls_prt_sql_query.arr, SZ20000, "select ...", arg1)
+_SQL_FILL_PAT = re.compile(
+    r"\b(?:s?n?printf|strcpy|strcat)\s*\(\s*"
+    r"(?:\([^)]*\))?\s*"             # optional cast
+    r"(\w+)(?:\.arr)?\s*,",          # 대상 변수명 (.arr 옵션)
+)
+
 # 전역 변수 패턴
 _GLOBAL_VAR_PATTERN = re.compile(
     r"^(?:static\s+|extern\s+)?(?:const\s+)?"
@@ -209,7 +239,9 @@ class ProCPartitioner:
         )
 
         # 부가 정보 수집
-        cursor_map = self._build_cursor_map(sql_blocks, func_line_map)
+        cursor_map = self._build_cursor_map(
+            sql_blocks, func_line_map, file_content=file_content,
+        )
         transaction_points = self._collect_transaction_points(sql_blocks, func_line_map)
         global_context = self._build_global_context(
             lines, functions, func_line_map, whenever_directives,
@@ -583,8 +615,15 @@ class ProCPartitioner:
         self,
         sql_blocks: list[EmbeddedSQLUnit],
         func_line_map: dict[int, str],
+        file_content: str | None = None,
     ) -> list[CursorUnit]:
-        """SQL 블록에서 커서 lifecycle을 구축한다."""
+        """SQL 블록에서 커서 lifecycle을 구축한다.
+
+        안 A: DECLARE/OPEN/FETCH/CLOSE 이벤트 외에 cursor가 실행하는 SELECT 본문도 추적.
+        - Static cursor: DECLARE 블록의 raw_content에서 직접 SELECT 캡처
+        - Dynamic cursor: DECLARE의 CURSOR FOR <prep_name> → PREPARE 블록 매칭 →
+          :var 또는 리터럴에서 SELECT 본문 추출 (snprintf/strcpy 추적)
+        """
         cursors: dict[str, CursorUnit] = {}
 
         event_map: dict[SQLKind, str] = {
@@ -600,6 +639,15 @@ class ProCPartitioner:
             SQLKind.CURSOR_FETCH: _CURSOR_FETCH_PAT,
             SQLKind.CURSOR_CLOSE: _CURSOR_CLOSE_PAT,
         }
+
+        # PREPARE 블록 인덱스: prep_name → (raw_content, function_name, line)
+        prepare_blocks: dict[str, tuple[str, str | None, int]] = {}
+        for sb in sql_blocks:
+            m = _PREPARE_FROM_PAT.search(sb.raw_content)
+            if m:
+                prepare_blocks[m.group(1)] = (
+                    sb.raw_content, sb.function_name, sb.origin_start_line,
+                )
 
         for sql_block in sql_blocks:
             if sql_block.sql_kind not in event_map:
@@ -623,7 +671,138 @@ class ProCPartitioner:
                 )
             )
 
+            # DECLARE 시점에 SELECT 본문 추출
+            if sql_block.sql_kind == SQLKind.CURSOR_DECLARE:
+                cursors[cursor_name].select_body = self._extract_cursor_select_body(
+                    sql_block, prepare_blocks, file_content,
+                )
+                cursors[cursor_name].select_origin_function = sql_block.function_name
+                # PREPARE 변수명도 기록
+                m_prep = _CURSOR_DECLARE_FOR_PREP_PAT.search(sql_block.raw_content)
+                if m_prep:
+                    prep_name = m_prep.group(1)
+                    if prep_name in prepare_blocks:
+                        prep_content, _, _ = prepare_blocks[prep_name]
+                        m_var = _PREPARE_FROM_PAT.search(prep_content)
+                        if m_var:
+                            cursors[cursor_name].prepare_var = m_var.group(2)
+
         return list(cursors.values())
+
+    def _extract_cursor_select_body(
+        self,
+        declare_block: EmbeddedSQLUnit,
+        prepare_blocks: dict[str, tuple[str, str | None, int]],
+        file_content: str | None,
+    ) -> str | None:
+        """DECLARE 블록에서 cursor가 실행할 SELECT 본문을 추출한다.
+
+        시도 순서:
+        1. DECLARE에 직접 SELECT 포함 → 그대로 추출
+        2. DECLARE FOR <prep_name> → PREPARE 블록 매칭
+           a. PREPARE FROM "literal" → 리터럴 캡처
+           b. PREPARE FROM :var → snprintf/strcpy/strcat가 :var에 채운 SQL 추적
+        실패 시 None.
+        """
+        raw = declare_block.raw_content
+
+        # 1. 직접 SELECT
+        m_direct = _CURSOR_DECLARE_FOR_DIRECT_PAT.search(raw)
+        if m_direct:
+            return m_direct.group(1).rstrip(" ;\n").strip()
+
+        # 2. dynamic — PREPARE 매칭
+        m_prep = _CURSOR_DECLARE_FOR_PREP_PAT.search(raw)
+        if not m_prep:
+            return None
+        prep_name = m_prep.group(1)
+        prep_info = prepare_blocks.get(prep_name)
+        if prep_info is None:
+            return None
+        prep_content, _, prep_line = prep_info
+
+        # 2a. 리터럴 PREPARE
+        m_lit = _PREPARE_FROM_LITERAL_PAT.search(prep_content)
+        if m_lit:
+            return m_lit.group(2).strip()
+
+        # 2b. PREPARE FROM :var → 직전 snprintf/strcpy 추적
+        m_var = _PREPARE_FROM_PAT.search(prep_content)
+        if not m_var or file_content is None:
+            return None
+        target_var = m_var.group(2)
+        return self._trace_dynamic_sql_assembly(
+            file_content, target_var, prep_line,
+        )
+
+    @staticmethod
+    def _trace_dynamic_sql_assembly(
+        file_content: str,
+        target_var: str,
+        before_line: int,
+        max_lookback: int = 200,
+    ) -> str | None:
+        """`target_var.arr`(또는 target_var)에 snprintf/strcpy로 채운 SQL을 추적한다.
+
+        before_line(1-based) 직전 max_lookback 줄을 역순으로 스캔해 첫 매칭의 호출문을
+        찾고, 그 안의 모든 인접 문자열 리터럴을 합쳐 반환한다.
+        """
+        lines = file_content.splitlines()
+        end_idx = min(len(lines), before_line - 1)
+        start_idx = max(0, end_idx - max_lookback)
+        # 역방향 스캔
+        for i in range(end_idx - 1, start_idx - 1, -1):
+            line = lines[i]
+            m = _SQL_FILL_PAT.search(line)
+            if not m or m.group(1) != target_var:
+                continue
+            # 호출 시작 라인 i부터 짝맞는 ')'까지 모은 후 리터럴 추출
+            call_text = "\n".join(lines[i:end_idx])
+            return ProCPartitioner._extract_string_literals(call_text)
+        return None
+
+    @staticmethod
+    def _extract_string_literals(text: str) -> str | None:
+        """text 안의 인접 C 문자열 리터럴을 모두 합쳐 반환.
+
+        snprintf 호출 안의 format 인자가 여러 줄로 이어진 리터럴이라고 가정.
+        주석 안의 문자열, 매크로 등은 그냥 합쳐도 결과 SELECT 식별엔 큰 문제 없음.
+        """
+        chunks: list[str] = []
+        in_string = False
+        i = 0
+        n = len(text)
+        cur: list[str] = []
+        while i < n:
+            ch = text[i]
+            if in_string:
+                if ch == "\\" and i + 1 < n:
+                    # escape: take next char as-is for content
+                    cur.append(text[i + 1])
+                    i += 2
+                    continue
+                if ch == '"':
+                    in_string = False
+                    chunks.append("".join(cur))
+                    cur = []
+                    i += 1
+                    continue
+                cur.append(ch)
+                i += 1
+                continue
+            if ch == '"':
+                in_string = True
+                cur = []
+                i += 1
+                continue
+            i += 1
+        if not chunks:
+            return None
+        result = "".join(chunks)
+        # SELECT 키워드가 포함된 경우만 의미있는 추출로 간주
+        if not re.search(r"\bSELECT\b", result, re.IGNORECASE):
+            return None
+        return result.strip()
 
     def _collect_transaction_points(
         self,

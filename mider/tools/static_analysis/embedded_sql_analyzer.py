@@ -66,7 +66,7 @@ class EmbeddedSQLStaticAnalyzer:
         findings.extend(self._check_sqlca_missing(sql_blocks, global_context))
         findings.extend(self._check_select_into_mismatch(sql_blocks))
         findings.extend(self._check_host_var_count(sql_blocks))
-        findings.extend(self._check_indicator_missing(sql_blocks))
+        findings.extend(self._check_indicator_missing(sql_blocks, cursor_map))
         findings.extend(self._check_cursor_open_missing(cursor_map))
         findings.extend(self._check_cursor_close_missing(cursor_map))
         findings.extend(self._check_cursor_fetch_missing(cursor_map))
@@ -228,31 +228,105 @@ class EmbeddedSQLStaticAnalyzer:
     # ──────────────────────────────────────────
 
     def _check_indicator_missing(
-        self, sql_blocks: list[EmbeddedSQLUnit],
+        self,
+        sql_blocks: list[EmbeddedSQLUnit],
+        cursor_map: list[CursorUnit] | None = None,
     ) -> list[Finding]:
+        """SELECT/FETCH에서 INDICATOR 누락 검사.
+
+        안 B: CURSOR_FETCH의 경우 같은 cursor의 SELECT 본문(`cursor.select_body`)을
+        조회해 NVL/COALESCE 처리가 있으면:
+        - 모든 컬럼이 보호되었다고 판단되면 finding 자체를 생략
+        - 일부만 보호되었으면 severity를 medium → low로 강등하고 description에
+          어떤 보호가 있는지 명시
+        함수가 분리된 코딩 표준(DECLARE/PREPARE 함수 ≠ FETCH 함수) 케이스의
+        false positive를 줄이는 게 목적.
+        """
         findings: list[Finding] = []
+        cursor_by_name: dict[str, CursorUnit] = {
+            c.cursor_name: c for c in (cursor_map or [])
+        }
+
         for block in sql_blocks:
             if block.sql_kind not in (SQLKind.SELECT, SQLKind.CURSOR_FETCH):
                 continue
-            # Proframe NVL 면제
+            # 현재 블록 자체에 NVL이 있으면 면제 (기존 동작 유지)
             if _NVL_PATTERN.search(block.sql_text):
                 continue
             # host variable은 있지만 indicator가 없는 경우
-            if block.host_variables and not block.indicator_variables:
-                findings.append(self._make_finding(
-                    rule_id="SQL_INDICATOR_MISSING",
-                    severity="medium",
-                    category="null_safety",
-                    title="SELECT/FETCH에서 INDICATOR 변수 누락",
-                    description=(
-                        f"함수 {block.function_name or '(global)'}의 "
-                        f"{block.sql_kind.value} 문(L{block.origin_start_line})에서 "
-                        f"host variable에 indicator 변수가 없어 "
-                        f"NULL 값 수신 시 비정상 동작할 수 있습니다."
-                    ),
-                    block=block,
-                ))
+            if not (block.host_variables and not block.indicator_variables):
+                continue
+
+            # 안 B: CURSOR_FETCH면 cursor의 SELECT 본문에서 NULL 보호 여부 검사
+            # - 모든 컬럼에 대응할 만한 NULL 보호가 있으면 finding 생략 (FP 가능성 큼)
+            # - 일부만 보호되면 description에 note 첨부 (severity는 그대로 유지하여
+            #   LLM Reviewer가 컨텍스트를 보고 최종 판정)
+            select_body_note: str = ""
+            severity: str = "medium"
+            if block.sql_kind == SQLKind.CURSOR_FETCH and cursor_by_name:
+                cursor_name = self._extract_cursor_name_from_fetch(block.raw_content)
+                cursor = cursor_by_name.get(cursor_name) if cursor_name else None
+                if cursor and cursor.select_body:
+                    select_body = cursor.select_body
+                    null_safe_count = self._count_null_protections(select_body)
+                    fetch_var_count = len(block.host_variables)
+                    if null_safe_count >= fetch_var_count > 0:
+                        # 모든 INTO 변수에 대응할 만한 NULL 보호가 SELECT에 존재
+                        # → false positive 가능성 큼, finding 생략
+                        continue
+                    if null_safe_count > 0:
+                        select_body_note = (
+                            f" (cursor {cursor_name}의 SELECT에 NVL/COALESCE/NULL "
+                            f"처리 {null_safe_count}건 발견 — "
+                            f"{cursor.select_origin_function or '?'} 함수에 정의됨. "
+                            "일부 컬럼만 보호되었으니 LLM이 컬럼별로 검토 필요)"
+                        )
+                elif cursor:
+                    # cursor는 추적되지만 select_body 추출 실패
+                    select_body_note = (
+                        f" (cursor {cursor_name}의 SELECT 본문 추적 실패 — "
+                        "동적 조립이 복잡하거나 다른 함수에 분리되어 있을 수 있음)"
+                    )
+
+            findings.append(self._make_finding(
+                rule_id="SQL_INDICATOR_MISSING",
+                severity=severity,
+                category="null_safety",
+                title="SELECT/FETCH에서 INDICATOR 변수 누락",
+                description=(
+                    f"함수 {block.function_name or '(global)'}의 "
+                    f"{block.sql_kind.value} 문(L{block.origin_start_line})에서 "
+                    f"host variable에 indicator 변수가 없어 "
+                    f"NULL 값 수신 시 비정상 동작할 수 있습니다.{select_body_note}"
+                ),
+                block=block,
+            ))
         return findings
+
+    @staticmethod
+    def _extract_cursor_name_from_fetch(raw: str) -> str | None:
+        """`EXEC SQL FETCH C_x INTO ...`에서 cursor 이름 추출."""
+        m = re.search(r"FETCH\s+(\w+)", raw, re.IGNORECASE)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _count_null_protections(select_body: str) -> int:
+        """SELECT 본문에서 컬럼별 NULL 보호 처리 개수를 센다.
+
+        검사 대상 패턴:
+        - NVL(expr, default)
+        - COALESCE(expr, ...)
+        - decode(...., NULL, default, ...) 형태 (보호 의도 추정)
+        - 'Y'/'N' fallback이 있는 decode-NVL 조합
+        """
+        count = 0
+        count += len(re.findall(r"\bNVL\s*\(", select_body, re.IGNORECASE))
+        count += len(re.findall(r"\bCOALESCE\s*\(", select_body, re.IGNORECASE))
+        # decode(expr, NULL, ...) 형태도 NULL 보호로 카운트
+        count += len(re.findall(
+            r"\bdecode\s*\([^)]*\bNULL\b", select_body, re.IGNORECASE,
+        ))
+        return count
 
     # ──────────────────────────────────────────
     # 규칙 5~7: 커서 lifecycle

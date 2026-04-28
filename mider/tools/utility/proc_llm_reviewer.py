@@ -99,6 +99,19 @@ _REVIEW_INSTRUCTIONS = """## 지시사항
 - source: "hybrid" (정적 finding을 LLM이 보강), "llm" (LLM이 새로 탐지)
 - category: memory_safety, null_safety, data_integrity, error_handling, security, performance, code_quality
 
+## SQL_INDICATOR_MISSING 판정 규칙 (필수)
+finding이 `SQL_INDICATOR_MISSING`인 경우, "관련 커서" 섹션에 `SELECT 본문`이 첨부되어
+있는지 먼저 확인하세요. 첨부되어 있으면:
+- SELECT 본문의 각 컬럼이 `NVL(...)`, `COALESCE(...)`, `decode(..., NULL, ...)` 또는
+  업무적으로 NOT NULL이 보장되는 컬럼(예: PK, JOIN equi-condition 컬럼)인지 컬럼 단위로 검토
+- **모든 INTO 변수에 대해 NULL 수신 가능성이 없다고 판단되면 `false_positive: true`로 기각**
+- 일부만 NULL 가능하면 위험한 컬럼만 명시한 issue 1건으로 압축 (severity는 보수적으로
+  medium 권장)
+- 본문이 첨부되지 않았으면(추적 실패) 신중하게 medium으로 보고
+
+함수 분리 표준(DECLARE/PREPARE 함수 ≠ FETCH 함수)이 적용된 코드에서 FETCH만 보고
+INDICATOR 누락을 보고하면 false positive가 자주 발생하니 반드시 SELECT 본문을 참조하세요.
+
 ## 오탐(false positive) 처리 규칙 (필수)
 정적 분석 finding을 검토한 결과 **실제 버그가 아니라고 판단**되면 다음 두 가지 중 하나를
 선택하세요. **혼합 형태로 보고하면 안 됩니다.**
@@ -419,24 +432,44 @@ class ProCLLMReviewer(BaseAgent):
         findings: list[Finding],
         partition: PartitionResult,
     ) -> str:
-        """Finding과 관련된 커서 정보를 요약한다."""
+        """Finding과 관련된 커서 정보를 요약한다.
+
+        안 C: cursor의 SELECT 본문이 추적되어 있으면 함께 첨부.
+        함수 분리 표준(DECLARE/PREPARE 함수 ≠ FETCH 함수)으로 인해 LLM이 FETCH만
+        보고 NULL 보호 여부를 판단 못하는 false positive를 줄이기 위함.
+        """
         funcs = {f.function_name for f in findings if f.function_name}
         if not funcs:
             return ""
 
-        lines = []
+        lines: list[str] = []
         for cursor in partition.cursor_map:
             cursor_funcs = {
                 e.function_name for e in cursor.events if e.function_name
             }
-            if cursor_funcs & funcs:
-                events_str = " → ".join(
-                    f"{e.event_type}(L{e.line})" for e in cursor.events
+            if not (cursor_funcs & funcs):
+                continue
+            events_str = " → ".join(
+                f"{e.event_type}(L{e.line}, {e.function_name or '?'})"
+                for e in cursor.events
+            )
+            missing = cursor.missing_events
+            status = "완전" if cursor.is_complete else f"누락: {', '.join(missing)}"
+            lines.append(
+                f"- {cursor.cursor_name}: {events_str} [{status}]"
+            )
+            if cursor.select_body:
+                origin = cursor.select_origin_function or "?"
+                # 토큰 절약: SELECT 본문 길이 제한 (4000자)
+                body = cursor.select_body[:4000]
+                truncated = " (이하 생략)" if len(cursor.select_body) > 4000 else ""
+                prep = (
+                    f", PREPARE 변수=:{cursor.prepare_var}"
+                    if cursor.prepare_var else ""
                 )
-                missing = cursor.missing_events
-                status = "완전" if cursor.is_complete else f"누락: {', '.join(missing)}"
                 lines.append(
-                    f"- {cursor.cursor_name}: {events_str} [{status}]"
+                    f"  SELECT 본문 (정의 함수={origin}{prep}):\n"
+                    f"  ```sql\n  {body}{truncated}\n  ```"
                 )
         return "\n".join(lines) if lines else ""
 
