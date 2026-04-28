@@ -498,6 +498,17 @@ class ProCAnalyzerAgent(BaseAgent):
                 )
                 issues = dedupe_issues(promoted + issues, prefer_static=True)
 
+            # ── LLM이 오탐으로 결론낸 항목 자동 제거 ──
+            # title의 "오탐" 키워드, description 부정 표현, before==after,
+            # false_positive=True 필드 중 하나라도 매칭되면 제거.
+            before_fp_count = len(issues)
+            issues = IssueMerger._filter_false_positives(issues)
+            removed_fp = before_fp_count - len(issues)
+            if removed_fp:
+                logger.info(
+                    f"ProC V1 [{filename}] 오탐 자동 제거: {removed_fp}건"
+                )
+
             # ── source 필드 보정 및 Low 등급 필터링 ──
             _VALID_SOURCES = {"static_analysis", "llm", "hybrid"}
             filtered_issues = []

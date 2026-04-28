@@ -97,8 +97,29 @@ _REVIEW_INSTRUCTIONS = """## 지시사항
 ```
 
 - source: "hybrid" (정적 finding을 LLM이 보강), "llm" (LLM이 새로 탐지)
-- false_positive: true인 항목은 결과에서 제외됩니다
 - category: memory_safety, null_safety, data_integrity, error_handling, security, performance, code_quality
+
+## 오탐(false positive) 처리 규칙 (필수)
+정적 분석 finding을 검토한 결과 **실제 버그가 아니라고 판단**되면 다음 두 가지 중 하나를
+선택하세요. **혼합 형태로 보고하면 안 됩니다.**
+
+1. **issues 배열에서 아예 제외** — 가장 깔끔합니다. 보고할 필요 없는 항목은 출력하지 않습니다.
+2. **`false_positive: true` 필드를 명시** — 재현/감사 목적으로 흔적을 남길 때만 사용.
+   파이프라인이 이 항목을 자동으로 제거합니다.
+
+### 절대 하지 말아야 할 패턴 (오탐인데 결과에 살아남게 만드는 안티패턴)
+- ❌ title에 "오탐", "오판", "FP", "false positive", "잘못된 진단" 등의 단어를 적고
+  `false_positive: false`로 두는 경우
+- ❌ description에 "불일치가 아닙니다", "문제 없습니다", "정상입니다" 등 부정 결론을
+  쓰면서 issues에는 그대로 포함시키는 경우
+- ❌ `fix.before`와 `fix.after`를 동일한 코드로 두는 경우 (수정 사항 없음 = 보고 불필요)
+
+### 올바른 예시
+- 오탐 결정 시 **그 issue를 출력하지 않음** (issues 배열에 빠짐).
+- 또는 `{"issue_id": "...", "false_positive": true, "title": "검토 결과 오탐", ...}`로
+  명시적으로 표시 (이 경우 사용자에게 노출되지 않음).
+
+위 규칙을 어긴 항목은 후처리에서 자동으로 제거되거나 별도 로그됩니다.
 """
 
 
