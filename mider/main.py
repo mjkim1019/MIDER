@@ -399,31 +399,53 @@ def print_summary(
     console.print(f"  {bar}")
     console.rule(style="dim")
 
-    # 배포 판정
+    # 배포 판정 (전체)
     deployment_risk = risk.get("deployment_risk", "LOW")
     deployment_allowed = risk.get("deployment_allowed", True)
 
     if deployment_risk == "UNABLE_TO_ANALYZE":
-        console.print(f"\n배포 판정: [yellow bold]분석불가[/] (분석 중 오류 발생)")
+        console.print(f"\n배포 판정 (전체): [yellow bold]분석불가[/] (분석 중 오류 발생)")
         risk_desc = risk.get("risk_description", "")
         if risk_desc:
             console.print(f"  사유: {risk_desc[:200]}")
     elif deployment_allowed:
-        console.print(f"\n배포 판정: [green bold]가능[/] ({deployment_risk})")
+        console.print(f"\n배포 판정 (전체): [green bold]가능[/] ({deployment_risk})")
     else:
         blocking = risk.get("blocking_issues", [])
         reason = f"Critical {by_severity.get('critical', 0)}건"
         if by_severity.get("high", 0) >= 3:
             reason += f", High {by_severity.get('high', 0)}건"
         console.print(
-            f"\n배포 판정: [red bold]위험[/] ({reason})"
+            f"\n배포 판정 (전체): [red bold]위험[/] ({reason})"
         )
         if blocking:
             console.print(f"  차단 이슈: {', '.join(blocking[:5])}")
 
+    # 파일별 배포 판정 (다중 파일 분석 시)
+    by_file_risk = risk.get("by_file") or []
+    if by_file_risk:
+        console.print(f"\n배포 판정 (파일별):")
+        for item in by_file_risk:
+            fpath = item.get("file", "")
+            file_risk = item.get("deployment_risk", "")
+            file_allowed = item.get("deployment_allowed", False)
+            crit_n = item.get("critical_count", 0)
+            high_n = item.get("high_count", 0)
+            med_n = item.get("medium_count", 0)
+            if file_risk == "UNABLE_TO_ANALYZE":
+                tag = "[yellow bold]분석불가[/]"
+            elif file_allowed:
+                tag = "[green bold]가능[/]"
+            else:
+                tag = "[red bold]위험[/]"
+            counts = f"C{crit_n}/H{high_n}/M{med_n}"
+            console.print(
+                f"  {tag} ({file_risk}) [{counts}] [dim]{fpath}[/]"
+            )
+
     # 출력 파일 경로
     prefix = get_output_prefix(source_files)
-    
+
     console.print(f"\n출력 파일: {output_dir}/{prefix}report.md")
 
 

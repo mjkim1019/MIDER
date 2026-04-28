@@ -515,6 +515,69 @@ class TestPrintSummary:
         calls_str = str(console.print.call_args_list)
         assert "위험" in calls_str
 
+    def test_per_file_deployment_displayed(self):
+        """다중 파일 분석 시 파일별 배포 판정도 함께 출력."""
+        console = MagicMock()
+        summary = {
+            "issue_summary": {
+                "by_severity": {"critical": 1, "high": 1, "medium": 0, "low": 0},
+            },
+            "risk_assessment": {
+                "deployment_risk": "CRITICAL",
+                "deployment_allowed": False,
+                "blocking_issues": ["C-001"],
+                "by_file": [
+                    {
+                        "file": "/app/a.c",
+                        "deployment_risk": "CRITICAL",
+                        "deployment_allowed": False,
+                        "critical_count": 1,
+                        "high_count": 0,
+                        "medium_count": 0,
+                        "blocking_issues": ["C-001"],
+                    },
+                    {
+                        "file": "/app/b.c",
+                        "deployment_risk": "MEDIUM",
+                        "deployment_allowed": True,
+                        "critical_count": 0,
+                        "high_count": 1,
+                        "medium_count": 0,
+                        "blocking_issues": [],
+                    },
+                ],
+            },
+        }
+        print_summary(console, summary, "./output", ["/app/a.c", "/app/b.c"])
+        calls_str = str(console.print.call_args_list)
+        # 전체 + 파일별 라벨 둘 다 노출
+        assert "전체" in calls_str
+        assert "파일별" in calls_str
+        # 두 파일 경로 모두 표시
+        assert "/app/a.c" in calls_str
+        assert "/app/b.c" in calls_str
+        # CRITICAL/MEDIUM 표기 모두 노출
+        assert "CRITICAL" in calls_str
+        assert "MEDIUM" in calls_str
+
+    def test_no_per_file_section_when_single_file(self):
+        """파일별 risk 데이터가 비어있으면 파일별 섹션 미출력."""
+        console = MagicMock()
+        summary = {
+            "issue_summary": {
+                "by_severity": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            },
+            "risk_assessment": {
+                "deployment_risk": "LOW",
+                "deployment_allowed": True,
+                "blocking_issues": [],
+                "by_file": [],
+            },
+        }
+        print_summary(console, summary, "./output", ["/app/x.c"])
+        calls_str = str(console.print.call_args_list)
+        assert "파일별" not in calls_str
+
 
 # ──────────────────────────────────────────────
 # run_analysis
