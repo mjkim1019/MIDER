@@ -579,13 +579,20 @@ def classify_proc_functions(
     # non_dispatch도 개별 분석
     dispatch.extend(non_dispatch)
 
-    # utility_groups: 단일 함수 그룹은 dispatch로 이동
+    # utility_groups: 단일 함수 그룹은 dispatch로 이동, 다수는 hard_cap 기반 분할
     utility_groups: list[list[str]] = []
     for _key, funcs in sorted(utility.items()):
-        if len(funcs) >= 2:
-            utility_groups.append(funcs)
-        else:
+        if len(funcs) < 2:
             dispatch.extend(funcs)
+            continue
+        # 같은 접두사 함수가 많은 경우 누적 줄수가 hard_cap을 넘으면 분할
+        # (group_dispatch_functions의 그리디 누적 로직 재사용)
+        utility_groups.extend(
+            group_dispatch_functions(
+                funcs, boundaries, func_names,
+                hard_cap=hard_cap_lines,
+            )
+        )
 
     # dispatch를 줄 수 기반 그룹으로 묶기
     dispatch_groups = group_dispatch_functions(
