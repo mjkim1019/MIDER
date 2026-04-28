@@ -99,6 +99,21 @@ _REVIEW_INSTRUCTIONS = """## 지시사항
 - source: "hybrid" (정적 finding을 LLM이 보강), "llm" (LLM이 새로 탐지)
 - category: memory_safety, null_safety, data_integrity, error_handling, security, performance, code_quality
 
+## UNINIT_VAR 판정 규칙 (필수)
+finding이 `UNINIT_VAR`인 경우, 같은 함수 본문에서 declaration 라인 이후 첫 사용 전에
+다음 패턴 중 하나라도 있으면 **반드시 `false_positive: true`로 처리**하세요:
+1. `<var> = <expr>;`            직접 할당 (단, `<var> +=` 등 compound는 제외)
+2. `for (<var> = ...)`           for-init 절
+3. `&<var>` 사용                  주소 전달 (`memset(&var, ...)`, `scanf(..., &var)`,
+   `fread(&var, ...)` 등)
+4. `INIT2VCHAR(<var>)`, `INIT2STR(<var>)`, `memset(<var>, ...)` ProFrame 매크로
+5. ProFrame DBIO 호출 결과 대입 (예: `<var> = mpfmdbio_xxx(...)`)
+
+ProFrame 표준은 "선언과 초기화를 분리"하는 스타일이라 declaration만 보고 미초기화로
+판단하면 false positive가 매우 흔함. 함수 본문(`{file_context}` 또는 group code) 전체
+컨텍스트에서 위 패턴을 찾으세요. 정적 스캐너가 이미 1차 필터링했지만 함수가 매우
+크거나 복잡한 흐름이면 누락될 수 있으니 확인 후 결정하세요.
+
 ## SQL_INDICATOR_MISSING 판정 규칙 (필수)
 finding이 `SQL_INDICATOR_MISSING`인 경우, "관련 커서" 섹션에 `SELECT 본문`이 첨부되어
 있는지 먼저 확인하세요. 첨부되어 있으면:

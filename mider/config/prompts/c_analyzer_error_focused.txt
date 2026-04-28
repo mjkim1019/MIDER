@@ -68,6 +68,20 @@ clang-tidy가 감지하지 못하는 아래 패턴을 추가로 검사합니다:
 - source가 "llm"인 이슈: LLM이 추가로 발견한 것
 - source가 "hybrid"인 이슈: clang-tidy 결과를 LLM이 재분석한 것
 
+## UNINIT_VAR / 미초기화 변수 판정 규칙 (필수)
+"지역 변수가 선언만 되고 초기화 없이 사용됨" 류의 이슈를 보고하기 전에, 같은 함수
+본문에서 **declaration 라인 이후 첫 사용 전에** 다음 패턴 중 하나라도 있으면
+**보고하지 마세요** (false positive):
+1. `<var> = <expr>;`           직접 할당
+2. `for (<var> = ...)`          for-init 절 (loop 본문 진입 전 할당됨)
+3. `&<var>` 사용                  주소 전달 (`memset(&var, ...)`, `scanf(..., &var)`,
+   `fread(&var, ...)` 등은 함수 안에서 채움)
+4. `INIT2VCHAR(<var>)`, `INIT2STR(<var>)`, `memset(<var>, ...)` ProFrame 매크로
+5. `<var> = mpfmdbio_xxx(...)` ProFrame DBIO 결과 대입
+
+ProFrame 표준은 "선언과 초기화 분리" 스타일이므로 declaration 라인만 보고
+미초기화로 보고하면 false positive가 매우 흔합니다. 함수 본문 전체를 검토하세요.
+
 ## 라인 번호 사용 규칙 (필수)
 - `{clang_tidy_warnings}`의 각 항목에 포함된 라인 번호(`line`, `line_start`, `L<숫자>` 표기 등)를 **반드시** location.line_start/line_end에 그대로 사용합니다.
 - `{error_functions}`, `{structure_summary}`, `{file_context}`의 코드 스니펫에 라인 번호가 명시되어 있으면 그 값을 사용합니다.

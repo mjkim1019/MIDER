@@ -225,6 +225,86 @@ class CHeuristicScanner(BaseTool):
                 return func_names.get((start, end))
         return None
 
+    def _find_function_end(
+        self,
+        line_num: int,
+        boundaries: list[tuple[int, int]],
+    ) -> int | None:
+        """라인이 속한 함수의 종료 라인(1-based)을 반환한다."""
+        for start, end in boundaries:
+            if start <= line_num <= end:
+                return end
+        return None
+
+    @staticmethod
+    def _is_safely_initialized_before_use(
+        lines: list[str],
+        var_name: str,
+        decl_line_1based: int,
+        func_end_1based: int,
+    ) -> bool:
+        """declaration 이후 첫 사용 전에 var이 안전하게 초기화되는지 검사.
+
+        안전한 초기화로 인정하는 패턴:
+        - `<var> = <expr>;`             직접 할당 (compound assignment 제외)
+        - `for (<var> = ...)`            for-init 절
+        - `&<var>`                       주소 전달 (memset/scanf/&var=...)
+        - `INIT2VCHAR(<var>)`, `INIT2STR(<var>)`, `memset(&<var>, ...)`
+          ProFrame 매크로로 초기화
+
+        first-use가 init보다 먼저 나오면 False (진짜 미초기화 사용).
+        끝까지 사용/초기화 없으면 True (사용되지 않으니 문제 아님).
+        """
+        if decl_line_1based >= func_end_1based:
+            return True
+
+        v = re.escape(var_name)
+        # `==` 비교는 init 아님 → negative lookahead
+        # `+=`, `-=` 등 compound는 사이에 `=` 외 다른 char가 있으니 자동 배제됨
+        init_pat = re.compile(rf"\b{v}\s*=(?!=)")
+        forinit_pat = re.compile(rf"for\s*\(\s*{v}\s*=")
+        addr_pat = re.compile(rf"&\s*{v}\b")
+        macro_pat = re.compile(
+            rf"\b(?:INIT2VCHAR|INIT2STR)\s*\(\s*{v}\b"
+        )
+        use_pat = re.compile(rf"\b{v}\b")
+
+        in_block_comment = False
+        # decl_line_1based 다음 줄부터 함수 끝까지 (둘 다 1-based)
+        for i in range(decl_line_1based, func_end_1based):
+            if i >= len(lines):
+                break
+            raw = lines[i]
+            # 블록 주석 처리
+            if in_block_comment:
+                if "*/" in raw:
+                    in_block_comment = False
+                    raw = raw.split("*/", 1)[1]
+                else:
+                    continue
+            if "/*" in raw and "*/" not in raw:
+                in_block_comment = True
+                raw = raw.split("/*", 1)[0]
+
+            # 라인/한줄블록 주석 + 문자열/문자 리터럴 제거
+            clean = re.sub(r"//.*", "", raw)
+            clean = re.sub(r"/\*.*?\*/", "", clean)
+            clean = re.sub(r'"[^"]*"', '""', clean)
+            clean = re.sub(r"'[^']*'", "''", clean)
+
+            # init 패턴 우선 검사 (같은 라인이면 init이 use에 우선)
+            if (
+                forinit_pat.search(clean)
+                or init_pat.search(clean)
+                or addr_pat.search(clean)
+                or macro_pat.search(clean)
+            ):
+                return True
+            # 그 다음 use 검사
+            if use_pat.search(clean):
+                return False
+        return True  # 함수 끝까지 사용 없음 → 무해
+
     def _scan_patterns(
         self,
         lines: list[str],
@@ -277,6 +357,18 @@ class CHeuristicScanner(BaseTool):
                 # UNINIT_VAR는 함수 내부에서만 의미 있음
                 if pattern["id"] == "UNINIT_VAR" and func_name is None:
                     continue
+
+                # 안 A: UNINIT_VAR — 사용 전 안전한 초기화가 있으면 false positive로 간주
+                # `for (var = ...)`, `var = expr;`, `&var`, INIT2VCHAR/INIT2STR(var),
+                # `memset(&var, ...)` 등 ProFrame 표준 초기화 패턴을 인식해 제외.
+                if pattern["id"] == "UNINIT_VAR":
+                    var_name = m.group(1) if m.groups() else None
+                    func_end = self._find_function_end(line_num, boundaries)
+                    if var_name and func_end is not None:
+                        if self._is_safely_initialized_before_use(
+                            lines, var_name, line_num, func_end,
+                        ):
+                            continue  # 안전 초기화 패턴 발견 — finding 스킵
 
                 findings.append({
                     "pattern_id": pattern["id"],
