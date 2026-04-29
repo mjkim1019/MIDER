@@ -49,6 +49,7 @@ from mider.tools.utility.issue_merger import IssueMerger
 from mider.tools.utility.proc_llm_reviewer import ProCLLMReviewer
 from mider.tools.utility.proc_partitioner import ProCPartitioner
 from mider.tools.utility.proc_symbol_graph import ProCSymbolGraphBuilder
+from mider.tools.utility.scanner_to_issue import dedupe_issues, promote_findings
 from mider.tools.utility.token_optimizer import (
     build_all_functions_summary,
     build_cursor_lifecycle_map,
@@ -297,7 +298,39 @@ class ProCAnalyzerAgent(BaseAgent):
             file_path=file,
             partition=partition,
         )
-        
+
+        # ── 안전망: ProCHeuristicScanner의 high-confidence finding 직접 promotion ──
+        # V3 파이프라인은 SQL/clang-tidy/cross_checker만 사용하고 ProCHeuristicScanner를
+        # 호출하지 않아 LOOP_INIT_MISSING / FORMAT_ARG_MISMATCH / CURSOR_DUPLICATE_CLOSE /
+        # MEMSET_SIZEOF_MISMATCH / FORMAT_STRUCT를 놓침. 이들을 직접 issue로 promote.
+        try:
+            heuristic_findings = self._heuristic_scanner.execute(file=file).data.get(
+                "findings", []
+            )
+        except Exception as scan_err:
+            logger.warning(f"ProC V3 [{filename}] heuristic scanner 실패: {scan_err}")
+            heuristic_findings = []
+        promoted = promote_findings(
+            heuristic_findings, file=file, id_prefix="PC-S",
+            static_tool="proc_heuristic",
+        )
+        if promoted:
+            logger.info(
+                f"ProC V3 [{filename}] heuristic scanner promotion: {len(promoted)}건"
+            )
+            merged_issues = dedupe_issues(
+                promoted + merged_issues, prefer_static=True
+            )
+
+        # ── LLM이 오탐으로 결론낸 항목 자동 제거 (안전망) ──
+        before_fp_count = len(merged_issues)
+        merged_issues = self._issue_merger._filter_false_positives(merged_issues)
+        removed_fp = before_fp_count - len(merged_issues)
+        if removed_fp:
+            logger.info(
+                f"ProC V3 [{filename}] 오탐 자동 제거: {removed_fp}건"
+            )
+
         # Low 등급 원천 차단 필터링
         final_issues = [
             issue for issue in merged_issues
@@ -480,6 +513,32 @@ class ProCAnalyzerAgent(BaseAgent):
                     **common_kwargs,
                     boundaries=boundaries,
                     func_names=func_names,
+                )
+
+            # ── 안전망: high-confidence scanner finding 직접 promotion ──
+            # LLM 응답에서 누락되었더라도 결정적 패턴은 최종 보고에 포함되도록 보장.
+            # source="static_analysis" 우선으로 dedupe.
+            promoted = promote_findings(
+                scanner_findings,
+                file=file,
+                id_prefix="PC-S",
+                static_tool="proc_heuristic",
+            )
+            if promoted:
+                logger.info(
+                    f"ProC V1 [{filename}] scanner 직접 promotion: {len(promoted)}건"
+                )
+                issues = dedupe_issues(promoted + issues, prefer_static=True)
+
+            # ── LLM이 오탐으로 결론낸 항목 자동 제거 ──
+            # title의 "오탐" 키워드, description 부정 표현, before==after,
+            # false_positive=True 필드 중 하나라도 매칭되면 제거.
+            before_fp_count = len(issues)
+            issues = IssueMerger._filter_false_positives(issues)
+            removed_fp = before_fp_count - len(issues)
+            if removed_fp:
+                logger.info(
+                    f"ProC V1 [{filename}] 오탐 자동 제거: {removed_fp}건"
                 )
 
             # ── source 필드 보정 및 Low 등급 필터링 ──

@@ -27,6 +27,8 @@ from mider.config.settings_loader import (
 from mider.models.analysis_result import AnalysisResult
 from mider.tools.file_io.file_reader import FileReader
 from mider.tools.static_analysis.c_heuristic_scanner import CHeuristicScanner
+from mider.tools.utility.issue_merger import IssueMerger
+from mider.tools.utility.scanner_to_issue import dedupe_issues, promote_findings
 from mider.tools.static_analysis.clang_tidy_runner import ClangTidyRunner
 from mider.tools.utility.issue_filter import (
     filter_safe_function_bounds_issues,
@@ -353,6 +355,29 @@ class CAnalyzerAgent(BaseAgent):
                         raise ValueError(f"LLM 응답이 dict가 아님: {type(llm_result)}")
                     issues = llm_result.get("issues", [])
                     tokens_estimate = (len(prompt) + len(response)) // 4
+
+            # ── 안전망: high-confidence scanner finding 직접 promotion ──
+            # LLM 응답 누락/실패 시에도 결정적 패턴은 최종 보고에 포함되도록 보장.
+            promoted = promote_findings(
+                scanner_findings,
+                file=file,
+                id_prefix="C-S",
+                static_tool="c_heuristic",
+            )
+            if promoted:
+                logger.info(
+                    f"C [{Path(file).name}] scanner 직접 promotion: {len(promoted)}건"
+                )
+                issues = dedupe_issues(promoted + issues, prefer_static=True)
+
+            # ── LLM이 오탐으로 결론낸 항목 자동 제거 ──
+            before_fp_count = len(issues)
+            issues = IssueMerger._filter_false_positives(issues)
+            removed_fp = before_fp_count - len(issues)
+            if removed_fp:
+                logger.info(
+                    f"C [{Path(file).name}] 오탐 자동 제거: {removed_fp}건"
+                )
 
             # Step 4: AnalysisResult 생성
             # Low 등급 원천 차단 필터링

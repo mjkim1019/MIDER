@@ -32,6 +32,60 @@ _SOURCE_RANK = {"hybrid": 3, "llm": 2, "static_analysis": 1}
 # (CAnalyzerAgent의 _REMOVE_KEYWORDS 확장)
 # ──────────────────────────────────────────
 
+# ──────────────────────────────────────────
+# 오탐(false positive) 자동 감지 패턴
+# LLM이 정적 finding을 검토한 결과 "오탐"으로 결론냈으나
+# false_positive 필드를 명시하지 않은 경우를 잡기 위한 휴리스틱.
+# 보수적으로: title/description의 명시적 부정 표현만 매칭.
+# ──────────────────────────────────────────
+
+_FP_TITLE_KEYWORDS: tuple[str, ...] = (
+    "오탐", "오판", "잘못된 진단", "false positive",
+    "오인 진단", "잘못된 분석",
+)
+
+_FP_DESC_PHRASES: tuple[str, ...] = (
+    "불일치가 아닙니다", "불일치 아닙니다",
+    "문제 없습니다", "문제가 없습니다",
+    "정상 코드입니다", "정상 동작입니다",
+    "오탐입니다", "오판입니다",
+    "버그가 아닙니다", "버그 아닙니다",
+    "false positive로 판단", "오탐으로 판단",
+)
+
+
+def _looks_like_false_positive(issue: dict[str, Any]) -> tuple[bool, str]:
+    """이슈가 LLM이 결론내린 오탐일 가능성이 큰지 휴리스틱 판정.
+
+    Returns:
+        (is_fp, reason) — is_fp=True 시 reason은 매칭된 신호 설명.
+    """
+    # ① 명시적 false_positive 필드
+    if issue.get("false_positive"):
+        return True, "false_positive=true"
+
+    title = (issue.get("title") or "")
+    title_lower = title.lower()
+    for kw in _FP_TITLE_KEYWORDS:
+        if kw.lower() in title_lower:
+            return True, f"title 키워드 '{kw}'"
+
+    description = (issue.get("description") or "")
+    desc_lower = description.lower()
+    for phrase in _FP_DESC_PHRASES:
+        if phrase.lower() in desc_lower:
+            return True, f"description 부정 표현 '{phrase}'"
+
+    # ③ before == after (실질적 수정 사항 없음)
+    fix = issue.get("fix") or {}
+    before = (fix.get("before") or "").strip()
+    after = (fix.get("after") or "").strip()
+    if before and before == after:
+        return True, "fix.before == fix.after (수정 사항 없음)"
+
+    return False, ""
+
+
 _REMOVE_KEYWORDS: list[str] = [
     # 동시성/스레드 (Proframe 단일스레드)
     "스레드 안전", "동기화 부재", "경쟁 상태", "race condition",
@@ -140,11 +194,25 @@ class IssueMerger:
     def _filter_false_positives(
         issues: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """false_positive=True인 이슈를 제거한다."""
-        return [
-            issue for issue in issues
-            if not issue.get("false_positive", False)
-        ]
+        """LLM이 오탐으로 결론낸 이슈를 제거한다.
+
+        세 가지 신호 중 하나라도 매칭되면 제외:
+        ① false_positive=True 필드 (명시적)
+        ② title의 오탐 키워드 ("오탐", "false positive" 등)
+        ③ description의 부정 결론 표현 ("불일치 아닙니다" 등)
+        ④ fix.before == fix.after (실질 수정 없음)
+        """
+        kept: list[dict[str, Any]] = []
+        for issue in issues:
+            is_fp, reason = _looks_like_false_positive(issue)
+            if is_fp:
+                logger.info(
+                    f"오탐 자동 제거: {issue.get('issue_id', '?')} "
+                    f"[{reason}] title={issue.get('title', '')[:60]}"
+                )
+                continue
+            kept.append(issue)
+        return kept
 
     # ──────────────────────────────────────────
     # Step 2: Proframe 노이즈 제거

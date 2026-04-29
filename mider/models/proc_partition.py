@@ -236,6 +236,24 @@ class CursorUnit(BaseModel):
     cursor_name: str
     events: list[CursorLifecycleEvent] = Field(default_factory=list)
 
+    # 안 A: cursor가 실행하는 SELECT 본문 매핑 (INDICATOR 룰 정확도 + LLM 컨텍스트용)
+    # - Static cursor: `EXEC SQL DECLARE C_x CURSOR FOR SELECT ...` — DECLARE에 직접 캡처
+    # - Dynamic cursor: `EXEC SQL DECLARE C_x CURSOR FOR P_x` + PREPARE P_x FROM :var
+    #   → :var에 직전 snprintf/strcpy로 채워진 SELECT 본문 추적
+    # 추적 실패 시 None (보수적으로 기존 동작 유지)
+    select_body: Optional[str] = Field(
+        default=None,
+        description="cursor가 실행하는 SELECT 본문 (가능하면 dynamic SQL 조립 결과 포함)",
+    )
+    prepare_var: Optional[str] = Field(
+        default=None,
+        description="dynamic cursor의 PREPARE 대상 호스트 변수명 (예: 'ls_prt_sql_query')",
+    )
+    select_origin_function: Optional[str] = Field(
+        default=None,
+        description="SELECT 본문이 조립/선언된 함수명 (함수 분리 표준 추적용)",
+    )
+
     @property
     def declare_functions(self) -> list[str]:
         return [

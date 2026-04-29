@@ -91,6 +91,91 @@ class TestMemsetMismatch:
                     if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
         assert len(findings) == 0
 
+    def test_proframe_prefix_with_declaration(self, scanner, tmp_path):
+        """ProFrame 명명규약 (`l_ctx: bat_ctx_t`) — 실 선언 lookup으로 false positive 제거."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "void main() {\n"
+            "    bat_ctx_t l_ctx;\n"
+            "    memset(&l_ctx, 0x00, sizeof(bat_ctx_t));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
+    def test_global_struct_prefix_with_declaration(self, scanner, tmp_path):
+        """전역 struct prefix 케이스 (`gst_hd: sms_file_header_bo_t`)."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "sms_file_header_bo_t gst_hd;\n"
+            "void f() {\n"
+            "    memset(&gst_hd, 0x20, sizeof(sms_file_header_bo_t));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
+    def test_typedef_without_t_suffix(self, scanner, tmp_path):
+        """`_t` 접미사 없는 ProFrame 타입(`st_result_set gst_rpset;`)."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "st_result_set gst_rpset;\n"
+            "void f() {\n"
+            "    memset(&gst_rpset, 0x00, sizeof(st_result_set));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
+    def test_sizeof_self_pattern_safe(self, scanner, tmp_path):
+        """`memset(buf, 0, sizeof(buf))` 자기 자신 크기 패턴은 안전."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "void f() {\n"
+            "    char lc_file_name[256];\n"
+            "    memset(lc_file_name, 0x00, sizeof(lc_file_name));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
+    def test_real_mismatch_via_declaration_still_detected(self, scanner, tmp_path):
+        """선언 타입이 sizeof 타입과 진짜 다르면 정탐 보존."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "zord_u0010_in_t var;\n"
+            "void f() {\n"
+            "    memset(&var, 0x00, sizeof(zord_s0009_in_t));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert len(findings) == 1
+
+    def test_commented_old_declaration_ignored(self, scanner, tmp_path):
+        """주석 처리된 옛 선언이 활성 선언보다 위에 있어도 활성 선언이 매칭됨."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            "// sms_file_header_t gst_hd;  /* 옛 정의 */\n"
+            "sms_file_header_bo_t gst_hd;  /* 현재 정의 */\n"
+            "void f() {\n"
+            "    memset(&gst_hd, 0x20, sizeof(sms_file_header_bo_t));\n"
+            "}\n"
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "MEMSET_SIZEOF_MISMATCH"]
+        assert findings == []
+
 
 class TestLoopInitMissing:
     """Pattern 3: 루프 내 초기화 누락 탐지."""
@@ -130,6 +215,62 @@ class TestLoopInitMissing:
             'while (SQLCODE == SQL_OK) {\n'
             '    INIT2VCHAR(gst_sec);\n'
             '    strncpy(gst_sec.field, src, 10);\n'
+            '}\n'
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "LOOP_INIT_MISSING"]
+        assert len(findings) == 0
+
+    def test_detect_partial_init(self, scanner, tmp_path):
+        """일부 구조체만 초기화되고 다른 구조체가 누락된 케이스.
+
+        zinvbreps8030.pc L5951 실사례: gst_aia/gst_reisu는 초기화하지만
+        gst_sec_06에 쓰는 strncpy가 초기화 없이 수행됨.
+        """
+        f = tmp_path / "test.pc"
+        f.write_text(
+            'while (li_flag == TRUE) {\n'
+            '    INIT2VCHAR(gst_aia);\n'
+            '    INIT2VCHAR(gst_reisu);\n'
+            '    EXEC SQL FETCH C1 INTO :gst_aia;\n'
+            '    for (i = 0; i < n; i++) {\n'
+            '        strncpy(gst_reisu.use_dt, src1, 10);\n'
+            '        strncpy(gst_sec_06.lcl_cd[0], src2, 10);\n'
+            '        strncpy(gst_sec_06.amt[0], src3, 20);\n'
+            '    }\n'
+            '}\n'
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "LOOP_INIT_MISSING"]
+        # gst_sec_06 만 누락으로 보고되어야 한다
+        variables = {x.get("variable") for x in findings}
+        assert "gst_sec_06" in variables
+        assert "gst_aia" not in variables
+        assert "gst_reisu" not in variables
+
+    def test_detect_multiple_missing_structs(self, scanner, tmp_path):
+        """루프 안 여러 구조체 모두 초기화 누락 — 각각 보고."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            'while (cond) {\n'
+            '    strncpy(gst_a.field, src, 10);\n'
+            '    strncpy(gst_b.field, src, 10);\n'
+            '}\n'
+        )
+        result = scanner.execute(file=str(f))
+        findings = [x for x in result.data["findings"]
+                    if x["pattern_id"] == "LOOP_INIT_MISSING"]
+        variables = {x.get("variable") for x in findings}
+        assert variables == {"gst_a", "gst_b"}
+
+    def test_no_detect_plain_buffer_copy(self, scanner, tmp_path):
+        """구조체 멤버가 아닌 단순 문자열 복사는 미탐지 (false-positive 방지)."""
+        f = tmp_path / "test.pc"
+        f.write_text(
+            'while (n-- > 0) {\n'
+            '    strncpy(buf, src, 10);\n'
             '}\n'
         )
         result = scanner.execute(file=str(f))

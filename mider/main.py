@@ -38,6 +38,10 @@ EXIT_CRITICAL_FOUND = 1
 EXIT_FILE_ERROR = 2
 EXIT_LLM_ERROR = 3
 
+# 1회 분석 시 허용할 최대 파일 수
+# (LLM 호출 비용/시간/안정성 보호)
+MAX_FILES_PER_RUN = 20
+
 # 심각도별 색상
 _SEVERITY_COLORS = {
     "critical": "red bold",
@@ -395,31 +399,53 @@ def print_summary(
     console.print(f"  {bar}")
     console.rule(style="dim")
 
-    # 배포 판정
+    # 배포 판정 (전체)
     deployment_risk = risk.get("deployment_risk", "LOW")
     deployment_allowed = risk.get("deployment_allowed", True)
 
     if deployment_risk == "UNABLE_TO_ANALYZE":
-        console.print(f"\n배포 판정: [yellow bold]분석불가[/] (분석 중 오류 발생)")
+        console.print(f"\n배포 판정 (전체): [yellow bold]분석불가[/] (분석 중 오류 발생)")
         risk_desc = risk.get("risk_description", "")
         if risk_desc:
             console.print(f"  사유: {risk_desc[:200]}")
     elif deployment_allowed:
-        console.print(f"\n배포 판정: [green bold]가능[/] ({deployment_risk})")
+        console.print(f"\n배포 판정 (전체): [green bold]가능[/] ({deployment_risk})")
     else:
         blocking = risk.get("blocking_issues", [])
         reason = f"Critical {by_severity.get('critical', 0)}건"
         if by_severity.get("high", 0) >= 3:
             reason += f", High {by_severity.get('high', 0)}건"
         console.print(
-            f"\n배포 판정: [red bold]위험[/] ({reason})"
+            f"\n배포 판정 (전체): [red bold]위험[/] ({reason})"
         )
         if blocking:
             console.print(f"  차단 이슈: {', '.join(blocking[:5])}")
 
+    # 파일별 배포 판정 (다중 파일 분석 시)
+    by_file_risk = risk.get("by_file") or []
+    if by_file_risk:
+        console.print(f"\n배포 판정 (파일별):")
+        for item in by_file_risk:
+            fpath = item.get("file", "")
+            file_risk = item.get("deployment_risk", "")
+            file_allowed = item.get("deployment_allowed", False)
+            crit_n = item.get("critical_count", 0)
+            high_n = item.get("high_count", 0)
+            med_n = item.get("medium_count", 0)
+            if file_risk == "UNABLE_TO_ANALYZE":
+                tag = "[yellow bold]분석불가[/]"
+            elif file_allowed:
+                tag = "[green bold]가능[/]"
+            else:
+                tag = "[red bold]위험[/]"
+            counts = f"C{crit_n}/H{high_n}/M{med_n}"
+            console.print(
+                f"  {tag} ({file_risk}) [{counts}] [dim]{fpath}[/]"
+            )
+
     # 출력 파일 경로
     prefix = get_output_prefix(source_files)
-    
+
     console.print(f"\n출력 파일: {output_dir}/{prefix}report.md")
 
 
@@ -966,6 +992,20 @@ def _run_once(
     # 파일 경로 해석
     resolved_files = resolve_input_files(base_dir, file_args)
     if not resolved_files:
+        return EXIT_FILE_ERROR
+
+    # 1회 분석 최대 파일 수 제한 (LLM 비용/시간/안정성 보호)
+    if len(resolved_files) > MAX_FILES_PER_RUN:
+        console.print(
+            f"[red bold]오류:[/] 1회 분석 가능한 파일 수는 최대 "
+            f"{MAX_FILES_PER_RUN}개입니다. (입력: {len(resolved_files)}개)"
+        )
+        console.print(
+            "[yellow]대상을 줄이거나 여러 번 나누어 실행하세요.[/]"
+        )
+        logger.warning(
+            f"파일 수 한도 초과: {len(resolved_files)} > {MAX_FILES_PER_RUN}"
+        )
         return EXIT_FILE_ERROR
 
     # 파일 목록 출력

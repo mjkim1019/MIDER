@@ -93,6 +93,85 @@ class TestFalsePositiveFilter:
         assert len(result) == 1
         assert result[0]["title"] == "진짜"
 
+    def test_removes_title_with_fp_keyword_korean(self, merger):
+        """LLM이 title에 '오탐' 명시 → 자동 제거."""
+        issues = [
+            _make_issue(
+                issue_id="PC-010",
+                title="SELECT INTO 컬럼 수 불일치 진단은 오탐 (단일 표현식 SELECT)",
+            ),
+            _make_issue(issue_id="PC-011", title="SQLCA 체크 누락"),
+        ]
+        result = merger.merge(issues, [], "test.pc")
+        assert len(result) == 1
+        assert "오탐" not in result[0]["title"]
+
+    def test_removes_title_with_fp_keyword_english(self, merger):
+        issues = [
+            _make_issue(title="this looks like a false positive case"),
+            _make_issue(title="진짜 버그"),
+        ]
+        result = merger.merge(issues, [], "test.pc")
+        titles = [r["title"] for r in result]
+        assert "진짜 버그" in titles
+        assert not any("false positive" in t.lower() for t in titles)
+
+    def test_removes_description_with_negation(self, merger):
+        """description에 '불일치가 아닙니다' 등 부정 결론."""
+        issues = [
+            _make_issue(
+                title="SELECT INTO 컬럼 수 검사",
+                description=(
+                    "L2506 SELECT는 여러 줄로 보이지만 최종적으로 1개 컬럼만 "
+                    "SELECT합니다. 따라서 INTO :lc_prod_id와 불일치가 아닙니다."
+                ),
+            ),
+            _make_issue(title="진짜 이슈", description="SQLCA 체크 없음"),
+        ]
+        result = merger.merge(issues, [], "test.pc")
+        titles = [r["title"] for r in result]
+        assert "진짜 이슈" in titles
+        assert "SELECT INTO 컬럼 수 검사" not in titles
+
+    def test_removes_when_before_equals_after(self, merger):
+        """fix.before == fix.after (수정 사항 없음) → 자동 제거."""
+        issue = _make_issue(title="LLM이 검토했지만 수정 불필요")
+        # 동일한 코드로 강제
+        same_code = "EXEC SQL SELECT col INTO :var FROM tbl;"
+        issue["fix"] = {
+            "before": same_code,
+            "after": same_code,
+            "description": "검토 결과 수정 불필요",
+        }
+        normal = _make_issue(title="진짜 이슈")
+        result = merger.merge([issue, normal], [], "test.pc")
+        assert len(result) == 1
+        assert result[0]["title"] == "진짜 이슈"
+
+    def test_keeps_normal_issue_with_neutral_text(self, merger):
+        """오탐 키워드가 없는 정상 이슈는 보존."""
+        issues = [
+            _make_issue(title="SQLCA 검사 누락"),
+            _make_issue(title="cursor close 누락",
+                        description="OPEN 후 CLOSE가 없습니다"),
+        ]
+        result = merger.merge(issues, [], "test.pc")
+        # _remove_proframe_noise가 "cursor close 누락" 제거할 수 있음 — 적어도 1건은 유지
+        assert len(result) >= 1
+
+    def test_before_after_whitespace_diff_kept(self, merger):
+        """before/after가 공백만 다르면 strip 후 동일 — 제거."""
+        issue = _make_issue(title="공백만 다른 케이스")
+        issue["fix"] = {
+            "before": "  CODE  \n",
+            "after": "CODE",
+            "description": "변경 없음",
+        }
+        normal = _make_issue(title="진짜")
+        result = merger.merge([issue, normal], [], "test.pc")
+        assert len(result) == 1
+        assert result[0]["title"] == "진짜"
+
 
 # ──────────────────────────────────────────
 # Proframe 노이즈 제거

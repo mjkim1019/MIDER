@@ -97,8 +97,57 @@ _REVIEW_INSTRUCTIONS = """## 지시사항
 ```
 
 - source: "hybrid" (정적 finding을 LLM이 보강), "llm" (LLM이 새로 탐지)
-- false_positive: true인 항목은 결과에서 제외됩니다
 - category: memory_safety, null_safety, data_integrity, error_handling, security, performance, code_quality
+
+## UNINIT_VAR 판정 규칙 (필수)
+finding이 `UNINIT_VAR`인 경우, 같은 함수 본문에서 declaration 라인 이후 첫 사용 전에
+다음 패턴 중 하나라도 있으면 **반드시 `false_positive: true`로 처리**하세요:
+1. `<var> = <expr>;`            직접 할당 (단, `<var> +=` 등 compound는 제외)
+2. `for (<var> = ...)`           for-init 절
+3. `&<var>` 사용                  주소 전달 (`memset(&var, ...)`, `scanf(..., &var)`,
+   `fread(&var, ...)` 등)
+4. `INIT2VCHAR(<var>)`, `INIT2STR(<var>)`, `memset(<var>, ...)` ProFrame 매크로
+5. ProFrame DBIO 호출 결과 대입 (예: `<var> = mpfmdbio_xxx(...)`)
+
+ProFrame 표준은 "선언과 초기화를 분리"하는 스타일이라 declaration만 보고 미초기화로
+판단하면 false positive가 매우 흔함. 함수 본문(`{file_context}` 또는 group code) 전체
+컨텍스트에서 위 패턴을 찾으세요. 정적 스캐너가 이미 1차 필터링했지만 함수가 매우
+크거나 복잡한 흐름이면 누락될 수 있으니 확인 후 결정하세요.
+
+## SQL_INDICATOR_MISSING 판정 규칙 (필수)
+finding이 `SQL_INDICATOR_MISSING`인 경우, "관련 커서" 섹션에 `SELECT 본문`이 첨부되어
+있는지 먼저 확인하세요. 첨부되어 있으면:
+- SELECT 본문의 각 컬럼이 `NVL(...)`, `COALESCE(...)`, `decode(..., NULL, ...)` 또는
+  업무적으로 NOT NULL이 보장되는 컬럼(예: PK, JOIN equi-condition 컬럼)인지 컬럼 단위로 검토
+- **모든 INTO 변수에 대해 NULL 수신 가능성이 없다고 판단되면 `false_positive: true`로 기각**
+- 일부만 NULL 가능하면 위험한 컬럼만 명시한 issue 1건으로 압축 (severity는 보수적으로
+  medium 권장)
+- 본문이 첨부되지 않았으면(추적 실패) 신중하게 medium으로 보고
+
+함수 분리 표준(DECLARE/PREPARE 함수 ≠ FETCH 함수)이 적용된 코드에서 FETCH만 보고
+INDICATOR 누락을 보고하면 false positive가 자주 발생하니 반드시 SELECT 본문을 참조하세요.
+
+## 오탐(false positive) 처리 규칙 (필수)
+정적 분석 finding을 검토한 결과 **실제 버그가 아니라고 판단**되면 다음 두 가지 중 하나를
+선택하세요. **혼합 형태로 보고하면 안 됩니다.**
+
+1. **issues 배열에서 아예 제외** — 가장 깔끔합니다. 보고할 필요 없는 항목은 출력하지 않습니다.
+2. **`false_positive: true` 필드를 명시** — 재현/감사 목적으로 흔적을 남길 때만 사용.
+   파이프라인이 이 항목을 자동으로 제거합니다.
+
+### 절대 하지 말아야 할 패턴 (오탐인데 결과에 살아남게 만드는 안티패턴)
+- ❌ title에 "오탐", "오판", "FP", "false positive", "잘못된 진단" 등의 단어를 적고
+  `false_positive: false`로 두는 경우
+- ❌ description에 "불일치가 아닙니다", "문제 없습니다", "정상입니다" 등 부정 결론을
+  쓰면서 issues에는 그대로 포함시키는 경우
+- ❌ `fix.before`와 `fix.after`를 동일한 코드로 두는 경우 (수정 사항 없음 = 보고 불필요)
+
+### 올바른 예시
+- 오탐 결정 시 **그 issue를 출력하지 않음** (issues 배열에 빠짐).
+- 또는 `{"issue_id": "...", "false_positive": true, "title": "검토 결과 오탐", ...}`로
+  명시적으로 표시 (이 경우 사용자에게 노출되지 않음).
+
+위 규칙을 어긴 항목은 후처리에서 자동으로 제거되거나 별도 로그됩니다.
 """
 
 
@@ -398,24 +447,44 @@ class ProCLLMReviewer(BaseAgent):
         findings: list[Finding],
         partition: PartitionResult,
     ) -> str:
-        """Finding과 관련된 커서 정보를 요약한다."""
+        """Finding과 관련된 커서 정보를 요약한다.
+
+        안 C: cursor의 SELECT 본문이 추적되어 있으면 함께 첨부.
+        함수 분리 표준(DECLARE/PREPARE 함수 ≠ FETCH 함수)으로 인해 LLM이 FETCH만
+        보고 NULL 보호 여부를 판단 못하는 false positive를 줄이기 위함.
+        """
         funcs = {f.function_name for f in findings if f.function_name}
         if not funcs:
             return ""
 
-        lines = []
+        lines: list[str] = []
         for cursor in partition.cursor_map:
             cursor_funcs = {
                 e.function_name for e in cursor.events if e.function_name
             }
-            if cursor_funcs & funcs:
-                events_str = " → ".join(
-                    f"{e.event_type}(L{e.line})" for e in cursor.events
+            if not (cursor_funcs & funcs):
+                continue
+            events_str = " → ".join(
+                f"{e.event_type}(L{e.line}, {e.function_name or '?'})"
+                for e in cursor.events
+            )
+            missing = cursor.missing_events
+            status = "완전" if cursor.is_complete else f"누락: {', '.join(missing)}"
+            lines.append(
+                f"- {cursor.cursor_name}: {events_str} [{status}]"
+            )
+            if cursor.select_body:
+                origin = cursor.select_origin_function or "?"
+                # 토큰 절약: SELECT 본문 길이 제한 (4000자)
+                body = cursor.select_body[:4000]
+                truncated = " (이하 생략)" if len(cursor.select_body) > 4000 else ""
+                prep = (
+                    f", PREPARE 변수=:{cursor.prepare_var}"
+                    if cursor.prepare_var else ""
                 )
-                missing = cursor.missing_events
-                status = "완전" if cursor.is_complete else f"누락: {', '.join(missing)}"
                 lines.append(
-                    f"- {cursor.cursor_name}: {events_str} [{status}]"
+                    f"  SELECT 본문 (정의 함수={origin}{prep}):\n"
+                    f"  ```sql\n  {body}{truncated}\n  ```"
                 )
         return "\n".join(lines) if lines else ""
 

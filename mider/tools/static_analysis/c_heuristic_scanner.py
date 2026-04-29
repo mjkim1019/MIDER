@@ -11,6 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from mider.tools.base_tool import BaseTool, ToolExecutionError, ToolResult
+from mider.tools.static_analysis.cursor_close_scanner import (
+    scan_cursor_duplicate_close,
+)
+from mider.tools.static_analysis.format_arg_scanner import (
+    scan_format_arg_mismatch,
+)
 from mider.tools.utility.token_optimizer import find_function_boundaries
 
 logger = logging.getLogger(__name__)
@@ -131,6 +137,40 @@ class CHeuristicScanner(BaseTool):
         # 패턴 스캔
         findings = self._scan_patterns(lines, func_boundaries, func_names)
 
+        # CURSOR_DUPLICATE_CLOSE — 공용 모듈 사용
+        for cf in scan_cursor_duplicate_close(content, language="c"):
+            findings.append({
+                "pattern_id": cf["pattern_id"],
+                "severity": cf["severity"],
+                "description": cf["description"],
+                "line": cf["line"],
+                "content": cf["code"],
+                "match": f"close({cf['variable']})",
+                "function": cf["function"],
+                "variable": cf["variable"],
+                "all_lines": cf["all_lines"],
+            })
+
+        # FORMAT_ARG_MISMATCH — 공용 모듈 사용
+        for ff in scan_format_arg_mismatch(content):
+            # 해당 호출이 속한 함수 이름 찾기
+            func_name = None
+            for start_1, end_1 in func_boundaries:
+                if start_1 <= ff["line"] <= end_1:
+                    func_name = func_names.get((start_1, end_1))
+                    break
+            findings.append({
+                "pattern_id": ff["pattern_id"],
+                "severity": ff["severity"],
+                "description": ff["description"],
+                "line": ff["line"],
+                "content": ff["code"],
+                "match": f"{ff['function_call']}(...)",
+                "function": func_name,
+                "format_count": ff["format_count"],
+                "arg_count": ff["arg_count"],
+            })
+
         # 위험 함수 목록 (중복 제거, 순서 유지)
         seen: set[str] = set()
         functions_at_risk: list[str] = []
@@ -185,6 +225,87 @@ class CHeuristicScanner(BaseTool):
                 return func_names.get((start, end))
         return None
 
+    def _find_function_end(
+        self,
+        line_num: int,
+        boundaries: list[tuple[int, int]],
+    ) -> int | None:
+        """라인이 속한 함수의 종료 라인(1-based)을 반환한다."""
+        for start, end in boundaries:
+            if start <= line_num <= end:
+                return end
+        return None
+
+    @staticmethod
+    def _strip_comments_and_strings(
+        raw: str, in_block_comment: bool,
+    ) -> tuple[str, bool]:
+        """블록 주석 상태를 추적하며 한 라인을 정리.
+
+        Returns:
+            (clean_line, new_in_block_state). 라인이 블록 주석 안에 완전히 갇혀있으면
+            clean_line은 빈 문자열.
+        """
+        if in_block_comment:
+            if "*/" in raw:
+                in_block_comment = False
+                raw = raw.split("*/", 1)[1]
+            else:
+                return "", True
+        if "/*" in raw and "*/" not in raw:
+            in_block_comment = True
+            raw = raw.split("/*", 1)[0]
+        clean = re.sub(r"//.*", "", raw)
+        clean = re.sub(r"/\*.*?\*/", "", clean)
+        clean = re.sub(r'"[^"]*"', '""', clean)
+        clean = re.sub(r"'[^']*'", "''", clean)
+        return clean, in_block_comment
+
+    @classmethod
+    def _is_safely_initialized_before_use(
+        cls,
+        lines: list[str],
+        var_name: str,
+        decl_line_1based: int,
+        func_end_1based: int,
+    ) -> bool:
+        """declaration 이후 첫 사용 전에 var이 안전하게 초기화되는지 검사.
+
+        first-use가 init보다 먼저 나오면 False (진짜 미초기화 사용).
+        끝까지 사용/초기화 없으면 True (사용되지 않으니 문제 아님).
+        """
+        if decl_line_1based >= func_end_1based:
+            return True
+
+        v = re.escape(var_name)
+        # `==` 비교는 init 아님 → negative lookahead.
+        # compound assignment(`+=` 등)는 `=` 앞에 다른 char가 있어 자동 배제됨.
+        init_pat = re.compile(rf"\b{v}\s*=(?!=)")
+        forinit_pat = re.compile(rf"for\s*\(\s*{v}\s*=")
+        addr_pat = re.compile(rf"&\s*{v}\b")
+        macro_pat = re.compile(rf"\b(?:INIT2VCHAR|INIT2STR)\s*\(\s*{v}\b")
+        use_pat = re.compile(rf"\b{v}\b")
+
+        in_block_comment = False
+        for i in range(decl_line_1based, func_end_1based):
+            if i >= len(lines):
+                break
+            clean, in_block_comment = cls._strip_comments_and_strings(
+                lines[i], in_block_comment,
+            )
+            if not clean:
+                continue
+            if (
+                forinit_pat.search(clean)
+                or init_pat.search(clean)
+                or addr_pat.search(clean)
+                or macro_pat.search(clean)
+            ):
+                return True
+            if use_pat.search(clean):
+                return False
+        return True
+
     def _scan_patterns(
         self,
         lines: list[str],
@@ -237,6 +358,15 @@ class CHeuristicScanner(BaseTool):
                 # UNINIT_VAR는 함수 내부에서만 의미 있음
                 if pattern["id"] == "UNINIT_VAR" and func_name is None:
                     continue
+
+                # 사용 전 안전한 초기화 패턴(`for(var=...)`, `var=...`, `&var`,
+                # INIT2VCHAR/INIT2STR)이 있으면 false positive로 간주하고 건너뛴다.
+                if pattern["id"] == "UNINIT_VAR":
+                    func_end = self._find_function_end(line_num, boundaries)
+                    if func_end is not None and self._is_safely_initialized_before_use(
+                        lines, m.group(1), line_num, func_end,
+                    ):
+                        continue
 
                 findings.append({
                     "pattern_id": pattern["id"],

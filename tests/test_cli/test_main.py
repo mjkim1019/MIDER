@@ -12,6 +12,8 @@ from mider.main import (
     EXIT_FILE_ERROR,
     EXIT_LLM_ERROR,
     EXIT_OK,
+    MAX_FILES_PER_RUN,
+    _run_once,
     build_parser,
     determine_exit_code,
     get_base_dir,
@@ -513,6 +515,69 @@ class TestPrintSummary:
         calls_str = str(console.print.call_args_list)
         assert "위험" in calls_str
 
+    def test_per_file_deployment_displayed(self):
+        """다중 파일 분석 시 파일별 배포 판정도 함께 출력."""
+        console = MagicMock()
+        summary = {
+            "issue_summary": {
+                "by_severity": {"critical": 1, "high": 1, "medium": 0, "low": 0},
+            },
+            "risk_assessment": {
+                "deployment_risk": "CRITICAL",
+                "deployment_allowed": False,
+                "blocking_issues": ["C-001"],
+                "by_file": [
+                    {
+                        "file": "/app/a.c",
+                        "deployment_risk": "CRITICAL",
+                        "deployment_allowed": False,
+                        "critical_count": 1,
+                        "high_count": 0,
+                        "medium_count": 0,
+                        "blocking_issues": ["C-001"],
+                    },
+                    {
+                        "file": "/app/b.c",
+                        "deployment_risk": "MEDIUM",
+                        "deployment_allowed": True,
+                        "critical_count": 0,
+                        "high_count": 1,
+                        "medium_count": 0,
+                        "blocking_issues": [],
+                    },
+                ],
+            },
+        }
+        print_summary(console, summary, "./output", ["/app/a.c", "/app/b.c"])
+        calls_str = str(console.print.call_args_list)
+        # 전체 + 파일별 라벨 둘 다 노출
+        assert "전체" in calls_str
+        assert "파일별" in calls_str
+        # 두 파일 경로 모두 표시
+        assert "/app/a.c" in calls_str
+        assert "/app/b.c" in calls_str
+        # CRITICAL/MEDIUM 표기 모두 노출
+        assert "CRITICAL" in calls_str
+        assert "MEDIUM" in calls_str
+
+    def test_no_per_file_section_when_single_file(self):
+        """파일별 risk 데이터가 비어있으면 파일별 섹션 미출력."""
+        console = MagicMock()
+        summary = {
+            "issue_summary": {
+                "by_severity": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            },
+            "risk_assessment": {
+                "deployment_risk": "LOW",
+                "deployment_allowed": True,
+                "blocking_issues": [],
+                "by_file": [],
+            },
+        }
+        print_summary(console, summary, "./output", ["/app/x.c"])
+        calls_str = str(console.print.call_args_list)
+        assert "파일별" not in calls_str
+
 
 # ──────────────────────────────────────────────
 # run_analysis
@@ -813,3 +878,68 @@ class TestResolveInputFilesRglob:
         f.write_text("int ok;")
         result = resolve_input_files(tmp_path, ["found.c", "missing.c"])
         assert result == [str(f.resolve())]
+
+class TestMaxFilesPerRunLimit:
+    """1회 분석 파일 수 제한 (MAX_FILES_PER_RUN)."""
+
+    def test_constant_is_20(self):
+        """기본 한도는 20."""
+        assert MAX_FILES_PER_RUN == 20
+
+    def test_run_once_blocks_when_exceeds_limit(self, tmp_path: Path):
+        """21개 파일 입력 시 EXIT_FILE_ERROR 반환, 분석 미실행."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        files = []
+        for i in range(MAX_FILES_PER_RUN + 1):
+            f = input_dir / f"f{i:03d}.c"
+            f.write_text("int x;")
+            files.append(f"f{i:03d}.c")
+
+        console = MagicMock()
+        with patch("mider.main.asyncio.run") as mock_run:
+            exit_code = _run_once(
+                file_args=files,
+                base_dir=tmp_path,
+                output_dir=str(tmp_path),
+                model="gpt-4o",
+                console=console,
+                explain_plan=None,
+                verbose=False,
+                is_interactive=False,
+            )
+        assert exit_code == EXIT_FILE_ERROR
+        # 한도 초과 시 분석은 실행되지 않아야 한다
+        mock_run.assert_not_called()
+        # 사용자에게 안내 메시지를 출력한다
+        printed = " ".join(
+            str(c.args[0]) for c in console.print.call_args_list
+            if c.args
+        )
+        assert "20" in printed or "21" in printed
+
+    def test_run_once_allows_exactly_limit(self, tmp_path: Path):
+        """정확히 20개는 통과 (한도 = 허용 최대치)."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        files = []
+        for i in range(MAX_FILES_PER_RUN):
+            f = input_dir / f"f{i:03d}.c"
+            f.write_text("int x;")
+            files.append(f"f{i:03d}.c")
+
+        console = MagicMock()
+        # asyncio.run을 EXIT_OK 반환으로 mock — limit 통과 확인용
+        with patch("mider.main.asyncio.run", return_value=EXIT_OK) as mock_run:
+            exit_code = _run_once(
+                file_args=files,
+                base_dir=tmp_path,
+                output_dir=str(tmp_path),
+                model="gpt-4o",
+                console=console,
+                explain_plan=None,
+                verbose=False,
+                is_interactive=False,
+            )
+        assert exit_code == EXIT_OK
+        mock_run.assert_called_once()

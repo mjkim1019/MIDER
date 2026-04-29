@@ -67,6 +67,103 @@ class TestCHeuristicScanner:
         uninit = [f for f in result.data["findings"] if f["pattern_id"] == "UNINIT_VAR"]
         assert uninit == []
 
+    def test_for_init_assignment_recognized(self, tmp_path):
+        """`for (var = ...)` 패턴은 안전한 초기화로 인정."""
+        f = tmp_path / "forinit.c"
+        f.write_text(
+            "void f() {\n"
+            "    long i;\n"
+            "    for (i = 0; i < 10; i++) {\n"
+            "        printf(\"%ld\\n\", i);\n"
+            "    }\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        uninit = [f for f in result.data["findings"] if f["pattern_id"] == "UNINIT_VAR"]
+        assert uninit == []
+
+    def test_separate_assignment_recognized(self, tmp_path):
+        """선언 후 별도 라인에서 할당하는 ProFrame 표준 스타일."""
+        f = tmp_path / "sep.c"
+        f.write_text(
+            "void f() {\n"
+            "    long total;\n"
+            "    total = 0;\n"
+            "    total += compute();\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        uninit = [f for f in result.data["findings"] if f["pattern_id"] == "UNINIT_VAR"]
+        assert uninit == []
+
+    def test_init2vchar_macro_recognized(self, tmp_path):
+        """ProFrame INIT2VCHAR/INIT2STR 매크로는 안전 초기화."""
+        f = tmp_path / "init2vchar.c"
+        f.write_text(
+            "void f() {\n"
+            "    long buf;\n"
+            "    INIT2VCHAR(buf);\n"
+            "    process(buf);\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        uninit = [f for f in result.data["findings"] if f["pattern_id"] == "UNINIT_VAR"]
+        assert uninit == []
+
+    def test_address_pass_recognized(self, tmp_path):
+        """`&var` 주소 전달 (memset/scanf/fread)은 안전 초기화."""
+        f = tmp_path / "addr.c"
+        f.write_text(
+            "void f() {\n"
+            "    long buf;\n"
+            "    memset(&buf, 0, sizeof(buf));\n"
+            "    process(buf);\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        uninit = [f for f in result.data["findings"] if f["pattern_id"] == "UNINIT_VAR"]
+        assert uninit == []
+
+    def test_unused_var_not_flagged(self, tmp_path):
+        """함수 끝까지 사용 안 한 변수는 issue 아님."""
+        f = tmp_path / "unused.c"
+        f.write_text(
+            "void f() {\n"
+            "    long unused_var;\n"
+            "    return;\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        uninit = [f for f in result.data["findings"] if f["pattern_id"] == "UNINIT_VAR"]
+        assert uninit == []
+
+    def test_use_before_assignment_still_detected(self, tmp_path):
+        """사용 전에 할당 없으면 정탐 보존."""
+        f = tmp_path / "real_uninit.c"
+        f.write_text(
+            "void f() {\n"
+            "    long count;\n"
+            "    long total = count + 1;\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        uninit = [f for f in result.data["findings"] if f["pattern_id"] == "UNINIT_VAR"]
+        assert len(uninit) == 1
+        assert uninit[0]["match"] == "    long count;"
+
+    def test_compound_assignment_does_not_count_as_init(self, tmp_path):
+        """`+=` compound는 prior value 의존 — init으로 인정 안 함."""
+        f = tmp_path / "compound.c"
+        f.write_text(
+            "void f() {\n"
+            "    long counter;\n"
+            "    counter += 1;\n"
+            "}\n"
+        )
+        result = self.scanner.execute(file=str(f))
+        uninit = [f for f in result.data["findings"] if f["pattern_id"] == "UNINIT_VAR"]
+        assert len(uninit) == 1
+
     # ── UNSAFE_FUNC 패턴 ─────────────────────────
 
     def test_unsafe_func_detected(self, tmp_path):
@@ -175,15 +272,17 @@ class TestCHeuristicScanner:
     # ── 함수 매핑 ────────────────────────────────
 
     def test_function_mapping(self, tmp_path):
-        """패턴이 올바른 함수에 매핑됨."""
+        """패턴이 올바른 함수에 매핑됨 (사용 전 미할당 → 정탐 보존)."""
         f = tmp_path / "multi.c"
         f.write_text(
             "void func_a() {\n"
             "    int a;\n"
+            "    process(a);\n"  # a를 초기화 없이 사용
             "}\n"
             "\n"
             "void func_b() {\n"
             "    int b;\n"
+            "    handle(b);\n"  # b를 초기화 없이 사용
             "}\n"
         )
         result = self.scanner.execute(file=str(f))
@@ -209,14 +308,14 @@ class TestCHeuristicScanner:
     # ── 2줄 함수 선언 ───────────────────────────
 
     def test_two_line_func_declaration(self, tmp_path):
-        """반환형과 함수명이 다른 줄에 있는 경우."""
+        """반환형과 함수명이 다른 줄에 있는 경우 (사용 전 미할당 → 정탐)."""
         f = tmp_path / "twoline.c"
         f.write_text(
             "static long\n"
             "my_function(int *ctx)\n"
             "{\n"
             "    long count;\n"
-            "    return 0;\n"
+            "    return count + 1;\n"  # 초기화 없이 count 사용
             "}\n"
         )
         result = self.scanner.execute(file=str(f))

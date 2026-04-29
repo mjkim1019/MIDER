@@ -148,8 +148,8 @@ def _build_summary_section(summary: dict[str, Any]) -> str:
         f"| High | {high} |",
         f"| Medium | {medium} |",
         f"| Low | {low} |",
-        f"| 배포 위험도 | {risk_label} |",
-        f"| 배포 가능 여부 | {allowed_text} |",
+        f"| 배포 위험도 (전체) | {risk_label} |",
+        f"| 배포 가능 여부 (전체) | {allowed_text} |",
         f"| 분석 시간 | {_format_duration(duration)} |",
         f"| LLM 토큰 | {tokens:,} |",
         "",
@@ -158,6 +158,30 @@ def _build_summary_section(summary: dict[str, Any]) -> str:
     risk_desc = risk.get("risk_description", "")
     if risk_desc:
         lines.append(f"> {risk_desc}")
+        lines.append("")
+
+    # 파일별 배포 판정 (다중 파일 분석 시)
+    by_file_risk = risk.get("by_file") or []
+    if by_file_risk:
+        lines.append("### 파일별 배포 판정")
+        lines.append("")
+        lines.append(
+            "| 파일 | Critical | High | Medium | 배포 위험도 | 배포 |"
+        )
+        lines.append("|------|---------|------|--------|-----------|-----|")
+        for item in by_file_risk:
+            fpath = item.get("file", "")
+            file_risk = item.get("deployment_risk", "")
+            file_allowed = item.get("deployment_allowed", False)
+            crit_n = item.get("critical_count", 0)
+            high_n = item.get("high_count", 0)
+            med_n = item.get("medium_count", 0)
+            risk_kr = _RISK_KR.get(file_risk, file_risk)
+            allowed_kr = "가능" if file_allowed else "불가"
+            lines.append(
+                f"| `{_escape_table_cell(fpath)}` | {crit_n} | {high_n} | "
+                f"{med_n} | {risk_kr} | {allowed_kr} |"
+            )
         lines.append("")
 
     # 카테고리별 통계

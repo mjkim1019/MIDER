@@ -92,19 +92,42 @@ class IssueSummary(BaseModel):
     )
 
 
-class RiskAssessment(BaseModel):
-    """배포 위험도 평가."""
+class FileRiskAssessment(BaseModel):
+    """파일별 배포 위험도 평가 (RiskAssessment.by_file 항목)."""
 
+    file: str = Field(description="파일 경로")
     deployment_risk: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNABLE_TO_ANALYZE"] = Field(
-        description="배포 위험 등급"
+        description="이 파일 단독 기준 배포 위험 등급"
     )
     deployment_allowed: bool = Field(
-        description="critical == 0 and high < 3이면 True"
+        description="이 파일 기준 배포 가능 여부 (critical==0이면 True)"
+    )
+    critical_count: int = Field(default=0, description="CRITICAL 이슈 수")
+    high_count: int = Field(default=0, description="HIGH 이슈 수")
+    medium_count: int = Field(default=0, description="MEDIUM 이슈 수")
+    blocking_issues: List[str] = Field(
+        default_factory=list,
+        description="이 파일에서 배포 차단을 유발한 issue_id 목록",
+    )
+
+
+class RiskAssessment(BaseModel):
+    """배포 위험도 평가 (전체 + 파일별)."""
+
+    deployment_risk: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNABLE_TO_ANALYZE"] = Field(
+        description="전체(모든 파일 통합) 배포 위험 등급"
+    )
+    deployment_allowed: bool = Field(
+        description="전체 기준 배포 가능 여부"
     )
     blocking_issues: List[str] = Field(
-        description="배포 차단 issue_id 목록 (critical + high)"
+        description="전체 기준 배포 차단 issue_id 목록"
     )
     risk_description: str = Field(description="한국어 위험 설명")
+    by_file: List[FileRiskAssessment] = Field(
+        default_factory=list,
+        description="파일별 개별 배포 판정 (다중 파일 분석 시)",
+    )
 
 
 class DeploymentChecklistItem(BaseModel):
