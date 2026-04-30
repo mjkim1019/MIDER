@@ -732,6 +732,8 @@ def _check_sso_session(console: Console) -> None:
             sys.exit(0)
         if user_input.lower() in ("exit", "quit", "q"):
             sys.exit(0)
+        if user_input.lower() == "/version":
+            console.print(f"Mider v{__version__}")
 
 
 def _print_input_help() -> None:
@@ -739,7 +741,7 @@ def _print_input_help() -> None:
     print("\n[도움말]")
     print("  소스파일명을 입력하세요 (지원: .xml, .c, .h, .pc, .sql, .js)")
     print("  여러 파일: 쉼표로 구분 (예: file1.c, file2.xml)")
-    print("  명령어: login (SSO 재로그인) | exit (종료) | help (도움말)")
+    print("  명령어: login (SSO 재로그인) | exit (종료) | help (도움말) | /version (버전)")
     print()
 
 
@@ -788,6 +790,10 @@ def prompt_for_files(console: Console, *, is_repeat: bool = False) -> list[str] 
             _print_input_help()
             continue
 
+        if user_input.lower() == "/version":
+            console.print(f"Mider v{__version__}")
+            continue
+
         if user_input.lower() == "log_on":
             from mider.config.debug_logger import enable as _enable_debug
             log_dir = _enable_debug(get_base_dir())
@@ -800,18 +806,22 @@ def prompt_for_files(console: Console, *, is_repeat: bool = False) -> list[str] 
             console.print("[yellow]디버그 로그 비활성화[/]")
             continue
 
-        # hidden: "alswn chlrh" — verbose error 모드 토글 (API 오류 시 전체 traceback 출력)
+        # hidden: "alswn chlrh" — 디버깅 모드 토글 (verbose error + 파일 로그 동시 ON/OFF)
         if " ".join(user_input.lower().split()) == "alswn chlrh":
             from mider.config.debug_logger import (
+                disable as _disable_debug,
                 disable_verbose_errors,
+                enable as _enable_debug,
                 enable_verbose_errors,
                 is_verbose_errors,
             )
             if is_verbose_errors():
                 disable_verbose_errors()
+                _disable_debug()
                 console.print(rainbow_text("디버깅 모드 종료"))
             else:
                 enable_verbose_errors()
+                _enable_debug(get_base_dir())
                 console.print(rainbow_text("디버깅 모드 시작"))
             continue
 

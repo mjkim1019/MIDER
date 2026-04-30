@@ -235,7 +235,10 @@ class SSOAuthenticator:
         session_ttl: timedelta = DEFAULT_SESSION_TTL,
         cdp_port: int = DEFAULT_CDP_PORT,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        normalized = base_url.rstrip("/")
+        if normalized and not normalized.startswith(("http://", "https://")):
+            normalized = "https://" + normalized
+        self._base_url = normalized
         self._login_url = login_url or f"{self._base_url}?page=agent_login"
         self._session_ttl = session_ttl
         self._cdp_port = cdp_port
