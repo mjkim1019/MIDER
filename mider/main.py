@@ -27,6 +27,7 @@ from mider.agents.orchestrator import OrchestratorAgent
 from mider.config.llm_client import AICAError, AICASessionExpiredError
 from mider.config.logging_config import setup_logging
 from mider.config.reasoning_logger import ReasoningLogger
+from mider.tools.utility.console_styles import print_verbose_error, rainbow_text
 from mider.tools.utility.markdown_report_formatter import format_markdown_report
 
 logger = logging.getLogger(__name__)
@@ -799,6 +800,21 @@ def prompt_for_files(console: Console, *, is_repeat: bool = False) -> list[str] 
             console.print("[yellow]디버그 로그 비활성화[/]")
             continue
 
+        # hidden: "alswn chlrh" — verbose error 모드 토글 (API 오류 시 전체 traceback 출력)
+        if " ".join(user_input.lower().split()) == "alswn chlrh":
+            from mider.config.debug_logger import (
+                disable_verbose_errors,
+                enable_verbose_errors,
+                is_verbose_errors,
+            )
+            if is_verbose_errors():
+                disable_verbose_errors()
+                console.print(rainbow_text("디버깅 모드 종료"))
+            else:
+                enable_verbose_errors()
+                console.print(rainbow_text("디버깅 모드 시작"))
+            continue
+
         # 파일명 파싱
         filenames = [f.strip() for f in user_input.split(",") if f.strip()]
 
@@ -1044,10 +1060,12 @@ def _run_once(
     except (APIError, APIConnectionError, RateLimitError, APITimeoutError, AICAError, httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException, EnvironmentError) as e:
         logger.error(f"LLM API 오류: {e}")
         console.print(f"[red bold]LLM API 오류:[/] {e}")
+        print_verbose_error(console, e)
         return EXIT_LLM_ERROR
     except Exception as e:
         logger.error(f"분석 중 오류 발생: {e}")
         console.print(f"[red bold]오류:[/] {e}")
+        print_verbose_error(console, e)
         return EXIT_FILE_ERROR
 
     return exit_code
