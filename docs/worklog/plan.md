@@ -336,14 +336,35 @@ T64 (외부 경로)
 
 ### 배경
 
-현재 Mider는 LLM에게 "버그 찾아줘"라고 하면 LLM이 "개선 가능한 모든 것"으로 해석 → `medium/low severity`가 개선 제안으로 오염되어 진짜 오류를 파묻음.
+현재 Mider는 LLM에게 "버그 찾아줘"라고 하면 LLM이 "개선 가능한 모든 것"으로 해석 → LLM이 medium severity로 매긴 항목들이 개선 제안으로 오염되어 진짜 오류를 파묻음.
+
+**원칙: medium severity 자체는 제거하지 않는다.**
+Scanner 출처 medium에는 반드시 보고해야 할 보안/정합성 이슈가 포함됨:
+- `pid_scanner`: 하드코딩된 비밀번호/주민번호/계좌번호/카드번호
+- `secret_scanner`: API 키, 토큰 누출
+- `embedded_sql_analyzer`: SQL 인젝션 패턴 (Pro*C `EXEC SQL`)
+- `proc_cross_checker`: EXEC SQL 변수 미선언/타입 불일치
+- `explain_plan_parser`: 풀스캔/카테시안 곱
+
+노이즈의 본질은 severity 값이 아니라 **issue type 구분 부재**임. severity는 영향도(직교 축)로 계속 활용한다.
 
 두 개의 독립 문제:
 
-1. **Issue type 혼동**: 개선사항(strcpy→strlcpy 권장, 매직 넘버, 함수 길이)이 "오류"로 분류됨
+1. **Issue type 혼동**: 개선사항(strcpy→strlcpy 권장, 매직 넘버, 함수 길이)이 "오류"로 분류됨 — 주로 LLM 출처
 2. **OOB 오탐**: LLM이 헤더 정보 없이 "아마 OOB 가능성"으로 안전빵 보고. 근본 원인은 LLM 억측이 아니라 **분석 컨텍스트의 정보 부족** — 헤더 파일 없으면 buffer size 상수/구조체 크기 판단 불가
 
 ### Task 목록
+
+#### T72.0: 단기 우회 — LLM 출처 medium suggestion 필터 — P0 (즉시)
+
+**T72 본 작업이 끝날 때까지 사용자 노출되는 LLM medium suggestion 폭주를 일단 막는다.**
+
+- 대상: `source=="llm"` AND `severity=="medium"` 이슈 (scanner 출처는 그대로 보존)
+- 위치: `agents/reporter.py` primary 출력 + 터미널 요약 (markdown_report_formatter도 동일)
+- 구현 핵심: 한 줄 필터 (`if issue.source == "llm" and issue.severity == "medium": skip`)
+- JSON 보고서에는 그대로 남김 (감사 추적/디버깅용)
+- 회귀 방지: scanner 출처 medium(PID/SECRET/SQL/explain plan)이 모두 보존되는지 단위 테스트 추가
+- **T72 본 작업 완료 시 이 임시 필터는 제거** — issue_type 필드로 대체 (TODO 주석 명시)
 
 #### T72: 이슈 타입 분류 강화 — P0 (T65와 동시 진행)
 

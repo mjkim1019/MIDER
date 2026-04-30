@@ -456,6 +456,17 @@
 
 **배경**: Mider가 "개선사항"(strcpy→strlcpy 권장, 매직 넘버 등)을 "오류"로 보고하여 진짜 오류가 파묻힘. OOB는 헤더 정보 부족으로 LLM이 추측성 오탐.
 
+**원칙**: medium severity 자체는 제거하지 않음 — scanner 출처 medium에 보안/SQL 진짜 이슈가 다수 포함. 단기는 LLM 출처 medium만 필터(T72.0), 중기는 issue_type 도입(T72)으로 정공법.
+
+### T72.0: 단기 우회 — LLM 출처 medium suggestion 필터 — P0 (즉시)
+
+- [ ] T72.0.1: reporter.py primary/터미널 출력에서 `source=='llm' AND severity=='medium'` 이슈 제외
+- [ ] T72.0.2: markdown_report_formatter.py도 동일 필터 적용
+- [ ] T72.0.3: JSON 보고서는 그대로 보존 (감사 추적)
+- [ ] T72.0.4: 단위 테스트 — scanner medium(PID/SECRET/SQL/explain) 보존 + LLM medium 제외
+- [ ] T72.0.5: 실측 (보고 이슈 수 before/after)
+- [ ] T72 본 작업 완료 시 제거 (TODO 주석 명시)
+
 ### T72: 이슈 타입 분류 강화 — P0 (T65와 동시 진행)
 
 - [ ] T72.1: AnalysisResult.Issue 스키마에 `issue_type` 필드 추가 (error|suggestion|info)
