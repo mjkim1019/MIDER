@@ -18,10 +18,30 @@ _log_dir: Path | None = None
 _current_fh: logging.FileHandler | None = None
 _file_logger: logging.Logger = logging.getLogger("mider.debug_file")
 
+# verbose error 모드: API/일반 예외 발생 시 traceback과 response body까지 터미널에 출력
+_verbose_errors: bool = False
+
 
 def is_enabled() -> bool:
     """디버그 로깅이 활성화되어 있는지 반환한다."""
     return _enabled
+
+
+def is_verbose_errors() -> bool:
+    """verbose error 모드 활성화 여부."""
+    return _verbose_errors
+
+
+def enable_verbose_errors() -> None:
+    """verbose error 모드를 켠다 — API 예외 발생 시 전체 오류 로그 출력."""
+    global _verbose_errors
+    _verbose_errors = True
+
+
+def disable_verbose_errors() -> None:
+    """verbose error 모드를 끈다."""
+    global _verbose_errors
+    _verbose_errors = False
 
 
 def enable(base_dir: Path) -> Path:
